@@ -1,0 +1,13 @@
+{
+  "name": "@syncsound/sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
+  "dependencies": {
+    "@syncsound/audio-core": "workspace:*",
+    "@syncsound/protocol": "workspace:*",
+    "node-web-audio-api": "^2.2.0"
+  }
+}
