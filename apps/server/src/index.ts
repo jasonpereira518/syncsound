@@ -207,7 +207,7 @@ export async function startServer(
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const srv = await startServer({ port: Number(process.env.PORT ?? SERVER_PORT_DEFAULT) });
+  const srv = await startServer({ port: Number(process.env.PORT ?? process.env.SERVER_PORT ?? SERVER_PORT_DEFAULT) });
   console.log(`[server] listening on :${srv.port}`);
   let closing = false;
   const shutdown = (sig: string) => {

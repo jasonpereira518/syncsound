@@ -12,7 +12,7 @@ Open the web URL, **Create a room**, then open the join link in another tab/brow
 **Join the speaker array**. Queue a demo track (click track, 5.1 test, synth groove) and press play. Drag the
 sound objects around the **Stage**.
 
-> Port 3000 busy? `WEB_PORT=3200 pnpm dev`. Phones on your LAN: open `http://<your-LAN-IP>:3000`. Playback works
+> Ports busy? `SERVER_PORT=8788 WEB_PORT=3200 pnpm dev` (the web app follows `SERVER_PORT` automatically). Phones on your LAN: open `http://<your-LAN-IP>:3000`. Playback works
 > over plain HTTP; **calibration (mic) and tab capture need HTTPS** (see [docs/DEPLOY.md](docs/DEPLOY.md)).
 
 ## Features
@@ -94,7 +94,7 @@ to ±0.01 ms, and 0.11 ms predicted heard-instant spread across real browser con
 
 | Command | What |
 |---|---|
-| `pnpm dev` | server :8787 + web :3000 (`WEB_PORT` to change) |
+| `pnpm dev` | server :8787 + web :3000 (`SERVER_PORT` / `WEB_PORT` to change) |
 | `pnpm demo` | generate demo WAVs (click track, sweep, stereo, 5.1 test, synth groove) |
 | `pnpm test` | unit tests (vitest) |
 | `pnpm sim` | headless simulator suite (clock, drift, render alignment, calibration, remote sync) |

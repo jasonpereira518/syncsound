@@ -22,7 +22,7 @@ docs/                PLAN, PROGRESS (resume point), DECISIONS, LIMITATIONS, HUMA
 ```
 pnpm install
 pnpm demo        # generate demo WAVs into apps/server/data/demo
-pnpm dev         # server :8787 + web :3000
+pnpm dev         # server :8787 + web :3000 (SERVER_PORT=… WEB_PORT=… to move them)
 pnpm test        # vitest unit tests (all packages)
 pnpm sim         # headless simulator suite (packages/sim)
 pnpm e2e         # Playwright (builds web, starts server)
