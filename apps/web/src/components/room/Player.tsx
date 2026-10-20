@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { MAX_UPLOAD_BYTES, type Track, type TrackKind } from '@syncsound/protocol';
 import { positionAt } from '@syncsound/audio-core';
-import { appleConfigured, spotifyConfigured } from '@/lib/config';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, Icon, IconButton, Panel, RangeField, Tabs, Toggle, fmtMs, fmtTime, inputClass, tabPanelProps, type IconName, type TabDef } from '../ui';
 import { act, attempt, currentTrack, errMsg, roomNowMs, useCanControl } from './shared';
@@ -396,12 +395,14 @@ function normalizeRemote(kind: 'spotify' | 'apple', raw: string): string | null 
 function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
   const status = useRoomStore((s) => s.remote[kind]);
   const message = useRoomStore((s) => s.remote.message);
+  const remote = useRoomStore((s) => s.remote);
   const devices = useRoomStore((s) => s.room?.devices);
   const [id, setId] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const meta = REMOTE[kind];
 
-  if (status === 'unconfigured' || !(kind === 'spotify' ? spotifyConfigured : appleConfigured)) {
+  // the engine reports 'unconfigured' when neither credentials nor the mock adapter (?mockRemote=1) are available
+  if (status === 'unconfigured') {
     return (
       <div className="rounded-xl border border-ink-600 bg-ink-850 p-4 text-sm">
         <p className="font-medium text-ink-100">Not configured</p>
@@ -448,6 +449,13 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
       )}
       {status === 'needs-premium' && <p className="text-warn">This account can&rsquo;t use the web player. A Premium / paid subscription is required.</p>}
       {message && <p className="text-ink-400">{message}</p>}
+      {remote.meanAbsErrorMs !== null && (
+        <p data-testid="remote-sync-stats" className="rounded-lg border border-ink-700 bg-ink-850/60 px-3 py-2 text-ink-300">
+          Measured sync on this device: <span className="font-mono text-ink-100">{remote.errorMs ?? '—'} ms</span> now,{' '}
+          <span className="font-mono text-ink-100">{remote.meanAbsErrorMs} ms</span> mean |error|, {remote.seeks} corrective seek
+          {remote.seeks === 1 ? '' : 's'}. Sync-only sources typically land within 20–150 ms (rendered sources: under 10 ms).
+        </p>
+      )}
       <form onSubmit={queue} className="flex gap-2" noValidate>
         <label htmlFor={`remote-${kind}`} className="sr-only">{meta.name} track</label>
         <input id={`remote-${kind}`} placeholder={meta.placeholder} value={id} onChange={(e) => setId(e.target.value)} className={inputClass} />
@@ -459,7 +467,10 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
           {devices.map((d) => (
             <li key={d.id} className="flex items-center justify-between gap-2 px-3 py-2">
               <span className="truncate">{d.name}</span>
-              <Badge tone={d.remote[kind] === 'ready' ? 'ok' : 'neutral'}>{d.remote[kind]}</Badge>
+              <span className="flex items-center gap-2">
+                {d.stats?.remoteErrorMs != null && <span className="font-mono text-xs text-ink-300 tabular">{Math.round(d.stats.remoteErrorMs)} ms</span>}
+                <Badge tone={d.remote[kind] === 'ready' ? 'ok' : 'neutral'}>{d.remote[kind]}</Badge>
+              </span>
             </li>
           ))}
         </ul>
