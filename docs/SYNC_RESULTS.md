@@ -88,7 +88,7 @@ heard) can be compared directly. This checks the whole scheduling pipeline in re
 
 | Scenario | Spread across devices |
 |---|---|
-| 3 contexts, play | **0.11 ms** |
+| 3 contexts, play | **0.11 ms** (0.02–0.25 ms across runs, incl. fresh-clone verify) |
 | Seek to 20 s while playing | 0.11 ms |
 | Late joiner (4th context) | 0.11 ms |
 | 5.1 upload, 2 contexts | < 10 ms (asserted) |

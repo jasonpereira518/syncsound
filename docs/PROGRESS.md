@@ -9,5 +9,5 @@
 - [x] M5 – Device ID + auto-EQ (chirp-ID mapping, sweep, EQ fit, loudness, A/B)
 - [x] M6 – Video mode (tab capture + WebRTC, local-file video, YouTube, DRM-silence detection)
 - [x] M7 – Spotify / Apple Music sync-only (adapters, mock, seek sync w/ hysteresis, labeling)
-- [ ] M8 – Polish & deploy (PWA, a11y, error states, docs, Docker, CI, deploy guide)
-- [ ] Final: fresh-clone `pnpm verify`, self-review, SYNC_RESULTS, HUMAN_TEST_CHECKLIST
+- [x] M8 – Polish & deploy (PWA, a11y, error states, docs, Docker, CI, deploy guide)
+- [x] Final: fresh-clone `pnpm verify`, self-review, SYNC_RESULTS, HUMAN_TEST_CHECKLIST
