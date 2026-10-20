@@ -6,7 +6,7 @@
 - [x] M2 – Synchronized file playback (upload, pre-buffer, schedule, pause/seek, late join, drift correction)
 - [x] M3 – Latency calibration (auto estimate, manual offset, chirp calibration, propagation alignment)
 - [x] M4 – Spatial engine + stage UI (objects, DBAP, smooth drag, presets, bass management, undo/redo)
-- [ ] M5 – Device ID + auto-EQ (chirp-ID mapping, sweep, EQ fit, loudness, A/B)
+- [x] M5 – Device ID + auto-EQ (chirp-ID mapping, sweep, EQ fit, loudness, A/B)
 - [ ] M6 – Video mode (tab capture + WebRTC, local-file video, YouTube, DRM-silence detection)
 - [ ] M7 – Spotify / Apple Music sync-only (adapters, mock, seek sync w/ hysteresis, labeling)
 - [ ] M8 – Polish & deploy (PWA, a11y, error states, docs, Docker, CI, deploy guide)
