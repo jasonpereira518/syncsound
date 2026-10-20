@@ -1,0 +1,160 @@
+/**
+ * Contract between the client engine (src/lib, src/store) and the UI (src/app, src/components).
+ * UI reads state via `useRoomStore(selector)` and calls `roomActions.*`.
+ */
+import type {
+  BufferState,
+  ControlCommand,
+  DemoAsset,
+  DevicePatch,
+  RemoteServiceStatus,
+  RoomSettings,
+  RoomState,
+  Scene,
+  SceneUpdate,
+  Track,
+} from '@syncsound/protocol';
+import type { DeviceMix } from '@syncsound/audio-core';
+
+export type ConnStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error';
+
+export interface ClockStats {
+  offsetMs: number;
+  rttMs: number;
+  jitterMs: number;
+  driftPpm: number;
+  samples: number;
+  converged: boolean;
+}
+
+export interface EngineStats {
+  unlocked: boolean;
+  ctxState: 'none' | 'suspended' | 'running' | 'closed' | 'interrupted';
+  sampleRate: number | null;
+  /** browser-reported output latency (baseLatency+outputLatency or outputTimestamp-derived), ms */
+  autoLatencyMs: number | null;
+  /** true when the roomTime→ctx mapping uses getOutputTimestamp (latency already included) */
+  usingOutputTimestamp: boolean;
+  bufferState: BufferState;
+  loadedTrackId: string | null;
+  /** latest |actual − expected| position error, ms */
+  syncErrorMs: number;
+  playbackRate: number;
+  corrections: { rate: number; reschedule: number };
+  /** total start compensation currently applied, ms */
+  compensationMs: number;
+  eqBypassed: boolean;
+  clickTest: boolean;
+  wakeLock: boolean;
+}
+
+export type CalibrationStep = 'idle' | 'place' | 'mic' | 'recording' | 'analyzing' | 'done' | 'error';
+
+export interface CalibrationDeviceUi {
+  deviceId: string;
+  heard: boolean;
+  relativeLatencyMs: number | null;
+  snrDb: number | null;
+  levelDb: number | null;
+  rolloffHz: number | null;
+  /** response curves for plotting (shared freq grid in CalibrationUi.freqs) */
+  beforeDb: number[] | null;
+  afterDb: number[] | null;
+}
+
+export interface CalibrationUi {
+  /** true when this device is the listening device running the wizard */
+  running: boolean;
+  step: CalibrationStep;
+  progress: number; // 0..1
+  message: string;
+  freqs: number[] | null;
+  targetDb: number[] | null;
+  devices: CalibrationDeviceUi[];
+  warnings: string[];
+  /** a calibration signal is currently being emitted by this device (speaker side) */
+  emitting: boolean;
+}
+
+export interface CaptureUi {
+  /** this device is capturing tab/system audio and sending it */
+  active: boolean;
+  /** this device is receiving a capture stream */
+  receiving: boolean;
+  /** captured stream has been silent for > 3 s (likely DRM) */
+  silent: boolean;
+  error: string | null;
+  peers: number;
+  /** estimated network+jitter-buffer delay of the received stream, ms */
+  pipelineDelayMs: number | null;
+}
+
+export interface RemoteUi {
+  spotify: RemoteServiceStatus;
+  apple: RemoteServiceStatus;
+  /** latest measured position error of the Class B player, ms */
+  errorMs: number | null;
+  meanAbsErrorMs: number | null;
+  seeks: number;
+  message: string | null;
+}
+
+export interface RoomStoreState {
+  conn: ConnStatus;
+  error: string | null;
+  deviceId: string;
+  isHost: boolean;
+  room: RoomState | null;
+  clock: ClockStats | null;
+  engine: EngineStats;
+  calibration: CalibrationUi;
+  capture: CaptureUi;
+  remote: RemoteUi;
+  /** this device's computed mix (gains etc.) */
+  mix: DeviceMix | null;
+  /** device id currently flashing because of an IDENTIFY */
+  identifyFlash: string | null;
+  /** output route changed (devicechange) since last calibration → prompt to recalibrate */
+  routeChanged: boolean;
+  demoAssets: DemoAsset[];
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface RoomActions {
+  /** Connects, JOINs and unlocks audio. MUST be called from a user gesture (click). */
+  join(p: { code: string; name: string; password?: string }): Promise<void>;
+  leave(): void;
+  control(cmd: ControlCommand): void;
+  /** Throttled scene update. `commit: true` (e.g. on drag end / button) records an undo step. */
+  updateScene(patch: Omit<SceneUpdate, 'type'>, opts?: { commit?: boolean }): void;
+  undo(): void;
+  redo(): void;
+  updateDevice(patch: DevicePatch, targetDeviceId?: string): void;
+  updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs'>> & {
+    password?: string | null;
+  }): void;
+  identify(targetDeviceId: string): void;
+  loadDemoAssets(): Promise<void>;
+  queueDemo(asset: DemoAsset): void;
+  uploadFile(file: File): Promise<Track>;
+  queueUrl(url: string, title?: string): Promise<Track>;
+  /** Runs the acoustic calibration wizard with this device as the listener. */
+  startCalibration(): Promise<void>;
+  cancelCalibration(): void;
+  /** Apply class-preset EQ (no-mic fallback) to a device */
+  applyPresetEq(targetDeviceId: string): void;
+  setEqBypass(bypass: boolean): void;
+  setClickTest(on: boolean): void;
+  dismissRouteChange(): void;
+  /** Capture this tab / system audio and send it to every device (video mode 1). */
+  startCapture(): Promise<void>;
+  stopCapture(): void;
+  connectSpotify(): Promise<void>;
+  connectApple(): Promise<void>;
+  queueRemote(kind: 'spotify' | 'apple', remoteId: string, title?: string): void;
+  /** Mode 2: register the <video> element to be driven by the room clock (muted; audio is rendered). */
+  attachVideo(el: HTMLVideoElement | null): void;
+}
+
+export type { Scene };
