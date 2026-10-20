@@ -10,6 +10,28 @@ import { captureDelayMs } from './timing';
 
 const SILENCE_DBFS = -70;
 
+/**
+ * Test mode `?fakeCapture=tone|silent`: stands in for getDisplayMedia so the WebRTC mesh and the DRM-silence
+ * detection can be exercised headlessly (a 440/660 Hz stereo tone, or digital silence like a DRM tab).
+ */
+function fakeCaptureStream(ctx: AudioContext, silent: boolean): MediaStream {
+  const dest = ctx.createMediaStreamDestination();
+  dest.channelCount = 2;
+  if (!silent) {
+    const merger = ctx.createChannelMerger(2);
+    [440, 660].forEach((f, ch) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = f;
+      g.gain.value = 0.2;
+      o.connect(g).connect(merger, 0, ch);
+      o.start();
+    });
+    merger.connect(dest);
+  }
+  return dest.stream;
+}
+
 /** not yet in lib.dom */
 interface CaptureAudioConstraints extends MediaTrackConstraints {
   suppressLocalAudioPlayback?: boolean;
@@ -56,11 +78,12 @@ export class CaptureController {
     if (this.role === 'host') return;
     patch('capture', { error: null, silent: false });
     try {
-      if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("This browser can't capture tab audio. Use desktop Chrome or Edge.");
       if (!this.engine.ctx) throw new Error('Join the speaker array first.');
+      const fake = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('fakeCapture') : null;
+      if (!fake && !navigator.mediaDevices?.getDisplayMedia) throw new Error("This browser can't capture tab audio. Use desktop Chrome or Edge.");
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getDisplayMedia(CAPTURE_OPTIONS);
+        stream = fake ? fakeCaptureStream(this.engine.ctx, fake === 'silent') : await navigator.mediaDevices.getDisplayMedia(CAPTURE_OPTIONS);
       } catch (e) {
         throw new Error(e instanceof DOMException && e.name === 'NotAllowedError' ? 'Capture was cancelled.' : `Couldn't start capture: ${errMsg(e)}`);
       }
