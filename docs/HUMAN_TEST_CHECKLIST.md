@@ -1,3 +1,53 @@
 # Human test checklist
 
-Steps that need real devices, ears, Bluetooth hardware or real streaming accounts. (Filled in at the end of the build.)
+These steps need real devices, ears, Bluetooth hardware or real streaming accounts. The automated suite covers
+everything else. Run over **HTTPS**, or mic/capture won't work. Deploy, or use a tunnel such as
+`cloudflared tunnel --url http://localhost:3000` plus `NEXT_PUBLIC_SERVER_URL` pointing at a tunnelled server.
+
+Record results in the table at the bottom.
+
+1. **Same-Wi-Fi sync, 3 devices.** Two phones and a laptop join one room. Play *Click track 120 BPM*. Expect one
+   fused click, no flamming, and all three rows green in the device list. Then open the debug drawer on each
+   device: offset jitter under 2 ms, sync error under 5 ms. Leave it running 10 min and confirm the corrections
+   counter shows rate nudges, not repeated reschedules.
+2. **Sync-measurement tool.** After step 1, put a fourth phone at the listening position and run
+   *Calibrate → Measure sync → 60 s*. Record the p50/p95 inter-device error and the histogram.
+   Target: p95 < 10 ms.
+3. **Bluetooth speaker latency.** Pair a Bluetooth speaker to one laptop and join. Play the click track: the
+   Bluetooth device should lag audibly (100–300 ms). Run *Calibrate* from a phone at the listening position. The
+   Bluetooth device should get a large `calibrated` badge, the clicks should fuse again, and Measure sync should
+   report < 10 ms for it.
+4. **Manual fine-tune by ear.** Turn on the click test, nudge one device's manual latency ±20 ms and hear the
+   flam; return it to 0 and hear the clicks fuse.
+5. **Chirp-ID mapping.** During calibration each speaker chirps in turn. Use "Identify" on each row and confirm
+   the right physical device beeps and its icon flashes. Mute one device and recalibrate: it must be reported as
+   not heard, with the warning shown.
+6. **EQ A/B listening test.** After calibration, play *Synth groove* and toggle *EQ A/B (bypass)*. With EQ, the
+   phone and the laptop should sound closer in tone. With EQ there must be no distortion or clipping on the
+   phone (limiter plus high-pass active).
+7. **Spatial panning, no clicks.** Place devices with the *Stereo pair* preset and play *Stereo ping-pong*. Drag
+   the L object across the room slowly and quickly. The sound should move between the physical devices with no
+   zipper noise or clicks. Then try *5.1 ring* with *5.1 channel test*; each channel should come from the
+   expected device, and LFE only from bass-capable devices.
+8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open YouTube in the app's YouTube
+   tab and start Capture (share this tab with audio). Every device should play the audio. Use the lip-sync nudge
+   to get perceived lip-sync within ±40 ms, and note the buffer value that gives dropout-free audio.
+9. **DRM detection.** Capture a Netflix/Disney+ tab. The "This tab is silent / DRM" explanation should appear
+   within ~3 s.
+10. **Spotify sync-only, two Premium accounts.** Configure `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`, connect Spotify on
+    two devices, queue a track and play. Both should play in sync within the reported error (expect 20–150 ms).
+    The "Sync-only mode (no spatial/EQ)" badge must show; seek and pause must follow. Also try a free account:
+    it should show `needs-premium`.
+11. **Apple Music.** Configure `NEXT_PUBLIC_APPLE_MUSIC_DEVELOPER_TOKEN`, authorize on two devices with
+    subscriptions, queue a song id and play. Check sync, pause and seek, and that the error appears in the UI.
+12. **iOS Safari background behavior.** Join from an iPhone, play, then lock the screen or switch apps (audio
+    stops; expected iOS behavior). Return to the tab: it must resume on the room timeline within a few seconds,
+    in sync, without a manual reload. Check that Wake Lock keeps the screen on while foregrounded.
+13. **Route change prompt.** Plug headphones or connect Bluetooth mid-session. The "recalibrate" banner should
+    appear.
+14. **Install as PWA** on Android Chrome and iOS Safari (Add to Home Screen). It should launch standalone and
+    join a room.
+
+| # | Date | Devices / browsers | Result / numbers | Notes |
+|---|------|--------------------|------------------|-------|
+|   |      |                    |                  |       |
