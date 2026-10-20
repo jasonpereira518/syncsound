@@ -1,8 +1,8 @@
 # Progress (resume point — continue at the first unchecked item)
 
 - [x] M0 – Scaffold (monorepo, TS strict, ESLint, Prettier, Vitest, Playwright, CI, demo generator, git init)
-- [ ] Contracts (protocol zod schemas, audio-core API) + parallel workstreams integrated
-- [ ] M1 – Rooms + clock sync (create/join, QR, device list, NTP sync, debug panel; sim <10 ms w/ jitter)
+- [x] Contracts (protocol zod schemas, audio-core API) + parallel workstreams integrated
+- [x] M1 – Rooms + clock sync (create/join, QR, device list, NTP sync, debug panel; sim <10 ms w/ jitter)
 - [ ] M2 – Synchronized file playback (upload, pre-buffer, schedule, pause/seek, late join, drift correction)
 - [ ] M3 – Latency calibration (auto estimate, manual offset, chirp calibration, propagation alignment)
 - [ ] M4 – Spatial engine + stage UI (objects, DBAP, smooth drag, presets, bass management, undo/redo)
