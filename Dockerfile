@@ -18,9 +18,10 @@ COPY . .
 
 FROM source AS server
 ENV NODE_ENV=production PORT=8787 DATA_DIR=/data
-VOLUME /data
 EXPOSE 8787
 RUN pnpm demo && mkdir -p /data && cp -r apps/server/data/demo /data/demo
+# declared after populating: build steps that touch a declared VOLUME path are discarded
+VOLUME /data
 CMD ["pnpm", "--filter", "@syncsound/server", "start"]
 
 FROM source AS web-build

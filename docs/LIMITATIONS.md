@@ -31,7 +31,8 @@ An honest list of what is not done, what can't be verified without hardware, and
   Uploads through a real bucket are untested.
 - **Spotify and Apple adapters** are verified only through contract tests against the mock adapter. Real OAuth,
   Premium detection and MusicKit authorization are untested, since no credentials are available here.
-- **Docker images** are built locally. Fly.io/Railway/Vercel deploys are documented but not performed.
+- **Docker images** are built and smoke-tested locally (server health + demo assets, web 200). Fly.io/Railway/Vercel
+  deploys are documented but not performed.
 
 ## Known gaps and simplifications
 
