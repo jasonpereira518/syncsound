@@ -39,9 +39,9 @@ export function autoOnlyCompensationSec(autoLatencyMs: number | null, usingOutpu
   return usingOutputTimestamp ? 0 : (autoLatencyMs ?? 0) / 1000;
 }
 
-/** Track position (s) on the room timeline at roomMs (same semantics as audio-core positionAt). */
+/** Track position (s) on the room timeline at roomMs (same semantics as audio-core positionAt: holds before start). */
 export function roomPosition(pb: Playback, roomMs: number): number {
-  return pb.status === 'playing' ? pb.trackOffset + (roomMs - pb.startRoomTime) / 1000 : pb.trackOffset;
+  return pb.status === 'playing' ? pb.trackOffset + Math.max(0, roomMs - pb.startRoomTime) / 1000 : pb.trackOffset;
 }
 
 /** Track position the sample rendered at ctx time `ctxSec` should carry. */
@@ -91,4 +91,15 @@ export function videoCorrection(diffSec: number): { seek: boolean; rate: number 
   if (a > 0.12) return { seek: true, rate: 1 };
   if (a > 0.02) return { seek: false, rate: diffSec > 0 ? 0.95 : 1.05 };
   return { seek: false, rate: 1 };
+}
+
+/**
+ * Snap a start to the sample grid. Chromium interpolates AudioBufferSourceNode playback linearly when
+ * start(when, offset) is fractional-sample, which low-passes the signal (≈ −2.4 dB at 11 kHz for half a sample).
+ * `when` and `offset` move together, so the timeline is kept (residual ≤ half a sample ≈ 10 µs).
+ */
+export function snapToSampleGrid(when: number, offset: number, sampleRate: number): { when: number; offset: number } {
+  const w = Math.round(when * sampleRate) / sampleRate;
+  const o = Math.max(0, Math.round((offset + (w - when)) * sampleRate) / sampleRate);
+  return { when: w, offset: o };
 }

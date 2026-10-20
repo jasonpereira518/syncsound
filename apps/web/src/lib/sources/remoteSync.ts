@@ -24,6 +24,7 @@ export class RemoteSyncManager {
   private timer: ReturnType<typeof setInterval>;
   private startTimer: ReturnType<typeof setTimeout> | null = null;
   private seekPending = false;
+  private ticking = false;
   private busy = false;
   private dirty = false;
   private lastVolume = -1;
@@ -165,7 +166,8 @@ export class RemoteSyncManager {
     const pb = useRoomStore.getState().room?.playback;
     if (!act || !act.playingKey || !pb || pb.status !== 'playing') return;
     const startNow = this.deps.nowRoom();
-    if (startNow === null || startNow < pb.startRoomTime + 1000) return;
+    if (startNow === null || startNow < pb.startRoomTime + 1000 || this.ticking) return;
+    this.ticking = true; // never overlap: the first reading after a seek resolves feeds recordSeekResult
     try {
       const pos = await act.adapter.getPosition();
       const nowLocal = performance.now();
@@ -174,18 +176,20 @@ export class RemoteSyncManager {
       const reported = extrapolate(pos, nowLocal);
       const expected = roomPosition(pb, nowRoom) * 1000;
       if (this.seekPending) {
-        this.ctrl.recordSeekResult(expected - reported);
+        this.ctrl.recordSeekResult(expected - reported); // +ve = player behind
         this.seekPending = false;
       }
       const dec = this.ctrl.update({ expectedPositionMs: expected, reportedPositionMs: reported, nowMs: nowLocal });
       if (dec.action === 'seek' && dec.seekToMs !== undefined) {
-        this.seekPending = true;
         await act.adapter.seek(dec.seekToMs);
+        this.seekPending = true;
       }
       const s = this.ctrl.stats();
       patch('remote', { errorMs: Math.round(dec.errorMs), meanAbsErrorMs: Math.round(s.meanAbsErrorMs), seeks: s.seeks });
     } catch (e) {
       patch('remote', { message: errMsg(e) });
+    } finally {
+      this.ticking = false;
     }
   }
 

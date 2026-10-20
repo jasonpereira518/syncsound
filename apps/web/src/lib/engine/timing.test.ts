@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Playback } from '@syncsound/protocol';
 import {
+  snapToSampleGrid,
   captureDelayMs,
   compensationSec,
   driftErrorMs,
   expectedHeardEpochMs,
   expectedPositionAtCtx,
   outputLatencyMs,
+  roomPosition,
   videoCorrection,
 } from './timing';
 
@@ -117,5 +119,42 @@ describe('video correction', () => {
     expect(videoCorrection(0.05)).toEqual({ seek: false, rate: 0.95 });
     expect(videoCorrection(-0.05)).toEqual({ seek: false, rate: 1.05 });
     expect(videoCorrection(0.01)).toEqual({ seek: false, rate: 1 });
+  });
+});
+
+describe('agreement with audio-core', async () => {
+  const { computeStart, positionAt } = await import('@syncsound/audio-core');
+  const pb: Playback = { status: 'playing', trackId: 't', startRoomTime: 20_000, trackOffset: 5 };
+  const C = compensationSec(lat, 0.002);
+
+  it('roomPosition matches positionAt', () => {
+    for (const r of [19_000, 20_000, 23_456]) expect(roomPosition(pb, r)).toBeCloseTo(positionAt(pb, r), 9);
+  });
+
+  it('computeStart on-time and late decisions give the same heard epoch', () => {
+    const heard = (nowCtx: number) => {
+      const d = computeStart({ startRoomTime: pb.startRoomTime, trackOffset: pb.trackOffset, roomToCtx, nowCtx, compensationSec: C, durationSec: 300 })!;
+      return expectedHeardEpochMs({ timeOrigin: TIME_ORIGIN, ctxToPerf, whenCtx: d.when, offset: d.offset, trackOffset: pb.trackOffset, outputLatencyMs: outputLatencyMs(lat) });
+    };
+    const onTime = heard(roomToCtx(pb.startRoomTime) - 1);
+    expect(heard(roomToCtx(pb.startRoomTime) + 2.5)).toBeCloseTo(onTime, 3);
+    expect(onTime).toBeCloseTo(TIME_ORIGIN + toLocal(pb.startRoomTime) + 2, 6);
+  });
+});
+
+describe('snapToSampleGrid', () => {
+  it('lands both on integer samples and keeps the timeline within half a sample', () => {
+    const sr = 48000;
+    for (const [when, offset] of [
+      [1.2345678, 3.3333333],
+      [10.00001, 0],
+      [0.5, 12.25],
+    ] as const) {
+      const s = snapToSampleGrid(when, offset, sr);
+      expect(Math.abs(s.when * sr - Math.round(s.when * sr))).toBeLessThan(1e-6);
+      expect(Math.abs(s.offset * sr - Math.round(s.offset * sr))).toBeLessThan(1e-6);
+      // timeline origin (when − offset) preserved
+      expect(Math.abs(s.when - s.offset - (when - offset))).toBeLessThanOrEqual(0.5 / sr + 1e-9);
+    }
   });
 });

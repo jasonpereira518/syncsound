@@ -3,7 +3,14 @@
  * times. Listener side: record the mic through an AudioWorklet, analyze, send CALIBRATION_RESULT.
  * Browser-only.
  */
-import { analyzeCalibration, buildCalibrationSlots, calibrationSignal, classPresetEq, type ClockSync } from '@syncsound/audio-core';
+import {
+  analyzeCalibration,
+  buildCalibrationSlots,
+  calibrationRecordingMs,
+  calibrationSignal,
+  classPresetEq,
+  type ClockSync,
+} from '@syncsound/audio-core';
 import type { CalibrationDeviceResult, CalibrationPlan, ClientMessage, Device, DevicePatch } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
 import type { CalibrationDeviceUi } from '../../store/types';
@@ -39,6 +46,9 @@ class SyncSoundRecorder extends AudioWorkletProcessor {
 }
 registerProcessor('syncsound-recorder', SyncSoundRecorder);
 `;
+
+/** same value for slot building and analysis (guard gaps + search windows) */
+const MAX_LATENCY_MS = 500;
 
 const registered = new WeakSet<BaseAudioContext>();
 
@@ -185,9 +195,12 @@ export class CalibrationController {
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        });
+        const lb = this.engine.loopback();
+        stream = lb
+          ? lb.dest.stream.clone()
+          : await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+            });
       } catch (e) {
         throw new Error(micError(e));
       }
@@ -208,7 +221,7 @@ export class CalibrationController {
           clearTimeout(t);
           reject(new Cancelled());
         });
-        if (!this.send({ type: 'CALIBRATION_START', slots: buildCalibrationSlots(deviceIds) })) {
+        if (!this.send({ type: 'CALIBRATION_START', slots: buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }) })) {
           clearTimeout(t);
           reject(new Error('Not connected to the room.'));
         }
@@ -216,7 +229,7 @@ export class CalibrationController {
       run.planWaiter = null;
       check();
 
-      const endRoom = plan.startRoomTime + Math.max(...plan.slots.map((s) => s.offsetMs + s.durationMs)) + 1500;
+      const endRoom = plan.startRoomTime + calibrationRecordingMs(plan.slots, MAX_LATENCY_MS) + 300;
       await new Promise<void>((resolve) => {
         const iv = setInterval(() => {
           const now = clock.toRoomTime(performance.now());
@@ -245,6 +258,7 @@ export class CalibrationController {
         recordingStartRoomTime: clock.toRoomTime(this.engine.audioClock.ctxToPerf(rec.startCtx)),
         devicePositions: scene.devices,
         listener: scene.listener,
+        maxLatencyMs: MAX_LATENCY_MS,
       });
       check();
 
@@ -268,8 +282,9 @@ export class CalibrationController {
           ...(d.heard && d.relativeLatencyMs !== null
             ? { calibratedLatencyMs: Math.max(-1000, Math.min(1000, d.relativeLatencyMs)) }
             : {}),
-          ...(fit ? { eq: { ...fit.eq, source: 'measured' as const } } : {}),
-          ...(d.rolloffHz !== null ? { rolloffHz: Math.max(10, Math.min(2000, d.rolloffHz)), bassCapable: d.rolloffHz < 90 } : {}),
+          ...(fit ? { eq: fit.eq } : {}),
+          ...(d.rolloffHz !== null ? { rolloffHz: Math.max(10, Math.min(2000, d.rolloffHz)) } : {}),
+          ...(d.bassCapable !== null ? { bassCapable: d.bassCapable } : {}),
           ...(trim !== undefined ? { trimDb: Math.max(-24, Math.min(12, trim)) } : {}),
           ...(d.levelDb !== null ? { levelDb: d.levelDb } : {}),
         };

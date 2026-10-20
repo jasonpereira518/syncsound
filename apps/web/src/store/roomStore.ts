@@ -218,7 +218,18 @@ function fail(msg: string): never {
   throw new Error(msg);
 }
 
-export const roomActions: RoomActions = {
+/** current room time (ms), or null until the clock burst after (re)connect has finished */
+export function roomNowMs(): number | null {
+  const c = session?.client;
+  if (!c?.synced) return null;
+  try {
+    return c.clock.toRoomTime(performance.now());
+  } catch {
+    return null;
+  }
+}
+
+export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>> = {
   async join({ code, name, password }) {
     const roomCode = code.trim().toUpperCase();
     const displayName = name.trim().slice(0, 40);
@@ -257,7 +268,7 @@ export const roomActions: RoomActions = {
       joining = null;
     }
 
-    const nowRoom = () => (session?.client.synced ? session.client.clock.toRoomTime(performance.now()) : null);
+    const nowRoom = roomNowMs;
     let resolveJoin: () => void = () => {};
     const joined = new Promise<void>((r) => (resolveJoin = r));
     const client = new RoomClient({
@@ -599,6 +610,10 @@ export const roomActions: RoomActions = {
 
   attachVideo(el) {
     session?.video.attach(el);
+  },
+
+  clearError() {
+    setError(null);
   },
 };
 

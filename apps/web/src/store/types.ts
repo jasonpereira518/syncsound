@@ -155,6 +155,8 @@ export interface RoomActions {
   queueRemote(kind: 'spotify' | 'apple', remoteId: string, title?: string): void;
   /** Mode 2: register the <video> element to be driven by the room clock (muted; audio is rendered). */
   attachVideo(el: HTMLVideoElement | null): void;
+  /** clear store.error (always implemented by roomActions) */
+  clearError?(): void;
 }
 
 export type { Scene };

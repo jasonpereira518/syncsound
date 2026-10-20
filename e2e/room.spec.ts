@@ -39,7 +39,7 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   for (const { page } of all) await waitConverged(page);
 
   // --- queue a demo track and play ---
-  await host.page.getByRole('tab', { name: /player/i }).click().catch(() => {});
+  await host.page.getByRole('tab', { name: /player/i }).click({ timeout: 1500 }).catch(() => {});
   await host.page.getByTestId('demo-asset').filter({ hasText: /click/i }).first().click();
   await expect(host.page.getByTestId('queue-item').first()).toBeVisible();
   await host.page.getByTestId('play-pause').click();
@@ -66,6 +66,7 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   const before3 = await Promise.all(all.map(({ page }) => schedules(page).then((s) => s.length)));
   const seek = host.page.getByTestId('seek-bar');
   await seek.fill('20');
+  await seek.blur();
   const seeks = await Promise.all(
     all.map(({ page }, i) =>
       waitForSchedule(page, (s) => (s.action === 'seek' || s.action === 'play') && s.trackOffset >= 19, before3[i]),
@@ -89,17 +90,16 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   all.push(late);
 
   // --- drag an object on the stage: every client's computed gains update ---
-  await host.page.getByRole('tab', { name: /stage/i }).click().catch(() => {});
+  await host.page.getByRole('tab', { name: /stage/i }).click({ timeout: 1500 }).catch(() => {});
   const ids = await Promise.all(
     all.map(({ page }) => page.evaluate(() => (window as unknown as { __syncsound: { getState(): { deviceId: string } } }).__syncsound.getState().deviceId)),
   );
+  type Win = { __syncsound: { getState(): { room: { scene: { objects: Array<{ id: string; position: { x: number; y: number } }> } } }; mix(): { objectGains: Record<string, number> } | null } };
+  const objId = await host.page.evaluate(() => (window as unknown as Win).__syncsound.getState().room.scene.objects[0]!.id);
   const gainOf = (page: Joined['page']) =>
-    page.evaluate(() => {
-      const s = (window as unknown as { __syncsound: { mix(): { objectGains: Record<string, number> } | null } }).__syncsound;
-      return s.mix()?.objectGains['obj-L'] ?? null;
-    });
+    page.evaluate((id) => (window as unknown as Win).__syncsound.mix()?.objectGains[id] ?? null, objId);
   const g1Before = await gainOf(g1.page);
-  const obj = host.page.getByTestId('stage-object-obj-L');
+  const obj = host.page.getByTestId(`stage-object-${objId}`);
   const target = host.page.getByTestId(`stage-device-${ids[1]}`);
   const ob = (await obj.boundingBox())!;
   const tb = (await target.boundingBox())!;
@@ -108,18 +108,16 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   await host.page.mouse.move(tb.x + tb.width / 2 + 4, tb.y + tb.height / 2 + 4, { steps: 12 });
   await host.page.mouse.up();
   const hostPos = await host.page.evaluate(
-    () =>
-      (window as unknown as { __syncsound: { getState(): { room: { scene: { objects: Array<{ id: string; position: { x: number; y: number } }> } } } } })
-        .__syncsound.getState().room.scene.objects.find((o) => o.id === 'obj-L')!.position,
+    (id) => (window as unknown as Win).__syncsound.getState().room.scene.objects.find((o) => o.id === id)!.position,
+    objId,
   );
   for (const { page } of all) {
     await page.waitForFunction(
-      (p) => {
-        const o = (window as unknown as { __syncsound: { getState(): { room: { scene: { objects: Array<{ id: string; position: { x: number; y: number } }> } } } } })
-          .__syncsound.getState().room.scene.objects.find((x) => x.id === 'obj-L');
+      ({ p, id }) => {
+        const o = (window as unknown as Win).__syncsound.getState().room.scene.objects.find((x) => x.id === id);
         return !!o && Math.abs(o.position.x - p.x) < 1e-6 && Math.abs(o.position.y - p.y) < 1e-6;
       },
-      hostPos,
+      { p: hostPos, id: objId },
       { timeout: 10_000 },
     );
   }
@@ -127,7 +125,7 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   await expect.poll(() => gainOf(g1.page), { timeout: 10_000 }).toBeGreaterThan((g1Before ?? 0) + 0.05);
 
   // --- calibration wizard against the fake microphone ---
-  await host.page.getByRole('tab', { name: /calibrat/i }).click().catch(() => {});
+  await host.page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
   await host.page.getByTestId('calibrate-start').click();
   await expect(host.page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, {
     timeout: 90_000,

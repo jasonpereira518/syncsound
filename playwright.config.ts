@@ -10,6 +10,7 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:3100',
+    actionTimeout: 15_000,
     ...devices['Desktop Chrome'],
     launchOptions: {
       args: [
