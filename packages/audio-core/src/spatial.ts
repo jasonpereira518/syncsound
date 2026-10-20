@@ -1,28 +1,50 @@
 import type { AudioObject, Device, Scene, Vec2 } from '@syncsound/protocol';
-import { todo } from './todo';
+import { dbToGain } from './loudness';
 
 export const SPEED_OF_SOUND = 343;
+/** LFE fold-in level when no bass-capable device participates, dB (split equal-power over participants). */
+export const LFE_FOLD_DB = -10;
 
 export interface Speaker {
   id: string;
   pos: Vec2;
 }
 
+const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+
 /** DBAP: g_i ∝ 1/(d_i² + blur²)^(rolloff/2), normalized so Σ g_i² = 1. Returns gains keyed by speaker id. */
 export function dbapGains(
-  _source: Vec2,
-  _speakers: Speaker[],
-  _opts?: { rolloff?: number; blur?: number },
+  source: Vec2,
+  speakers: Speaker[],
+  opts: { rolloff?: number; blur?: number } = {},
 ): Record<string, number> {
-  return todo('dbapGains');
+  const a = opts.rolloff ?? 1;
+  const r2 = (opts.blur ?? 0.5) ** 2;
+  const raw = speakers.map((s) => Math.pow(dist(source, s.pos) ** 2 + r2, -a / 2));
+  const norm = Math.sqrt(raw.reduce((t, g) => t + g * g, 0));
+  const out: Record<string, number> = {};
+  speakers.forEach((s, i) => (out[s.id] = raw[i]! / norm));
+  return out;
 }
 
 export interface DeviceMix {
   /** linear gain per object id for this device (includes object gainDb/mute; excludes LFE objects) */
   objectGains: Record<string, number>;
-  /** linear gain of the bass bus (LFE + lows of all objects below crossover) on this device; 0 if not bass-capable */
+  /**
+   * Linear gain of each object INTO the bass bus (identical on every device; apply before bassGain).
+   * LFE objects: dbToGain(gainDb)·!muted. Other objects: the share of their panned power that landed on
+   * devices high-passed at the crossover (√Σ g² over non-bass-capable devices), so the lows those devices
+   * can't play are re-routed instead of lost or doubled. 0 for everything but LFE when bass isn't managed.
+   * Bass bus = lowpass_crossover(Σ_obj bassObjectGains[obj] · obj signal).
+   */
+  bassObjectGains: Record<string, number>;
+  /** linear gain of the bass bus on this device; 0 if not bass-capable (see computeDeviceMix for the no-sub fold-in) */
   bassGain: number;
-  /** high-pass applied to this device's main bus (crossover when bass is managed, or protective rolloff), null = none */
+  /**
+   * High-pass for this device's output (main + bass), null = none. Crossover (≥ rolloff) for non-bass-capable
+   * devices when bass is managed, else the protective device.eq.highpassHz. It already INCLUDES eq.highpassHz:
+   * build the device EQ chain without it (eqToBiquads({ ...eq, highpassHz: null })).
+   */
   highpassHz: number | null;
   /** propagation time-alignment delay for this device, s */
   delaySec: number;
@@ -37,38 +59,229 @@ export interface MixInput {
   masterVolume: number;
 }
 
-/**
- * Per-device mix from the shared scene. Only connected devices that have a position in scene.devices take
- * part in panning. Bass management: LFE objects + content below crossoverHz go to bass-capable devices
- * (equal-power split); non-bass-capable devices are high-passed at crossoverHz when at least one bass-capable
- * device exists. With no bass-capable device everyone is full-range (only protective rolloff HPs apply).
- */
-export function computeDeviceMix(_input: MixInput, _deviceId: string): DeviceMix {
-  return todo('computeDeviceMix');
+const isBassDevice = (d: Device) => d.bassCapable || d.role === 'Sub';
+
+/** Connected, positioned, unmuted devices; if any of those is solo, only the solo ones. */
+export function participatingDevices(input: MixInput): Device[] {
+  const base = input.devices.filter((d) => d.connected && !d.muted && input.scene.devices[d.id]);
+  return base.some((d) => d.solo) ? base.filter((d) => d.solo) : base;
 }
 
-/** delay_i = (d_max − d_i)/c for each positioned device (s). */
-export function propagationDelays(_scene: Scene, _deviceIds: string[]): Record<string, number> {
-  return todo('propagationDelays');
+/**
+ * Per-device mix from the shared scene.
+ * - Participants: connected, positioned (scene.devices), unmuted devices; when any participant is solo, ONLY the
+ *   solo devices participate (they also are the only ones panned across). Non-participants get outputGain 0.
+ * - Panning: DBAP over participants except role 'Sub' (a Sub plays the bass bus only: objectGains all 0).
+ * - Bass managed (≥ 1 bass-capable participant; role 'Sub' counts as bass-capable): bass-capable devices get
+ *   bassGain 1/√nBass and play full range (only their protective HP); others are high-passed at
+ *   max(crossoverHz, rolloffHz, eq.highpassHz) and their lost lows go to the bass bus via bassObjectGains.
+ * - No bass-capable device: everyone full-range with only the protective HP; LFE objects are folded in at
+ *   LFE_FOLD_DB total, i.e. bassGain = dbToGain(−10)/√nParticipants on every participant.
+ */
+export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
+  const { scene } = input;
+  const parts = participatingDevices(input);
+  const dev = parts.find((d) => d.id === deviceId);
+  const objectGains: Record<string, number> = {};
+  const bassObjectGains: Record<string, number> = {};
+  for (const o of scene.objects) {
+    if (o.channel !== 'LFE') objectGains[o.id] = 0;
+    bassObjectGains[o.id] = 0;
+  }
+  if (!dev) {
+    const self = input.devices.find((d) => d.id === deviceId);
+    return {
+      objectGains,
+      bassObjectGains,
+      bassGain: 0,
+      highpassHz: self?.eq.highpassHz ?? null,
+      delaySec: 0,
+      outputGain: 0,
+    };
+  }
+  const nonSub = parts.filter((d) => d.role !== 'Sub');
+  const panners = nonSub.length ? nonSub : parts;
+  const speakers = panners.map((d) => ({ id: d.id, pos: scene.devices[d.id]! }));
+  const bassDevs = parts.filter(isBassDevice);
+  const managed = bassDevs.length > 0;
+  const smallIds = managed ? panners.filter((d) => !isBassDevice(d)).map((d) => d.id) : [];
+
+  for (const o of scene.objects) {
+    const g = o.muted ? 0 : dbToGain(o.gainDb);
+    if (o.channel === 'LFE') {
+      bassObjectGains[o.id] = g;
+      continue;
+    }
+    const gains = dbapGains(o.position, speakers, { rolloff: scene.rolloff, blur: scene.blur });
+    objectGains[o.id] = (gains[deviceId] ?? 0) * g;
+    bassObjectGains[o.id] = g * Math.sqrt(smallIds.reduce((s, id) => s + (gains[id] ?? 0) ** 2, 0));
+  }
+
+  const protective = dev.eq.highpassHz ?? null;
+  let bassGain: number;
+  let highpassHz: number | null;
+  if (!managed) {
+    bassGain = dbToGain(LFE_FOLD_DB) / Math.sqrt(parts.length);
+    highpassHz = protective;
+  } else if (isBassDevice(dev)) {
+    bassGain = 1 / Math.sqrt(bassDevs.length);
+    highpassHz = protective;
+  } else {
+    bassGain = 0;
+    highpassHz = Math.max(scene.crossoverHz, dev.rolloffHz ?? 0, protective ?? 0);
+  }
+  const delaySec = scene.propagationComp
+    ? (propagationDelays(
+        scene,
+        parts.map((d) => d.id),
+      )[deviceId] ?? 0)
+    : 0;
+  const outputGain = input.masterVolume * dev.volume * dbToGain(dev.trimDb);
+  return { objectGains, bassObjectGains, bassGain, highpassHz, delaySec, outputGain };
+}
+
+/** delay_i = (d_max − d_i)/c for each positioned device (s), distances to scene.listener. */
+export function propagationDelays(scene: Scene, deviceIds: string[]): Record<string, number> {
+  const d = deviceIds
+    .filter((id) => scene.devices[id])
+    .map((id) => [id, dist(scene.devices[id]!, scene.listener)] as const);
+  const dmax = Math.max(0, ...d.map(([, x]) => x));
+  return Object.fromEntries(d.map(([id, x]) => [id, (dmax - x) / SPEED_OF_SOUND]));
 }
 
 export type PresetName = 'stereo' | 'surround51' | 'party' | 'frontStage';
 
-/** Device + object positions for a preset layout (devices ordered as given). */
+const ROOM_MARGIN = 0.3;
+const clampToRoom = (p: Vec2, room: Scene['room']): Vec2 => ({
+  x: Math.max(-room.width / 2 + ROOM_MARGIN, Math.min(room.width / 2 - ROOM_MARGIN, p.x)),
+  y: Math.max(-room.depth / 2 + ROOM_MARGIN, Math.min(room.depth / 2 - ROOM_MARGIN, p.y)),
+});
+/** azimuth in degrees: 0 = straight ahead (−y), +ve = to the listener's right (+x) */
+const polar = (c: Vec2, azDeg: number, r: number): Vec2 => {
+  const a = (azDeg * Math.PI) / 180;
+  return { x: c.x + r * Math.sin(a), y: c.y - r * Math.cos(a) };
+};
+const ITU_AZ: Partial<Record<AudioObject['channel'], number>> = {
+  L: -30,
+  R: 30,
+  C: 0,
+  MONO: 0,
+  SL: -110,
+  SR: 110,
+};
+const spread = (from: number, to: number, n: number) =>
+  Array.from({ length: n }, (_, k) => from + ((to - from) * (k + 0.5)) / n);
+
+/**
+ * Device + object positions for a preset layout (devices ordered as given). Azimuths are around the listener.
+ * - stereo: devices 0/1 at −30°/+30° (single device: 0°), the rest spread behind (110°–250°); L/R objects move to ±30°.
+ * - surround51: device order L(−30°) R(+30°) C(0°) SL(−110°) SR(+110°) Sub(front-left floor), extras behind;
+ *   objects move to the matching ITU positions (LFE object to the sub spot).
+ * - party: devices evenly around the room on an ellipse; objects stay.
+ * - frontStage: devices on a −60°…+60° arc in front of the listener; objects stay.
+ */
 export function presetLayout(
-  _preset: PresetName,
-  _deviceIds: string[],
-  _scene: Scene,
+  preset: PresetName,
+  deviceIds: string[],
+  scene: Scene,
 ): { devices: Record<string, Vec2>; objects: AudioObject[] } {
-  return todo('presetLayout');
+  const { room, listener } = scene;
+  const r = Math.min(2.5, 0.45 * Math.min(room.width, room.depth));
+  const at = (az: number) => clampToRoom(polar(listener, az, r), room);
+  const subSpot = clampToRoom({ x: -room.width / 2, y: -room.depth / 2 }, room);
+  const n = deviceIds.length;
+  let pos: Vec2[];
+  let objects = scene.objects.map((o) => ({ ...o, position: { ...o.position } }));
+  const moveObjects = (chans: AudioObject['channel'][]) =>
+    (objects = objects.map((o) =>
+      chans.includes(o.channel)
+        ? { ...o, position: o.channel === 'LFE' ? subSpot : at(ITU_AZ[o.channel]!) }
+        : o,
+    ));
+  switch (preset) {
+    case 'stereo':
+      pos = n === 1 ? [at(0)] : [at(-30), at(30), ...spread(110, 250, n - 2).map(at)];
+      moveObjects(['L', 'R']);
+      break;
+    case 'surround51': {
+      const main = [at(-30), at(30), at(0), at(-110), at(110), subSpot];
+      pos = [...main.slice(0, n), ...spread(150, 210, Math.max(0, n - 6)).map(at)];
+      moveObjects(['L', 'R', 'C', 'SL', 'SR', 'LFE']);
+      break;
+    }
+    case 'party': {
+      const rx = Math.max(0.1, room.width / 2 - 0.6);
+      const ry = Math.max(0.1, room.depth / 2 - 0.6);
+      pos = deviceIds.map((_, k) => {
+        const a = (2 * Math.PI * k) / n;
+        return clampToRoom({ x: rx * Math.sin(a), y: -ry * Math.cos(a) }, room);
+      });
+      break;
+    }
+    case 'frontStage':
+      pos = deviceIds.map((_, k) => at(n === 1 ? 0 : -60 + (120 * k) / (n - 1)));
+      break;
+  }
+  return { devices: Object.fromEntries(deviceIds.map((id, k) => [id, pos[k]!])), objects };
 }
 
-/** Default objects for a source with N channels (1 mono, 2 stereo, 6 = 5.1 in WAV order L R C LFE SL SR). */
-export function defaultObjectsFor(_channels: number, _upmix: boolean): AudioObject[] {
-  return todo('defaultObjectsFor');
+const DEFAULT_LISTENER: Vec2 = { x: 0, y: 1 };
+const DEFAULT_ROOM = { width: 8, depth: 6 };
+const objAt = (
+  id: string,
+  label: string,
+  channel: AudioObject['channel'],
+  position: Vec2,
+  gainDb = 0,
+): AudioObject => ({
+  id,
+  label,
+  channel,
+  position: clampToRoom(position, DEFAULT_ROOM),
+  gainDb,
+  muted: false,
+});
+const itu = (az: number) => polar(DEFAULT_LISTENER, az, 2.5);
+
+/**
+ * Default objects for a source with N channels (1 mono, 2 stereo, 6 = 5.1 in WAV order L R C LFE SL SR),
+ * at ITU azimuths 2.5 m from the default listener (0, 1), clamped inside the default 8×6 m room.
+ * Stereo + upmix adds C (mid, −3 dB), SL/SR (side, −6 dB) and AMB (decorrelated ambience behind, −9 dB); the
+ * engine derives those from L/R (channelIndexFor returns null for them). 3–5 channels: first two as L/R.
+ */
+export function defaultObjectsFor(channels: number, upmix: boolean): AudioObject[] {
+  if (channels <= 1) return [objAt('obj-M', 'Mono', 'MONO', itu(0))];
+  const L = objAt('obj-L', 'Left', 'L', itu(-30));
+  const R = objAt('obj-R', 'Right', 'R', itu(30));
+  if (channels >= 6) {
+    return [
+      L,
+      R,
+      objAt('obj-C', 'Center', 'C', itu(0)),
+      objAt('obj-LFE', 'LFE', 'LFE', { x: -DEFAULT_ROOM.width / 2, y: -DEFAULT_ROOM.depth / 2 }),
+      objAt('obj-SL', 'Surround L', 'SL', itu(-110)),
+      objAt('obj-SR', 'Surround R', 'SR', itu(110)),
+    ];
+  }
+  if (!upmix) return [L, R];
+  return [
+    L,
+    R,
+    objAt('obj-C', 'Center', 'C', itu(0), -3),
+    objAt('obj-SL', 'Surround L', 'SL', itu(-110), -6),
+    objAt('obj-SR', 'Surround R', 'SR', itu(110), -6),
+    objAt('obj-AMB', 'Ambience', 'AMB', itu(180), -9),
+  ];
 }
 
-/** Map of object channel → source channel index for a given channel count (WAV/WebAudio 5.1 order). */
-export function channelIndexFor(_channel: AudioObject['channel'], _channels: number): number | null {
-  return todo('channelIndexFor');
+const WAV51: Partial<Record<AudioObject['channel'], number>> = { L: 0, R: 1, C: 2, LFE: 3, SL: 4, SR: 5 };
+
+/**
+ * Object channel → source channel index (WAV/WebAudio 5.1 order L0 R1 C2 LFE3 SL4 SR5; stereo L0 R1; mono 0).
+ * null = not a direct source channel (e.g. upmix-derived C/SL/SR/AMB on a stereo source).
+ */
+export function channelIndexFor(channel: AudioObject['channel'], channels: number): number | null {
+  if (channels <= 1) return 0;
+  if (channels < 6) return channel === 'L' ? 0 : channel === 'R' ? 1 : null;
+  return WAV51[channel] ?? null;
 }

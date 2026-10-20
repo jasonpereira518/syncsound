@@ -1,5 +1,4 @@
-import type { Playback } from '@syncsound/protocol';
-import { todo } from './todo';
+import { MIN_SCHEDULE_LEAD_MS, SCHEDULE_SAFETY_MARGIN_MS, type Playback } from '@syncsound/protocol';
 
 export interface StartParams {
   /** room ms at which trackOffset must be heard */
@@ -29,17 +28,39 @@ export interface StartDecision {
   latenessSec: number;
 }
 
-/** Decide `source.start(when, offset)` for a room-timeline start. Late starts jump to the correct position. */
-export function computeStart(_p: StartParams): StartDecision | null {
-  return todo('computeStart');
+/**
+ * Decide `source.start(when, offset)` for a room-timeline start. Late starts jump to the correct position
+ * (so the device lands on the shared timeline): offset = trackOffset + (room time heard at `when` − startRoomTime),
+ * found by evaluating roomToCtx near now. lateToleranceSec is informational only: correctness is the
+ * same either way; callers may compare latenessSec against it to label a "late join".
+ */
+export function computeStart(p: StartParams): StartDecision | null {
+  const minLead = p.minLeadSec ?? 0.01;
+  const target = p.roomToCtx(p.startRoomTime) - p.compensationSec;
+  const earliest = p.nowCtx + minLead;
+  const late = target < earliest;
+  const when = late ? earliest : target;
+  let offset = p.trackOffset;
+  if (late) {
+    // Find the room time r heard at `when` by fixed-point refinement near now, instead of using
+    // (when − target) directly: that would scale any mapping-rate error by the lateness (seconds back).
+    let r = p.startRoomTime + (when - target) * 1000;
+    for (let i = 0; i < 3; i++) r += (when - (p.roomToCtx(r) - p.compensationSec)) * 1000;
+    offset = p.trackOffset + (r - p.startRoomTime) / 1000;
+  }
+  const latenessSec = offset - p.trackOffset;
+  if (p.durationSec !== undefined && offset >= p.durationSec) return null;
+  return { when, offset, late, latenessSec };
 }
 
 /** Track position (s) on the room timeline at roomMs. */
-export function positionAt(_playback: Playback, _roomMs: number): number {
-  return todo('positionAt');
+export function positionAt(playback: Playback, roomMs: number): number {
+  if (playback.status !== 'playing') return playback.trackOffset;
+  return playback.trackOffset + Math.max(0, roomMs - playback.startRoomTime) / 1000;
 }
 
 /** Minimum lead time for a scheduled action given device RTTs: max(rtt) + safety, at least MIN_SCHEDULE_LEAD_MS. */
-export function minScheduleLeadMs(_rttsMs: number[], _safetyMs?: number): number {
-  return todo('minScheduleLeadMs');
+export function minScheduleLeadMs(rttsMs: number[], safetyMs: number = SCHEDULE_SAFETY_MARGIN_MS): number {
+  const maxRtt = rttsMs.reduce((a, b) => (Number.isFinite(b) ? Math.max(a, b) : a), 0);
+  return Math.max(MIN_SCHEDULE_LEAD_MS, maxRtt + safetyMs);
 }

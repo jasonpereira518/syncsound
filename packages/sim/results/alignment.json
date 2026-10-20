@@ -1,0 +1,398 @@
+{
+  "name": "alignment",
+  "sampleRate": 48000,
+  "calibrationErrorMs": "±0.5",
+  "signal": "seeded white noise track, 1 s correlation windows",
+  "compensated": {
+    "jitterMs": [
+      3.04,
+      3.19,
+      5.93,
+      5.1
+    ],
+    "maxPairwiseMisalignmentMs": 0.7098,
+    "pairs": [
+      {
+        "a": "phone",
+        "b": "laptop",
+        "lagMs": 0.7098
+      },
+      {
+        "a": "phone",
+        "b": "bt-speaker",
+        "lagMs": 0.1096
+      },
+      {
+        "a": "phone",
+        "b": "tablet",
+        "lagMs": 0.2074
+      },
+      {
+        "a": "laptop",
+        "b": "bt-speaker",
+        "lagMs": -0.5999
+      },
+      {
+        "a": "laptop",
+        "b": "tablet",
+        "lagMs": -0.5019
+      },
+      {
+        "a": "bt-speaker",
+        "b": "tablet",
+        "lagMs": 0.0973
+      }
+    ],
+    "devices": [
+      {
+        "name": "phone",
+        "latencyMs": 10,
+        "offsetMs": 3200,
+        "driftPpm": 35,
+        "audioPpm": 20,
+        "net": {
+          "baseRttMs": 30,
+          "jitterMs": 3.04,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.99018,
+        "errorVsIdealMs": 0.4967,
+        "clockErrMsAtDecision": -0.374,
+        "calibrationErrMs": -0.177,
+        "acmRatePpm": 18.2
+      },
+      {
+        "name": "laptop",
+        "latencyMs": 40,
+        "offsetMs": -7900,
+        "driftPpm": -80,
+        "audioPpm": -45,
+        "net": {
+          "baseRttMs": 60,
+          "jitterMs": 3.19,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.961937,
+        "errorVsIdealMs": 1.2051,
+        "clockErrMsAtDecision": -0.296,
+        "calibrationErrMs": -0.474,
+        "acmRatePpm": 0
+      },
+      {
+        "name": "bt-speaker",
+        "latencyMs": 180,
+        "offsetMs": 9500,
+        "driftPpm": 100,
+        "audioPpm": 80,
+        "net": {
+          "baseRttMs": 25,
+          "jitterMs": 5.93,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.820191,
+        "errorVsIdealMs": 0.6054,
+        "clockErrMsAtDecision": -0.224,
+        "calibrationErrMs": -0.423,
+        "acmRatePpm": 71.9
+      },
+      {
+        "name": "tablet",
+        "latencyMs": 25,
+        "offsetMs": -1100,
+        "driftPpm": -20,
+        "audioPpm": 10,
+        "net": {
+          "baseRttMs": 80,
+          "jitterMs": 5.1,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.976329,
+        "errorVsIdealMs": 0.7031,
+        "clockErrMsAtDecision": -0.471,
+        "calibrationErrMs": -0.306,
+        "acmRatePpm": 0.1
+      }
+    ]
+  },
+  "compensatedHarsh": {
+    "jitterMs": [
+      8,
+      15,
+      5,
+      30
+    ],
+    "budgetBoundMs": 7,
+    "maxPairwiseMisalignmentMs": 2.4946,
+    "pairs": [
+      {
+        "a": "phone",
+        "b": "laptop",
+        "lagMs": 0.9875
+      },
+      {
+        "a": "phone",
+        "b": "bt-speaker",
+        "lagMs": -0.9263
+      },
+      {
+        "a": "phone",
+        "b": "tablet",
+        "lagMs": -1.5049
+      },
+      {
+        "a": "laptop",
+        "b": "bt-speaker",
+        "lagMs": -1.9138
+      },
+      {
+        "a": "laptop",
+        "b": "tablet",
+        "lagMs": -2.4946
+      },
+      {
+        "a": "bt-speaker",
+        "b": "tablet",
+        "lagMs": -0.5812
+      }
+    ],
+    "devices": [
+      {
+        "name": "phone",
+        "latencyMs": 10,
+        "offsetMs": 3200,
+        "driftPpm": 35,
+        "audioPpm": 20,
+        "net": {
+          "baseRttMs": 30,
+          "jitterMs": 8,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.991179,
+        "errorVsIdealMs": 1.4952,
+        "clockErrMsAtDecision": -1.367,
+        "calibrationErrMs": -0.177,
+        "acmRatePpm": 18.2
+      },
+      {
+        "name": "laptop",
+        "latencyMs": 40,
+        "offsetMs": -7900,
+        "driftPpm": -80,
+        "audioPpm": -45,
+        "net": {
+          "baseRttMs": 60,
+          "jitterMs": 15,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.963215,
+        "errorVsIdealMs": 2.4798,
+        "clockErrMsAtDecision": -1.529,
+        "calibrationErrMs": -0.474,
+        "acmRatePpm": 0
+      },
+      {
+        "name": "bt-speaker",
+        "latencyMs": 180,
+        "offsetMs": 9500,
+        "driftPpm": 100,
+        "audioPpm": 80,
+        "net": {
+          "baseRttMs": 25,
+          "jitterMs": 5,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.820152,
+        "errorVsIdealMs": 0.5656,
+        "clockErrMsAtDecision": -0.186,
+        "calibrationErrMs": -0.423,
+        "acmRatePpm": 71.9
+      },
+      {
+        "name": "tablet",
+        "latencyMs": 25,
+        "offsetMs": -1100,
+        "driftPpm": -20,
+        "audioPpm": 10,
+        "net": {
+          "baseRttMs": 80,
+          "jitterMs": 30,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.975616,
+        "errorVsIdealMs": -0.014,
+        "clockErrMsAtDecision": 0.169,
+        "calibrationErrMs": -0.306,
+        "acmRatePpm": 0.1
+      }
+    ]
+  },
+  "uncompensated": {
+    "maxPairwiseMisalignmentMs": 169.8731,
+    "pairs": [
+      {
+        "a": "phone",
+        "b": "laptop",
+        "lagMs": 30.4149
+      },
+      {
+        "a": "phone",
+        "b": "bt-speaker",
+        "lagMs": 169.8731
+      },
+      {
+        "a": "phone",
+        "b": "tablet",
+        "lagMs": 15.0802
+      },
+      {
+        "a": "laptop",
+        "b": "bt-speaker",
+        "lagMs": 139.4552
+      },
+      {
+        "a": "laptop",
+        "b": "tablet",
+        "lagMs": -15.3351
+      },
+      {
+        "a": "bt-speaker",
+        "b": "tablet",
+        "lagMs": -154.7909
+      }
+    ],
+    "devices": [
+      {
+        "name": "phone",
+        "latencyMs": 10,
+        "offsetMs": 3200,
+        "driftPpm": 35,
+        "audioPpm": 20,
+        "net": {
+          "baseRttMs": 30,
+          "jitterMs": 3.04,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 20.000003,
+        "errorVsIdealMs": 10.3143,
+        "clockErrMsAtDecision": -0.374,
+        "calibrationErrMs": -0.177,
+        "acmRatePpm": 18.2
+      },
+      {
+        "name": "laptop",
+        "latencyMs": 40,
+        "offsetMs": -7900,
+        "driftPpm": -80,
+        "audioPpm": -45,
+        "net": {
+          "baseRttMs": 60,
+          "jitterMs": 3.19,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 20.001464,
+        "errorVsIdealMs": 40.7287,
+        "clockErrMsAtDecision": -0.296,
+        "calibrationErrMs": -0.474,
+        "acmRatePpm": 0
+      },
+      {
+        "name": "bt-speaker",
+        "latencyMs": 180,
+        "offsetMs": 9500,
+        "driftPpm": 100,
+        "audioPpm": 80,
+        "net": {
+          "baseRttMs": 25,
+          "jitterMs": 5.93,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 19.999768,
+        "errorVsIdealMs": 180.1872,
+        "clockErrMsAtDecision": -0.224,
+        "calibrationErrMs": -0.423,
+        "acmRatePpm": 71.9
+      },
+      {
+        "name": "tablet",
+        "latencyMs": 25,
+        "offsetMs": -1100,
+        "driftPpm": -20,
+        "audioPpm": 10,
+        "net": {
+          "baseRttMs": 80,
+          "jitterMs": 5.1,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        },
+        "joinT": 1700000000000,
+        "when": 20.001023,
+        "errorVsIdealMs": 25.3938,
+        "clockErrMsAtDecision": -0.471,
+        "calibrationErrMs": -0.306,
+        "acmRatePpm": 0.1
+      }
+    ]
+  },
+  "lateJoiner": {
+    "joinedAfterStartSec": 7.3,
+    "decidedAfterJoinMs": 1500,
+    "late": true,
+    "latenessSec": 8.9288,
+    "startOffsetSec": 8.9288,
+    "misalignmentVsPhoneMs": -1.0102,
+    "phoneErrorVsIdealMs": 0.6306,
+    "lateErrorVsIdealMs": -0.3829,
+    "lateAcmRatePpm": -60.9,
+    "clockErrMsAtDecision": -0.332,
+    "calibrationErrMs": 0.47,
+    "spec": {
+      "name": "late-joiner",
+      "latencyMs": 120,
+      "offsetMs": 6100,
+      "driftPpm": -60,
+      "audioPpm": 55,
+      "net": {
+        "baseRttMs": 45,
+        "jitterMs": 5,
+        "spikeProb": 0.01,
+        "spikeMaxMs": 200,
+        "lossProb": 0.01
+      },
+      "joinT": 1700000047300
+    }
+  }
+}

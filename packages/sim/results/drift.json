@@ -1,0 +1,52 @@
+{
+  "name": "drift",
+  "params": {
+    "perfDriftPpm": -50,
+    "audioVsPerfPpm": 80,
+    "offsetMs": 3300,
+    "net": {
+      "baseRttMs": 40,
+      "jitterMs": 5,
+      "spikeProb": 0.01,
+      "spikeMaxMs": 200,
+      "lossProb": 0.01
+    },
+    "tickMs": 500,
+    "durationMs": 600000,
+    "acmObservationEveryMs": 500,
+    "quantumJitter": "±½ quantum (2.67 ms p-p)",
+    "osHiccups": "2% of observations, perf stamp 5–30 ms late"
+  },
+  "trueErrorAllMs": {
+    "n": 5961,
+    "mean": 1.513,
+    "rms": 1.622,
+    "p50": 1.468,
+    "p95": 2.552,
+    "max": 3.505
+  },
+  "trueErrorAfterFirstCorrectionMs": {
+    "n": 5950,
+    "mean": 1.516,
+    "rms": 1.623,
+    "p50": 1.47,
+    "p95": 2.552,
+    "max": 3.505
+  },
+  "perceivedErrorMs": {
+    "n": 1193,
+    "mean": 1.401,
+    "rms": 1.474,
+    "p50": 1.391,
+    "p95": 1.989,
+    "max": 5.459
+  },
+  "firstCorrectionAtSec": 1,
+  "rateNudges": 411,
+  "reschedules": 0,
+  "ticks": 1193,
+  "ticksWithRate1": 782,
+  "maxRateDeviation": 0.0013647376601342298,
+  "acmRatePpm": 71.22,
+  "clockDriftPpm": -49.81
+}

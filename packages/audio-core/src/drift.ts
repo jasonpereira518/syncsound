@@ -1,5 +1,3 @@
-import { todo } from './todo';
-
 export interface DriftOptions {
   /** |error| below this → do nothing (default 2 ms) */
   deadbandMs?: number;
@@ -20,38 +18,82 @@ export interface DriftDecision {
 
 /**
  * errorMs = actualPosition − expectedPosition (ms; +ve = we're ahead → slow down).
- * Called every ~500 ms.
+ * Called every ~500 ms. Hysteresis: correction starts at |e| ≥ deadband and continues until |e| < deadband/2.
  */
 export class DriftController {
-  constructor(_opts: DriftOptions = {}) {}
-  update(_errorMs: number): DriftDecision {
-    return todo('DriftController.update');
+  private readonly deadband: number;
+  private readonly maxDev: number;
+  private readonly reschedule: number;
+  private readonly windowSec: number;
+  private correcting = false;
+
+  constructor(opts: DriftOptions = {}) {
+    this.deadband = opts.deadbandMs ?? 2;
+    this.maxDev = opts.maxRateDeviation ?? 0.002;
+    this.reschedule = opts.rescheduleMs ?? 30;
+    this.windowSec = opts.correctionWindowSec ?? 4;
   }
+
+  update(errorMs: number): DriftDecision {
+    const abs = Math.abs(errorMs);
+    if (abs > this.reschedule) {
+      this.correcting = false;
+      return { action: 'reschedule', rate: 1, errorMs };
+    }
+    this.correcting = this.correcting ? abs >= this.deadband / 2 : abs >= this.deadband;
+    if (!this.correcting) return { action: 'none', rate: 1, errorMs };
+    const dev = Math.min(this.maxDev, Math.max(-this.maxDev, errorMs / 1000 / this.windowSec));
+    return { action: 'rate', rate: 1 - dev, errorMs };
+  }
+
   reset(): void {
-    todo('DriftController.reset');
+    this.correcting = false;
   }
 }
 
-/** Integrates track position over AudioContext time across playbackRate changes. */
+/**
+ * Integrates track position over AudioContext time across playbackRate changes.
+ * Before `when` the position is the start offset; when inactive, positionAt returns 0 and rate is 1.
+ */
 export class PlaybackTracker {
+  private when = 0;
+  private anchorCtx = 0;
+  private anchorPos = 0;
+  private r = 1;
+  private on = false;
+
   /** source started at ctx time `when` from track `offset` seconds, rate 1 */
-  start(_when: number, _offset: number): void {
-    todo('PlaybackTracker.start');
+  start(when: number, offset: number): void {
+    this.when = this.anchorCtx = when;
+    this.anchorPos = offset;
+    this.r = 1;
+    this.on = true;
   }
-  setRate(_ctxNow: number, _rate: number): void {
-    todo('PlaybackTracker.setRate');
+
+  setRate(ctxNow: number, rate: number): void {
+    if (!this.on) return;
+    const t = Math.max(ctxNow, this.when);
+    this.anchorPos = this.positionAt(t);
+    this.anchorCtx = t;
+    this.r = rate;
   }
+
   /** track position (s) at ctx time */
-  positionAt(_ctxSec: number): number {
-    return todo('PlaybackTracker.positionAt');
+  positionAt(ctxSec: number): number {
+    if (!this.on) return 0;
+    return this.anchorPos + this.r * (Math.max(ctxSec, this.when) - this.anchorCtx);
   }
+
   get rate(): number {
-    return todo('PlaybackTracker.rate');
+    return this.on ? this.r : 1;
   }
+
   get active(): boolean {
-    return todo('PlaybackTracker.active');
+    return this.on;
   }
+
   stop(): void {
-    todo('PlaybackTracker.stop');
+    this.on = false;
+    this.r = 1;
   }
 }

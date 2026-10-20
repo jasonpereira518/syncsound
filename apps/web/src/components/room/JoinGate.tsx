@@ -1,0 +1,166 @@
+'use client';
+import { useEffect, useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { isValidRoomCode } from '@syncsound/protocol';
+import { roomActions, useRoomStore } from '@/store/roomStore';
+import { getRoomInfo } from '@/lib/roomClient';
+import { Icon, inputClass } from '../ui';
+import { errMsg } from './shared';
+
+type Info = { state: 'loading' } | { state: 'ok'; hasPassword: boolean } | { state: 'missing' } | { state: 'unreachable' };
+const NAME_KEY = 'syncsound:name';
+
+export function JoinGate({ code }: { code: string }) {
+  const conn = useRoomStore((s) => s.conn);
+  const validCode = isValidRoomCode(code);
+  const [info, setInfo] = useState<Info>(validCode ? { state: 'loading' } : { state: 'missing' });
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    try {
+      setName(localStorage.getItem(NAME_KEY) ?? '');
+    } catch {
+      /* storage blocked */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!validCode) return;
+    let live = true;
+    getRoomInfo(code)
+      .then((r) => live && setInfo(r.exists ? { state: 'ok', hasPassword: r.hasPassword } : { state: 'missing' }))
+      .catch(() => live && setInfo({ state: 'unreachable' }));
+    return () => {
+      live = false;
+    };
+  }, [code, validCode]);
+
+  const onJoin = (e: FormEvent) => {
+    e.preventDefault();
+    const n = name.trim().slice(0, 40);
+    if (!n) {
+      setError('Give this speaker a name so the host can find it.');
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      localStorage.setItem(NAME_KEY, n);
+    } catch {
+      /* storage blocked */
+    }
+    // Called synchronously inside the click/submit gesture: the engine unlocks the AudioContext here.
+    let p: Promise<void>;
+    try {
+      p = roomActions.join({ code, name: n, password: password || undefined });
+    } catch (err) {
+      p = Promise.reject(err);
+    }
+    p.catch((err: unknown) => setError(errMsg(err))).finally(() => setBusy(false));
+  };
+
+  if (info.state === 'missing') {
+    return (
+      <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 py-10">
+        <p className="font-mono text-sm tracking-[0.3em] text-ink-400">{code || '------'}</p>
+        <h1 className="font-display text-4xl font-bold tracking-tight">Room not found</h1>
+        <p className="text-ink-300">
+          This room doesn&rsquo;t exist or has closed. Rooms disappear when everyone leaves. Double-check the code with the
+          host or start a new one.
+        </p>
+        <Link
+          href="/"
+          className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent px-5 font-semibold text-accent-ink"
+        >
+          Back to SyncSound
+        </Link>
+      </main>
+    );
+  }
+
+  const needsPassword = info.state === 'ok' && info.hasPassword;
+  const connecting = busy || conn === 'connecting';
+
+  return (
+    <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
+      <Link href="/" className="mb-8 inline-flex min-h-11 items-center gap-2 self-start text-sm text-ink-400 hover:text-ink-100">
+        <span aria-hidden className="grid size-7 place-items-center rounded-md bg-accent text-accent-ink">
+          <Icon name="wave" className="size-4" />
+        </span>
+        SyncSound
+      </Link>
+      <p className="font-mono text-xs tracking-widest text-ink-400 uppercase">Room</p>
+      <p className="font-mono text-5xl font-bold tracking-[0.18em] text-accent">{code}</p>
+      <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">Become a speaker</h1>
+
+      <form onSubmit={onJoin} className="mt-6 flex flex-col gap-4">
+        <div>
+          <label htmlFor="join-name" className="mb-1 block text-sm text-ink-200">
+            Speaker name
+          </label>
+          <input
+            id="join-name"
+            data-testid="join-name"
+            autoComplete="nickname"
+            maxLength={40}
+            placeholder="e.g. Maya's phone"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        {needsPassword && (
+          <div>
+            <label htmlFor="join-pw" className="mb-1 block text-sm text-ink-200">
+              Room password
+            </label>
+            <input
+              id="join-pw"
+              type="password"
+              autoComplete="current-password"
+              maxLength={100}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+        )}
+        {info.state === 'unreachable' && (
+          <p className="text-sm text-warn">Couldn&rsquo;t reach the room server to check this room. You can still try to join.</p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-bad">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          data-testid="join-button"
+          disabled={connecting}
+          className="mt-2 inline-flex min-h-16 items-center justify-center gap-3 rounded-2xl bg-accent px-6 font-display text-xl font-semibold text-accent-ink shadow-[0_0_48px_-8px_var(--color-accent)] transition hover:brightness-110 disabled:opacity-60"
+        >
+          <Icon name="volume" className="size-6" />
+          {connecting ? 'Joining…' : 'Join the speaker array'}
+        </button>
+      </form>
+
+      <ul className="mt-8 space-y-3 text-sm text-ink-400">
+        <li className="flex gap-3">
+          <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-accent" />
+          Tapping join turns on audio. Your screen will stay awake while you&rsquo;re in the room.
+        </li>
+        <li className="flex gap-3">
+          <Icon name="phone" className="mt-0.5 size-4 shrink-0 text-accent" />
+          Keep this tab open and in the foreground. iPhones pause audio from background tabs and locked screens.
+        </li>
+        <li className="flex gap-3">
+          <Icon name="bluetooth" className="mt-0.5 size-4 shrink-0 text-accent" />
+          Bluetooth speakers add delay. Run the calibration once everyone has joined.
+        </li>
+      </ul>
+    </main>
+  );
+}

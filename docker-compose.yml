@@ -1,0 +1,33 @@
+# Local full stack: `docker compose up --build` → web on :3000, server on :8787.
+services:
+  server:
+    build: { context: ., target: server }
+    ports: ['8787:8787']
+    environment:
+      PORT: 8787
+      DATA_DIR: /data
+      ROOM_TTL_MINUTES: 60
+    volumes: ['syncsound-data:/data']
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        # Browser-visible server URL (baked in at build time). Use your LAN IP for phones.
+        NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:-}
+        NEXT_PUBLIC_SPOTIFY_CLIENT_ID: ${NEXT_PUBLIC_SPOTIFY_CLIENT_ID:-}
+        NEXT_PUBLIC_SPOTIFY_REDIRECT_URI: ${NEXT_PUBLIC_SPOTIFY_REDIRECT_URI:-}
+        NEXT_PUBLIC_APPLE_MUSIC_DEVELOPER_TOKEN: ${NEXT_PUBLIC_APPLE_MUSIC_DEVELOPER_TOKEN:-}
+    ports: ['3000:3000']
+    depends_on: [server]
+  # Optional S3-compatible storage for uploads: `docker compose --profile s3 up`
+  minio:
+    profiles: [s3]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    ports: ['9000:9000', '9001:9001']
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+volumes:
+  syncsound-data:

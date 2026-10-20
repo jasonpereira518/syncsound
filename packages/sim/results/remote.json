@@ -1,0 +1,95 @@
+{
+  "name": "remote",
+  "consistentLatency": {
+    "name": "consistent",
+    "params": {
+      "initialPosMs": -650,
+      "ratePpm": 300,
+      "noiseMs": 20,
+      "quantumMs": 10,
+      "stallAtMs": 300000,
+      "stallMs": 400,
+      "seekLatency": "N(300, 40) clamped [150, 400] ms",
+      "pollMs": 500,
+      "durationMs": 600000,
+      "controller": "defaults (enter 80, exit 30, confirm 2, min interval 3 s)"
+    },
+    "trueErrorAfter20sMs": {
+      "n": 1161,
+      "mean": 29.028,
+      "rms": 41.427,
+      "p50": 28.815,
+      "p95": 67.965,
+      "max": 381.022
+    },
+    "controllerStats": {
+      "meanAbsErrorMs": 35.95,
+      "p95AbsErrorMs": 70,
+      "seeks": 5,
+      "seekLatencyMs": 276,
+      "samples": 1201
+    },
+    "seeks": 5,
+    "seekTimesSec": [
+      0.5,
+      3.5,
+      6.5,
+      266,
+      300.5
+    ],
+    "minGapBetweenSeeksMs": 3000,
+    "firstWithin30msAtSec": 7
+  },
+  "erraticLatency": {
+    "name": "erratic",
+    "params": {
+      "initialPosMs": -650,
+      "ratePpm": 300,
+      "noiseMs": 20,
+      "quantumMs": 10,
+      "stallAtMs": 300000,
+      "stallMs": 400,
+      "seekLatency": "U(150, 400) ms",
+      "pollMs": 500,
+      "durationMs": 600000,
+      "controller": "defaults (enter 80, exit 30, confirm 2, min interval 3 s)"
+    },
+    "trueErrorAfter20sMs": {
+      "n": 1161,
+      "mean": 29.337,
+      "rms": 47.781,
+      "p50": 34.669,
+      "p95": 73.669,
+      "max": 381.188
+    },
+    "controllerStats": {
+      "meanAbsErrorMs": 38.25,
+      "p95AbsErrorMs": 80,
+      "seeks": 17,
+      "seekLatencyMs": 286,
+      "samples": 1201
+    },
+    "seeks": 17,
+    "seekTimesSec": [
+      0.5,
+      3.5,
+      6.5,
+      181,
+      184,
+      187,
+      300.5,
+      303.5,
+      306.5,
+      309.5,
+      312.5,
+      578,
+      581,
+      584,
+      587,
+      590,
+      593.5
+    ],
+    "minGapBetweenSeeksMs": 3000,
+    "firstWithin30msAtSec": 7
+  }
+}

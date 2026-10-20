@@ -1,0 +1,286 @@
+{
+  "sampleRate": 48000,
+  "inputLatencyMs": 12,
+  "latency": [
+    {
+      "id": "phone",
+      "truthMs": 10,
+      "measuredMs": 10.25,
+      "errorMs": 0.25,
+      "snrDb": 67.47
+    },
+    {
+      "id": "laptop",
+      "truthMs": 25,
+      "measuredMs": 25.06,
+      "errorMs": 0.06,
+      "snrDb": 66.3
+    },
+    {
+      "id": "bt",
+      "truthMs": 195,
+      "measuredMs": 195.01,
+      "errorMs": 0.01,
+      "snrDb": 64.54
+    },
+    {
+      "id": "desktop",
+      "truthMs": 0,
+      "measuredMs": 0,
+      "errorMs": 0,
+      "snrDb": 68.21
+    }
+  ],
+  "response": [
+    {
+      "id": "phone",
+      "passbandHz": [
+        233.02,
+        12000
+      ],
+      "maxErrDb": 0.06,
+      "rolloffTrueHz": 233.02,
+      "rolloffMeasuredHz": 232.93,
+      "bassCapable": false
+    },
+    {
+      "id": "laptop",
+      "passbandHz": [
+        144.2,
+        12000
+      ],
+      "maxErrDb": 0.09,
+      "rolloffTrueHz": 144.2,
+      "rolloffMeasuredHz": 144.51,
+      "bassCapable": false
+    },
+    {
+      "id": "bt",
+      "passbandHz": [
+        50,
+        12000
+      ],
+      "maxErrDb": 0.33,
+      "rolloffTrueHz": 40,
+      "rolloffMeasuredHz": 41.29,
+      "bassCapable": true
+    },
+    {
+      "id": "desktop",
+      "passbandHz": [
+        50,
+        12000
+      ],
+      "maxErrDb": 0.59,
+      "rolloffTrueHz": 40,
+      "rolloffMeasuredHz": 42.84,
+      "bassCapable": true
+    }
+  ],
+  "convergence": {
+    "note": "mean pairwise RMS difference of the TRUE responses before vs after applying each fitted EQ; level removed",
+    "commonEqBand": {
+      "band": [
+        279.52,
+        8000
+      ],
+      "beforeDb": 1.84,
+      "afterDb": 0.41,
+      "reductionPct": 77.8
+    },
+    "band200to8k": {
+      "band": [
+        200,
+        8000
+      ],
+      "beforeDb": 2.22,
+      "afterDb": 1.37,
+      "reductionPct": 38.25
+    }
+  },
+  "eq": {
+    "phone": {
+      "enabled": true,
+      "bands": [
+        {
+          "type": "peaking",
+          "freq": 285,
+          "q": 3.84,
+          "gainDb": 3.4
+        },
+        {
+          "type": "peaking",
+          "freq": 4183,
+          "q": 1.48,
+          "gainDb": -5.9
+        },
+        {
+          "type": "peaking",
+          "freq": 370,
+          "q": 0.58,
+          "gainDb": 2.5
+        },
+        {
+          "type": "peaking",
+          "freq": 13669,
+          "q": 1.71,
+          "gainDb": -1.4
+        },
+        {
+          "type": "peaking",
+          "freq": 1613,
+          "q": 0.92,
+          "gainDb": 1
+        }
+      ],
+      "highpassHz": 233,
+      "preampDb": -4.2,
+      "source": "measured",
+      "rmsErrorBeforeDb": 2.64,
+      "rmsErrorAfterDb": 0.49
+    },
+    "laptop": {
+      "enabled": true,
+      "bands": [
+        {
+          "type": "peaking",
+          "freq": 174,
+          "q": 3.13,
+          "gainDb": 3.1
+        },
+        {
+          "type": "peaking",
+          "freq": 220,
+          "q": 1.8,
+          "gainDb": 3.8
+        },
+        {
+          "type": "peaking",
+          "freq": 13669,
+          "q": 0.92,
+          "gainDb": -2.7
+        },
+        {
+          "type": "peaking",
+          "freq": 6267,
+          "q": 0.82,
+          "gainDb": -1.6
+        }
+      ],
+      "highpassHz": 145,
+      "preampDb": -4.1,
+      "source": "measured",
+      "rmsErrorBeforeDb": 2.15,
+      "rmsErrorAfterDb": 0.6
+    },
+    "bt": {
+      "enabled": true,
+      "bands": [
+        {
+          "type": "peaking",
+          "freq": 8863,
+          "q": 1.2,
+          "gainDb": 1.2
+        },
+        {
+          "type": "peaking",
+          "freq": 12177,
+          "q": 1.12,
+          "gainDb": 0.9
+        },
+        {
+          "type": "peaking",
+          "freq": 604,
+          "q": 0.5,
+          "gainDb": -1.8
+        },
+        {
+          "type": "peaking",
+          "freq": 160,
+          "q": 0.65,
+          "gainDb": -0.3
+        }
+      ],
+      "highpassHz": null,
+      "preampDb": -1.7,
+      "source": "measured",
+      "rmsErrorBeforeDb": 1.25,
+      "rmsErrorAfterDb": 0.93
+    },
+    "desktop": {
+      "enabled": true,
+      "bands": [
+        {
+          "type": "peaking",
+          "freq": 13669,
+          "q": 0.92,
+          "gainDb": -3.2
+        },
+        {
+          "type": "peaking",
+          "freq": 5424,
+          "q": 0.82,
+          "gainDb": -1.5
+        }
+      ],
+      "highpassHz": null,
+      "preampDb": 0,
+      "source": "measured",
+      "rmsErrorBeforeDb": 1.73,
+      "rmsErrorAfterDb": 1.16
+    }
+  },
+  "trims": {
+    "phone": -1.6088269871766983,
+    "laptop": 0,
+    "bt": -0.7907195672372609,
+    "desktop": -5.31173577500207
+  },
+  "safety": [
+    {
+      "id": "phone",
+      "maxBandBoostDb": 3.4,
+      "maxEqBelowRolloffDb": -0.12,
+      "maxOverallGainDb": -0.04,
+      "preampDb": -4.2
+    },
+    {
+      "id": "laptop",
+      "maxBandBoostDb": 3.8,
+      "maxEqBelowRolloffDb": -0.73,
+      "maxOverallGainDb": 0,
+      "preampDb": -4.1
+    },
+    {
+      "id": "bt",
+      "maxBandBoostDb": 1.2,
+      "maxEqBelowRolloffDb": -0.02,
+      "maxOverallGainDb": -0.03,
+      "preampDb": -1.7
+    },
+    {
+      "id": "desktop",
+      "maxBandBoostDb": 0,
+      "maxEqBelowRolloffDb": 0,
+      "maxOverallGainDb": 0,
+      "preampDb": 0
+    }
+  ],
+  "noisyRoom": {
+    "warnings": [
+      "The room is noisy (signal-to-noise: phone 4 dB, laptop 3 dB, bt 4 dB, desktop 1 dB) — results may be less accurate; try a quieter moment."
+    ],
+    "latencyErrorsMs": [
+      0.16,
+      0.05,
+      0.07,
+      0
+    ]
+  },
+  "unplugged": {
+    "heard": false,
+    "warnings": [
+      "Couldn't hear laptop — is its volume up?"
+    ]
+  }
+}
