@@ -198,6 +198,7 @@ export function createHttpHandler(d: HttpDeps) {
 
     if (get && p === '/health') return json(res, 200, { ok: true });
     if (m === 'POST' && p === '/api/rooms') {
+      if (overLimit(`rooms:${req.socket.remoteAddress}`, 30, 60_000, Date.now())) throw new HttpError(429, 'too many rooms created, slow down');
       const parsed = CreateRoomRequest.safeParse(await readJson(req));
       if (!parsed.success) throw new HttpError(400, 'invalid request');
       return json(res, 201, d.manager.create(parsed.data.password || undefined, d.clock()));
@@ -208,7 +209,10 @@ export function createHttpHandler(d: HttpDeps) {
       return json(res, 200, { exists: !!room, hasPassword: room?.state.settings.hasPassword ?? false });
     }
     if (get && p === '/api/demo') return json(res, 200, await demoList(req, d));
-    if (m === 'POST' && p === '/api/assets') return upload(req, res, d);
+    if (m === 'POST' && p === '/api/assets') {
+      if (overLimit(`assets:${req.socket.remoteAddress}`, 60, 60_000, Date.now())) throw new HttpError(429, 'too many uploads, slow down');
+      return upload(req, res, d);
+    }
     if (get && parts[0] === 'assets' && parts[1] === 'demo' && parts.length === 3) {
       const file = seg(2);
       if (!DEMO_FILE.test(file) || file.includes('..')) throw new HttpError(400, 'bad file name');
@@ -252,4 +256,17 @@ export function createHttpHandler(d: HttpDeps) {
       json(res, status, { error: e instanceof HttpError ? e.message : 'internal error' });
     });
   };
+}
+
+// ponytail: per-process fixed-window limiter keyed by remote address; behind a proxy, key on a trusted
+// X-Forwarded-For instead, and move to a shared store if the server is ever scaled out.
+const windows = new Map<string, { start: number; count: number }>();
+export function overLimit(key: string, max: number, windowMs: number, now: number): boolean {
+  const w = windows.get(key);
+  if (!w || now - w.start >= windowMs) {
+    if (windows.size > 10_000) for (const [k, v] of windows) if (now - v.start >= windowMs) windows.delete(k);
+    windows.set(key, { start: now, count: 1 });
+    return false;
+  }
+  return ++w.count > max;
 }

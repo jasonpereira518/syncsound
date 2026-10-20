@@ -66,7 +66,7 @@ function DebugBody() {
           <h3 className="mb-1 text-[11px] tracking-widest text-accent uppercase">Clock</h3>
           <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular">
             <Row k="conn" v={conn} />
-            <Row k="offset" v={clock ? `${fmtSigned(clock.offsetMs, 2)} ms` : '—'} />
+            <Row k="offset vs wall clock" v={clock ? `${fmtSigned(clock.offsetMs - performance.timeOrigin, 2)} ms` : '—'} />
             <Row k="rtt" v={fmtMs(clock?.rttMs, 2)} />
             <Row k="jitter" v={fmtMs(clock?.jitterMs, 2)} />
             <Row k="drift" v={clock ? `${fmtSigned(clock.driftPpm, 1)} ppm` : '—'} />

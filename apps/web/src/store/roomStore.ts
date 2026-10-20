@@ -174,7 +174,8 @@ function sendStats(s: Session) {
     s.client.send({
       type: 'STATS',
       stats: {
-        offsetMs: fin(est.offsetMs),
+        // display value: server clock − this device's wall clock (ClockSync's offset is relative to performance.now())
+        offsetMs: fin(est.offsetMs - performance.timeOrigin),
         rttMs: fin(est.rttMs),
         jitterMs: fin(est.jitterMs),
         driftPpm: fin(est.driftPpm),

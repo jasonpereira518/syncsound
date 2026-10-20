@@ -67,3 +67,14 @@ describe('RoomManager', () => {
     expect(room.state.scene.devices.gone).toBeUndefined();
   });
 });
+
+describe('HTTP fixed-window limiter', () => {
+  it('allows max requests per window then blocks until the window rolls', async () => {
+    const { overLimit } = await import('../src/http');
+    const t = 1_000;
+    for (let i = 0; i < 30; i++) expect(overLimit('k', 30, 60_000, t + i)).toBe(false);
+    expect(overLimit('k', 30, 60_000, t + 100)).toBe(true);
+    expect(overLimit('k', 30, 60_000, t + 60_001)).toBe(false);
+    expect(overLimit('other', 30, 60_000, t + 100)).toBe(false);
+  });
+});

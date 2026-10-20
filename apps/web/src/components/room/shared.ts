@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Device, RoomState, Track } from '@syncsound/protocol';
-import { useRoomStore } from '@/store/roomStore';
+import { roomNowMs as engineRoomNowMs, useRoomStore } from '@/store/roomStore';
 import type { ClockStats } from '@/store/types';
 import type { SyncStatus } from '../ui';
 
@@ -9,9 +9,9 @@ export function useCanControl(): boolean {
   return useRoomStore((s) => s.isHost || !s.room?.settings.hostOnlyControl);
 }
 
-/** Room time ≈ local epoch-ms + clock offset (server minus local). */
+/** Room time now (ms). ClockSync works on performance.now() values, so offset = room − performance.now(). */
 export function roomNowMs(clock: ClockStats | null): number {
-  return performance.timeOrigin + performance.now() + (clock?.offsetMs ?? 0);
+  return engineRoomNowMs() ?? performance.now() + (clock?.offsetMs ?? 0);
 }
 
 export function currentTrack(room: RoomState | null): Track | null {

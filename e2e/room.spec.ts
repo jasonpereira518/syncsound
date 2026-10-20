@@ -50,6 +50,11 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   const heard = plays.map((p) => p.expectedHeardEpochMs);
   console.log('play: predicted heard-instant spread (ms) =', spread(heard).toFixed(3));
   expect(spread(heard)).toBeLessThan(MAX_START_DEVIATION_MS);
+  // the seek bar shows the live room position (a couple of seconds in, not pinned at an end)
+  await host.page.waitForTimeout(2500);
+  const shown = Number(await host.page.getByTestId('seek-bar').inputValue());
+  expect(shown).toBeGreaterThan(0.5);
+  expect(shown).toBeLessThan(10);
 
   // --- pause ---
   const before = await Promise.all(all.map(({ page }) => schedules(page).then((s) => s.length)));
