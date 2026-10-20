@@ -4,7 +4,7 @@
 - [x] Contracts (protocol zod schemas, audio-core API) + parallel workstreams integrated
 - [x] M1 – Rooms + clock sync (create/join, QR, device list, NTP sync, debug panel; sim <10 ms w/ jitter)
 - [x] M2 – Synchronized file playback (upload, pre-buffer, schedule, pause/seek, late join, drift correction)
-- [ ] M3 – Latency calibration (auto estimate, manual offset, chirp calibration, propagation alignment)
+- [x] M3 – Latency calibration (auto estimate, manual offset, chirp calibration, propagation alignment)
 - [ ] M4 – Spatial engine + stage UI (objects, DBAP, smooth drag, presets, bass management, undo/redo)
 - [ ] M5 – Device ID + auto-EQ (chirp-ID mapping, sweep, EQ fit, loudness, A/B)
 - [ ] M6 – Video mode (tab capture + WebRTC, local-file video, YouTube, DRM-silence detection)
