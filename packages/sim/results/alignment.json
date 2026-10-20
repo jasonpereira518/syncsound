@@ -10,22 +10,22 @@
       5.93,
       5.1
     ],
-    "maxPairwiseMisalignmentMs": 0.7098,
+    "maxPairwiseMisalignmentMs": 0.6854,
     "pairs": [
       {
         "a": "phone",
         "b": "laptop",
-        "lagMs": 0.7098
+        "lagMs": 0.6854
       },
       {
         "a": "phone",
         "b": "bt-speaker",
-        "lagMs": 0.1096
+        "lagMs": 0.0841
       },
       {
         "a": "phone",
         "b": "tablet",
-        "lagMs": 0.2074
+        "lagMs": 0.1796
       },
       {
         "a": "laptop",
@@ -35,12 +35,12 @@
       {
         "a": "laptop",
         "b": "tablet",
-        "lagMs": -0.5019
+        "lagMs": -0.5045
       },
       {
         "a": "bt-speaker",
         "b": "tablet",
-        "lagMs": 0.0973
+        "lagMs": 0.0924
       }
     ],
     "devices": [
@@ -58,11 +58,11 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.99018,
-        "errorVsIdealMs": 0.4967,
+        "when": 19.990207,
+        "errorVsIdealMs": 0.5212,
         "clockErrMsAtDecision": -0.374,
         "calibrationErrMs": -0.177,
-        "acmRatePpm": 18.2
+        "acmRatePpm": 22.4
       },
       {
         "name": "laptop",
@@ -118,11 +118,11 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.976329,
-        "errorVsIdealMs": 0.7031,
+        "when": 19.976326,
+        "errorVsIdealMs": 0.6992,
         "clockErrMsAtDecision": -0.471,
         "calibrationErrMs": -0.306,
-        "acmRatePpm": 0.1
+        "acmRatePpm": 1.5
       }
     ]
   },
@@ -134,22 +134,22 @@
       30
     ],
     "budgetBoundMs": 7,
-    "maxPairwiseMisalignmentMs": 2.4946,
+    "maxPairwiseMisalignmentMs": 2.4983,
     "pairs": [
       {
         "a": "phone",
         "b": "laptop",
-        "lagMs": 0.9875
+        "lagMs": 0.9603
       },
       {
         "a": "phone",
         "b": "bt-speaker",
-        "lagMs": -0.9263
+        "lagMs": -0.955
       },
       {
         "a": "phone",
         "b": "tablet",
-        "lagMs": -1.5049
+        "lagMs": -1.5378
       },
       {
         "a": "laptop",
@@ -159,12 +159,12 @@
       {
         "a": "laptop",
         "b": "tablet",
-        "lagMs": -2.4946
+        "lagMs": -2.4983
       },
       {
         "a": "bt-speaker",
         "b": "tablet",
-        "lagMs": -0.5812
+        "lagMs": -0.5843
       }
     ],
     "devices": [
@@ -182,11 +182,11 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.991179,
-        "errorVsIdealMs": 1.4952,
+        "when": 19.991206,
+        "errorVsIdealMs": 1.5208,
         "clockErrMsAtDecision": -1.367,
         "calibrationErrMs": -0.177,
-        "acmRatePpm": 18.2
+        "acmRatePpm": 22.4
       },
       {
         "name": "laptop",
@@ -242,31 +242,31 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.975616,
-        "errorVsIdealMs": -0.014,
+        "when": 19.975613,
+        "errorVsIdealMs": -0.0183,
         "clockErrMsAtDecision": 0.169,
         "calibrationErrMs": -0.306,
-        "acmRatePpm": 0.1
+        "acmRatePpm": 1.5
       }
     ]
   },
   "uncompensated": {
-    "maxPairwiseMisalignmentMs": 169.8731,
+    "maxPairwiseMisalignmentMs": 169.846,
     "pairs": [
       {
         "a": "phone",
         "b": "laptop",
-        "lagMs": 30.4149
+        "lagMs": 30.388
       },
       {
         "a": "phone",
         "b": "bt-speaker",
-        "lagMs": 169.8731
+        "lagMs": 169.846
       },
       {
         "a": "phone",
         "b": "tablet",
-        "lagMs": 15.0802
+        "lagMs": 15.0488
       },
       {
         "a": "laptop",
@@ -276,12 +276,12 @@
       {
         "a": "laptop",
         "b": "tablet",
-        "lagMs": -15.3351
+        "lagMs": -15.3365
       },
       {
         "a": "bt-speaker",
         "b": "tablet",
-        "lagMs": -154.7909
+        "lagMs": -154.7921
       }
     ],
     "devices": [
@@ -299,11 +299,11 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 20.000003,
-        "errorVsIdealMs": 10.3143,
+        "when": 20.000029,
+        "errorVsIdealMs": 10.3413,
         "clockErrMsAtDecision": -0.374,
         "calibrationErrMs": -0.177,
-        "acmRatePpm": 18.2
+        "acmRatePpm": 22.4
       },
       {
         "name": "laptop",
@@ -359,11 +359,11 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 20.001023,
-        "errorVsIdealMs": 25.3938,
+        "when": 20.00102,
+        "errorVsIdealMs": 25.3925,
         "clockErrMsAtDecision": -0.471,
         "calibrationErrMs": -0.306,
-        "acmRatePpm": 0.1
+        "acmRatePpm": 1.5
       }
     ]
   },
@@ -373,8 +373,8 @@
     "late": true,
     "latenessSec": 8.9288,
     "startOffsetSec": 8.9288,
-    "misalignmentVsPhoneMs": -1.0102,
-    "phoneErrorVsIdealMs": 0.6306,
+    "misalignmentVsPhoneMs": -1.0362,
+    "phoneErrorVsIdealMs": 0.6603,
     "lateErrorVsIdealMs": -0.3829,
     "lateAcmRatePpm": -60.9,
     "clockErrMsAtDecision": -0.332,

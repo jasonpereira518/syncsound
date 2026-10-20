@@ -1,0 +1,40 @@
+{
+  "description": "Simulated sync-measurement run: 4 devices, 60 clicks, residual + 0.4 ms rms jitter",
+  "maxRecoveryErrorMs": 0.17471237495601621,
+  "overall": {
+    "p50AbsMs": 1.9116300379087736,
+    "p95AbsMs": 3.1634486098469754,
+    "maxAbsMs": 3.497596677129488,
+    "samples": 240
+  },
+  "devices": [
+    {
+      "id": "phone",
+      "detected": 60,
+      "meanMs": 0.9727454883398091,
+      "stdMs": 0.3778346808471949,
+      "p95AbsMs": 1.5589754320450648
+    },
+    {
+      "id": "laptop",
+      "detected": 60,
+      "meanMs": -2.622432603908879,
+      "stdMs": 0.328260067878833,
+      "p95AbsMs": 3.1634486098469754
+    },
+    {
+      "id": "bt",
+      "detected": 60,
+      "meanMs": 2.844814061647147,
+      "stdMs": 0.3024824431850006,
+      "p95AbsMs": 3.2965707439910847
+    },
+    {
+      "id": "desktop",
+      "detected": 60,
+      "meanMs": -1.1951269460780793,
+      "stdMs": 0.2898034255765037,
+      "p95AbsMs": 1.591738691186464
+    }
+  ]
+}

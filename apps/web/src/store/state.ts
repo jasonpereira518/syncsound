@@ -39,6 +39,17 @@ export const initialState = (): RoomStoreState => ({
     warnings: [],
     emitting: false,
   },
+  syncMeasure: {
+    running: false,
+    step: 'idle',
+    progress: 0,
+    message: '',
+    durationSec: 60,
+    devices: [],
+    histogram: null,
+    overall: null,
+    warnings: [],
+  },
   capture: { active: false, receiving: false, silent: false, error: null, peers: 0, pipelineDelayMs: null },
   remote: { spotify: 'unconfigured', apple: 'unconfigured', errorMs: null, meanAbsErrorMs: null, seeks: 0, message: null },
   mix: null,
@@ -51,7 +62,7 @@ export const initialState = (): RoomStoreState => ({
 
 export const useRoomStore = create<RoomStoreState>(() => initialState());
 
-type Sub = 'engine' | 'calibration' | 'capture' | 'remote';
+type Sub = 'engine' | 'calibration' | 'syncMeasure' | 'capture' | 'remote';
 /** shallow-merge into one sub-state object, skipping no-op updates */
 export function patch<K extends Sub>(key: K, p: Partial<RoomStoreState[K]>): void {
   const cur = useRoomStore.getState()[key];

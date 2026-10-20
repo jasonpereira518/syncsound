@@ -4,6 +4,7 @@ import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { CalibrationUi } from '@/store/types';
 import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui';
 import { act, useCanControl } from './shared';
+import { SyncMeasurePanel } from './SyncMeasure';
 
 const STEPS = ['Place this phone at the listening position', 'Allow microphone', 'Chirp ID', 'Sweep', 'EQ', 'Done'];
 
@@ -219,6 +220,7 @@ export function CalibrationWizard() {
             ))}
         </ul>
       </div>
+      <SyncMeasurePanel />
     </Panel>
   );
 }

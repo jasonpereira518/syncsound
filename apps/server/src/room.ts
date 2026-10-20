@@ -342,6 +342,7 @@ export class Room {
           listenerId: sender.id,
           startRoomTime: now + Math.max(this.lead(), CALIBRATION_MIN_LEAD_MS),
           slots: msg.slots,
+          ...(msg.purpose ? { purpose: msg.purpose } : {}),
         };
         return [this.out('all', { type: 'CALIBRATION_PLAN', plan })];
       }

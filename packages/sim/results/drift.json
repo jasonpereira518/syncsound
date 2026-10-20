@@ -19,34 +19,34 @@
   },
   "trueErrorAllMs": {
     "n": 5961,
-    "mean": 1.513,
-    "rms": 1.622,
-    "p50": 1.468,
-    "p95": 2.552,
-    "max": 3.505
+    "mean": 1.482,
+    "rms": 1.588,
+    "p50": 1.463,
+    "p95": 2.446,
+    "max": 3.399
   },
   "trueErrorAfterFirstCorrectionMs": {
-    "n": 5950,
-    "mean": 1.516,
-    "rms": 1.623,
-    "p50": 1.47,
-    "p95": 2.552,
-    "max": 3.505
+    "n": 5665,
+    "mean": 1.482,
+    "rms": 1.573,
+    "p50": 1.463,
+    "p95": 2.381,
+    "max": 3.36
   },
   "perceivedErrorMs": {
     "n": 1193,
-    "mean": 1.401,
-    "rms": 1.474,
-    "p50": 1.391,
-    "p95": 1.989,
-    "max": 5.459
+    "mean": 1.375,
+    "rms": 1.454,
+    "p50": 1.381,
+    "p95": 1.972,
+    "max": 2.357
   },
-  "firstCorrectionAtSec": 1,
+  "firstCorrectionAtSec": 29.5,
   "rateNudges": 411,
   "reschedules": 0,
   "ticks": 1193,
   "ticksWithRate1": 782,
-  "maxRateDeviation": 0.0013647376601342298,
+  "maxRateDeviation": 0.0005892094569048822,
   "acmRatePpm": 71.22,
   "clockDriftPpm": -49.81
 }

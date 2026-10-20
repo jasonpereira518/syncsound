@@ -129,7 +129,7 @@ export class AudioEngine {
     this.assets.clear();
     const ctx = this.ctx;
     this.ctx = null;
-    this.loopbackNodes = null;
+    this.loopbackNode = null;
     this.voice = null;
     this.external = null;
     this.chain?.dispose();
@@ -524,40 +524,36 @@ export class AudioEngine {
     return Math.max(when, ctx.currentTime + 0.005);
   }
 
-  private loopbackNodes: { input: DelayNode; dest: MediaStreamAudioDestinationNode } | null = null;
+  private loopbackNode: DelayNode | null = null;
 
   /**
-   * Test mode `?loopbackMic=<delayMs>`: calibration emissions of THIS device are also routed (delayed) into a
-   * MediaStream that the calibration wizard records instead of the microphone. A stand-in "loopback mic" so the
-   * whole wizard can be exercised headlessly; never active unless the query param is present.
+   * Test mode `?loopbackMic=<delayMs>`: calibration/measurement emissions of THIS device are also routed (delayed)
+   * straight into the calibration recorder inside the audio graph (sample-locked), instead of the microphone.
+   * A stand-in "loopback mic" so the whole wizard can run headlessly; inactive unless the query param is present.
    */
-  loopback(): { input: DelayNode; dest: MediaStreamAudioDestinationNode } | null {
+  loopback(): DelayNode | null {
     const ctx = this.ctx;
     if (!ctx || typeof location === 'undefined') return null;
     const raw = new URLSearchParams(location.search).get('loopbackMic');
     if (raw === null) return null;
-    if (!this.loopbackNodes) {
-      const delaySec = Math.min(Math.max(Number(raw) || 0, 0), 1000) / 1000;
-      const input = ctx.createDelay(1.5);
-      input.delayTime.value = delaySec;
-      const dest = ctx.createMediaStreamDestination();
-      dest.channelCount = 1;
-      input.connect(dest);
-      this.loopbackNodes = { input, dest };
+    if (!this.loopbackNode) {
+      this.loopbackNode = ctx.createDelay(1.5);
+      this.loopbackNode.delayTime.value = Math.min(Math.max(Number(raw) || 0, 0), 1000) / 1000;
     }
-    return this.loopbackNodes;
+    return this.loopbackNode;
   }
 
   /** calibration emission: auto-only compensation, raw to the destination (no EQ/spatial) */
-  emitAt(samples: Float32Array, roomMs: number): { startCtx: number; endCtx: number } | null {
+  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto'): { startCtx: number; endCtx: number } | null {
     const ctx = this.ctx;
     if (!ctx) return null;
     const src = ctx.createBufferSource();
     src.buffer = this.toBuffer(samples);
     src.connect(ctx.destination);
     const lb = this.loopback();
-    if (lb) src.connect(lb.input);
-    const when = snapToSampleGrid(this.oneShotWhen(roomMs, this.autoCompensationSec()), 0, ctx.sampleRate).when;
+    if (lb) src.connect(lb);
+    const c = comp === 'full' ? this.compensationSec() : this.autoCompensationSec();
+    const when = snapToSampleGrid(this.oneShotWhen(roomMs, c), 0, ctx.sampleRate).when;
     src.start(when);
     return { startCtx: when, endCtx: when + src.buffer.duration };
   }

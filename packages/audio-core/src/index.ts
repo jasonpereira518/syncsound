@@ -12,3 +12,4 @@ export * from './eq';
 export * from './loudness';
 export * from './wav';
 export * from './calibration';
+export * from './syncMeasure';

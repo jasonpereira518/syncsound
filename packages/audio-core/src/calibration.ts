@@ -55,7 +55,11 @@ export function buildCalibrationSlots(
 
 /** How long the listener must record from plan.startRoomTime to capture every slot, ms. */
 export function calibrationRecordingMs(slots: CalibrationPlan['slots'], maxLatencyMs = 500): number {
-  return Math.max(0, ...slots.map((s) => s.offsetMs + s.durationMs)) + maxLatencyMs + CALIBRATION_GUARD_MS;
+  return (
+    Math.max(0, ...slots.map((s) => s.offsetMs + ((s.repeat ?? 1) - 1) * (s.periodMs ?? 0) + s.durationMs)) +
+    maxLatencyMs +
+    CALIBRATION_GUARD_MS
+  );
 }
 
 export interface CalibrationInput {

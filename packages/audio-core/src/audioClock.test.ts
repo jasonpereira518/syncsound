@@ -28,3 +28,34 @@ describe('AudioClockMap', () => {
     expect(m.perfToCtx(6000)).toBeCloseTo(2, 9);
   });
 });
+
+describe('AudioClockMap output-path steps', () => {
+  it('re-fits after a persistent latency step instead of bending the slope', () => {
+    const m = new AudioClockMap();
+    const obs = (perf: number, lat: number) => {
+      const ctx = Math.floor((((perf - lat) / 1000) * 48000) / 128) * 128 / 48000;
+      m.addObservation(ctx * 1000 + lat, ctx);
+    };
+    let perf = 3000;
+    for (let i = 0; i < 20; i++) obs((perf += 250), 304);
+    // output latency jumps +44 ms (device re-open)
+    for (let i = 0; i < 6; i++) obs((perf += 250), 348);
+    expect(m.steps).toBe(1);
+    expect(m.ready()).toBe(true);
+    expect(Math.abs(m.ratePpm())).toBeLessThan(100);
+    // prediction 1.5 s ahead in the new regime within 1 ms
+    const future = perf + 1500;
+    const truth = (future - 348) / 1000;
+    expect(Math.abs(m.perfToCtx(future) - truth) * 1000).toBeLessThan(1);
+  });
+
+  it('ignores a single spike', () => {
+    const m = new AudioClockMap();
+    let perf = 1000;
+    for (let i = 0; i < 20; i++) m.addObservation((perf += 250), (perf - 50) / 1000);
+    m.addObservation((perf += 250), (perf - 50) / 1000 + 0.03); // 30 ms glitch
+    for (let i = 0; i < 4; i++) m.addObservation((perf += 250), (perf - 50) / 1000);
+    expect(m.steps).toBe(0);
+    expect(Math.abs(m.ratePpm())).toBeLessThan(10);
+  });
+});

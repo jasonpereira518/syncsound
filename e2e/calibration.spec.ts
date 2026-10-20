@@ -53,3 +53,32 @@ test('calibration wizard completes against a loopback microphone', async ({ brow
   expect(pageErrors(page)).toEqual([]);
   await ctx.close();
 });
+
+// Sync-measurement tool through the loopback mic: each click is independently scheduled from the live clock
+// mapping (lookahead), so its timing jitter at the "microphone" measures scheduling stability in a real browser.
+test('sync measurement tool: loopback clicks are detected and stable', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { ctx, page } = await newPage(browser);
+  const code = await createRoom(page);
+  await page.goto(`/room/${code}?loopbackMic=40`);
+  await joinRoom(page, code, 'Listener');
+  await waitConverged(page);
+  await page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  await page.getByTestId('sync-measure-duration').selectOption('10');
+  await page.getByTestId('sync-measure-start').click();
+  await expect(page.getByTestId('sync-measure-status')).toHaveAttribute('data-step', /done|error/, { timeout: 60_000 });
+  type M = { step: string; message: string; devices: Array<{ detected: number; total: number; stdMs: number; maxAbsMs: number }> };
+  const m = await page.evaluate(
+    () => (window as unknown as { __syncsound: { getState(): { syncMeasure: M } } }).__syncsound.getState().syncMeasure,
+  );
+  console.log('sync measurement (loopback):', m.step, '-', m.message);
+  expect(m.step).toBe('done');
+  const d = m.devices[0]!;
+  expect(d.total).toBe(10);
+  expect(d.detected).toBe(10);
+  expect(d.stdMs).toBeLessThan(1);
+  expect(d.maxAbsMs).toBeLessThan(2);
+  await expect(page.getByTestId('sync-measure-result')).toBeVisible();
+  expect(pageErrors(page)).toEqual([]);
+  await ctx.close();
+});

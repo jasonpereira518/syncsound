@@ -5,6 +5,8 @@
  */
 import {
   analyzeCalibration,
+  analyzeSyncMeasurement,
+  buildSyncMeasurementSlots,
   buildCalibrationSlots,
   calibrationRecordingMs,
   calibrationSignal,
@@ -33,13 +35,14 @@ class SyncSoundRecorder extends AudioWorkletProcessor {
   }
   process(inputs) {
     if (!this.on) return false;
+    if (!this.started) { this.started = true; this.port.postMessage({ start: currentTime }); }
+    // An inactive input (e.g. silent source node) delivers no channels: record zeros so the timeline stays
+    // contiguous — sample index ↔ context time must hold for every block.
     const ch = inputs[0] && inputs[0][0];
-    if (ch && ch.length) {
-      if (!this.started) { this.started = true; this.port.postMessage({ start: currentTime }); }
-      for (let i = 0; i < ch.length; i++) {
-        this.buf[this.n++] = ch[i];
-        if (this.n === this.buf.length) this.flush();
-      }
+    const n = ch && ch.length ? ch.length : 128;
+    for (let i = 0; i < n; i++) {
+      this.buf[this.n++] = ch && ch.length ? ch[i] : 0;
+      if (this.n === this.buf.length) this.flush();
     }
     return true;
   }
@@ -49,6 +52,8 @@ registerProcessor('syncsound-recorder', SyncSoundRecorder);
 
 /** same value for slot building and analysis (guard gaps + search windows) */
 const MAX_LATENCY_MS = 500;
+/** sync measurement runs after calibration: residuals are small */
+const SYNC_MAX_LATENCY_MS = 300;
 
 const registered = new WeakSet<BaseAudioContext>();
 
@@ -57,7 +62,7 @@ interface Recorder {
   abort(): void;
 }
 
-async function startRecorder(ctx: AudioContext, stream: MediaStream): Promise<Recorder> {
+async function startRecorder(ctx: AudioContext, input: MediaStream | AudioNode): Promise<Recorder> {
   if (!registered.has(ctx)) {
     const url = URL.createObjectURL(new Blob([RECORDER_CODE], { type: 'application/javascript' }));
     try {
@@ -67,7 +72,7 @@ async function startRecorder(ctx: AudioContext, stream: MediaStream): Promise<Re
     }
     registered.add(ctx);
   }
-  const src = ctx.createMediaStreamSource(stream);
+  const src = input instanceof MediaStream ? ctx.createMediaStreamSource(input) : input;
   const node = new AudioWorkletNode(ctx, 'syncsound-recorder', {
     numberOfInputs: 1,
     numberOfOutputs: 1,
@@ -88,7 +93,8 @@ async function startRecorder(ctx: AudioContext, stream: MediaStream): Promise<Re
     if (e.data.done) done?.();
   };
   const teardown = () => {
-    src.disconnect();
+    if (input instanceof MediaStream) src.disconnect();
+    else src.disconnect(node);
     node.disconnect();
     sink.disconnect();
   };
@@ -151,6 +157,10 @@ export class CalibrationController {
     if (plan.listenerId === myId && this.run?.planWaiter) this.run.planWaiter(plan);
     const ctx = this.engine.ctx;
     if (!ctx) return;
+    if (plan.purpose === 'measure') {
+      this.emitRepeated(plan, myId);
+      return;
+    }
     try {
       let end = 0;
       for (const slot of plan.slots) {
@@ -165,6 +175,41 @@ export class CalibrationController {
     } catch (e) {
       patch('calibration', { emitting: false, message: `Couldn't play the calibration signal: ${errMsg(e)}` });
     }
+  }
+
+  private measureTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** schedule repeated measurement clicks ~1.5 s ahead (so drift/clock corrections apply like real playback) */
+  private emitRepeated(plan: CalibrationPlan, myId: string) {
+    const ctx = this.engine.ctx;
+    if (!ctx) return;
+    const mine = plan.slots.filter((s) => s.deviceId === myId);
+    if (!mine.length) return;
+    const pending = mine.flatMap((slot) =>
+      Array.from({ length: slot.repeat ?? 1 }, (_, k) => ({
+        roomMs: plan.startRoomTime + slot.offsetMs + k * (slot.periodMs ?? 0),
+        samples: () => calibrationSignal(slot.signal, slot.deviceIndex, ctx.sampleRate),
+      })),
+    );
+    pending.sort((a, b) => a.roomMs - b.roomMs);
+    if (this.measureTimer) clearInterval(this.measureTimer);
+    patch('calibration', { emitting: true });
+    const tick = () => {
+      const clock = this.clock();
+      if (!clock || !this.engine.ctx) return;
+      const now = clock.toRoomTime(performance.now());
+      while (pending.length && pending[0]!.roomMs < now + 1500) {
+        const p = pending.shift()!;
+        if (p.roomMs > now + 50) this.engine.emitAt(p.samples(), p.roomMs, 'full');
+      }
+      if (!pending.length && this.measureTimer) {
+        clearInterval(this.measureTimer);
+        this.measureTimer = null;
+        setTimeout(() => patch('calibration', { emitting: false }), 1000);
+      }
+    };
+    tick();
+    this.measureTimer = setInterval(tick, 250);
   }
 
   async start(): Promise<void> {
@@ -193,60 +238,10 @@ export class CalibrationController {
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      let stream: MediaStream;
-      try {
-        const lb = this.engine.loopback();
-        stream = lb
-          ? lb.dest.stream.clone()
-          : await navigator.mediaDevices.getUserMedia({
-              audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-            });
-      } catch (e) {
-        throw new Error(micError(e));
-      }
-      run.cleanup.push(() => stream.getTracks().forEach((t) => t.stop()));
-      check();
-      const recorder = await startRecorder(ctx, stream);
-      run.cleanup.push(() => recorder.abort());
-      check();
-
-      patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' });
-      const plan = await new Promise<CalibrationPlan>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error("The server didn't start the calibration run. Try again.")), 8000);
-        run.planWaiter = (p) => {
-          clearTimeout(t);
-          resolve(p);
-        };
-        run.cleanup.push(() => {
-          clearTimeout(t);
-          reject(new Cancelled());
-        });
-        if (!this.send({ type: 'CALIBRATION_START', slots: buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }) })) {
-          clearTimeout(t);
-          reject(new Error('Not connected to the room.'));
-        }
-      });
-      run.planWaiter = null;
-      check();
-
-      const endRoom = plan.startRoomTime + calibrationRecordingMs(plan.slots, MAX_LATENCY_MS) + 300;
-      await new Promise<void>((resolve) => {
-        const iv = setInterval(() => {
-          const now = clock.toRoomTime(performance.now());
-          patch('calibration', { progress: Math.min(1, Math.max(0, (now - plan.startRoomTime) / (endRoom - plan.startRoomTime))) });
-          if (now >= endRoom || run.cancelled) {
-            clearInterval(iv);
-            resolve();
-          }
-        }, 200);
-        run.cleanup.push(() => {
-          clearInterval(iv);
-          resolve();
-        });
-      });
-      check();
-
-      const rec = await recorder.stop();
+      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS, () =>
+        patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' }),
+        (progress) => patch('calibration', { progress }),
+      );
       patch('calibration', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
       await new Promise((r) => setTimeout(r, 0)); // let the UI paint before the heavy analysis
       const scene = useRoomStore.getState().room?.scene ?? room.scene;
@@ -327,6 +322,141 @@ export class CalibrationController {
     }
   }
 
+  /** mic (or loopback) → recorder → CALIBRATION_START → wait for the plan → record until the plan ends */
+  private async record(
+    run: NonNullable<CalibrationController['run']>,
+    slots: CalibrationPlan['slots'],
+    purpose: 'calibrate' | 'measure',
+    maxLatencyMs: number,
+    onRecording: () => void,
+    onProgress: (p: number) => void,
+  ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number } }> {
+    const check = () => {
+      if (run.cancelled) throw new Cancelled();
+    };
+    const ctx = this.engine.ctx!;
+    const clock = this.clock()!;
+    const lb = this.engine.loopback();
+    let stream: MediaStream | null = null;
+    if (!lb) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+      } catch (e) {
+        throw new Error(micError(e));
+      }
+      const s = stream;
+      run.cleanup.push(() => s.getTracks().forEach((t) => t.stop()));
+    }
+    check();
+    const recorder = await startRecorder(ctx, stream ?? lb!);
+    run.cleanup.push(() => recorder.abort());
+    check();
+    // Opening an input can re-open/resize the output path (Bluetooth switching to its headset profile; Chromium
+    // adds ~44 ms of output buffering when a recorder graph starts). Let it settle so the audio-clock map has
+    // re-converged (step confirmation needs ~0.75 s) before anything is scheduled.
+    await new Promise((r) => setTimeout(r, 1500));
+    check();
+    onRecording();
+    const plan = await new Promise<CalibrationPlan>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("The server didn't start the run. Try again.")), 8000);
+      run.planWaiter = (p) => {
+        clearTimeout(t);
+        resolve(p);
+      };
+      run.cleanup.push(() => {
+        clearTimeout(t);
+        reject(new Cancelled());
+      });
+      if (!this.send({ type: 'CALIBRATION_START', slots, purpose })) {
+        clearTimeout(t);
+        reject(new Error('Not connected to the room.'));
+      }
+    });
+    run.planWaiter = null;
+    check();
+    const endRoom = plan.startRoomTime + calibrationRecordingMs(plan.slots, maxLatencyMs) + 300;
+    await new Promise<void>((resolve) => {
+      const iv = setInterval(() => {
+        const now = clock.toRoomTime(performance.now());
+        onProgress(Math.min(1, Math.max(0, (now - plan.startRoomTime) / (endRoom - plan.startRoomTime))));
+        if (now >= endRoom || run.cancelled) {
+          clearInterval(iv);
+          resolve();
+        }
+      }, 200);
+      run.cleanup.push(() => {
+        clearInterval(iv);
+        resolve();
+      });
+    });
+    check();
+    return { plan, rec: await recorder.stop() };
+  }
+
+  /** Sync-measurement tool: every device clicks (device-unique chirp) once per second through normal compensation. */
+  async measureSync(durationSec = 60): Promise<void> {
+    if (this.run) return;
+    const run = { cancelled: false, cleanup: [] as Array<() => void>, planWaiter: null as ((p: CalibrationPlan) => void) | null };
+    this.run = run;
+    patch('syncMeasure', { running: true, step: 'recording', progress: 0, message: 'Allow microphone access…', durationSec, devices: [], histogram: null, overall: null, warnings: [] });
+    try {
+      const ctx = this.engine.ctx;
+      const clock = this.clock();
+      const room = useRoomStore.getState().room;
+      if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
+      if (!this.engine.timingReady()) throw new Error('Still syncing clocks. Try again in a second.');
+      const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
+      const { plan, rec } = await this.record(
+        run,
+        buildSyncMeasurementSlots(deviceIds, { durationSec }),
+        'measure',
+        SYNC_MAX_LATENCY_MS,
+        () => patch('syncMeasure', { message: `Measuring for ${durationSec} s: every speaker clicks once per second.` }),
+        (progress) => patch('syncMeasure', { progress }),
+      );
+      patch('syncMeasure', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
+      await new Promise((r) => setTimeout(r, 0));
+      const scene = useRoomStore.getState().room?.scene ?? room.scene;
+      const report = analyzeSyncMeasurement({
+        plan,
+        recording: rec.samples,
+        sampleRate: ctx.sampleRate,
+        recordingStartRoomTime: clock.toRoomTime(this.engine.audioClock.ctxToPerf(rec.startCtx)),
+        // time alignment is part of playback compensation, so measure arrival at the listener as heard
+        devicePositions: scene.propagationComp ? {} : scene.devices,
+        listener: scene.listener,
+        maxLatencyMs: SYNC_MAX_LATENCY_MS,
+      });
+      if (!report.overall.samples && !report.devices.some((d) => d.detected)) throw new Error(report.warnings[0] ?? 'No clicks detected.');
+      patch('syncMeasure', {
+        step: 'done',
+        message:
+          report.devices.length > 1
+            ? `Inter-device sync error: p50 ${report.overall.p50AbsMs.toFixed(1)} ms, p95 ${report.overall.p95AbsMs.toFixed(1)} ms over ${report.overall.samples} clicks.`
+            : `Single device: click timing jitter ${report.devices[0]?.stdMs.toFixed(2)} ms rms (${report.devices[0]?.detected}/${report.devices[0]?.total} clicks).`,
+        devices: report.devices.map(({ deviceId, detected, total, meanMs, stdMs, p95AbsMs, maxAbsMs }) => ({ deviceId, detected, total, meanMs, stdMs, p95AbsMs, maxAbsMs })),
+        histogram: { edgesMs: report.histogram.edgesMs, counts: report.histogram.counts },
+        overall: report.overall,
+        warnings: report.warnings,
+      });
+    } catch (e) {
+      if (e instanceof Cancelled || run.cancelled) patch('syncMeasure', { step: 'idle', message: 'Measurement cancelled.', progress: 0 });
+      else patch('syncMeasure', { step: 'error', message: errMsg(e) });
+    } finally {
+      for (const c of run.cleanup) {
+        try {
+          c();
+        } catch {
+          /* best effort */
+        }
+      }
+      if (this.run === run) this.run = null;
+      patch('syncMeasure', { running: false });
+    }
+  }
+
   cancel(): void {
     if (!this.run) return;
     this.run.cancelled = true;
@@ -343,6 +473,7 @@ export class CalibrationController {
 
   dispose(): void {
     this.cancel();
+    if (this.measureTimer) clearInterval(this.measureTimer);
     if (this.emitTimer) clearTimeout(this.emitTimer);
   }
 }

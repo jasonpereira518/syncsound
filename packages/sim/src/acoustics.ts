@@ -81,6 +81,8 @@ export interface RecordingSpec {
   /** optional pink room noise RMS, dBFS */
   roomNoiseDb?: number;
   seed?: number;
+  /** extra timing error (ms) of repetition k of a repeated slot (sync-measurement jitter model) */
+  clickJitterMs?: (deviceId: string, k: number) => number;
 }
 
 /** Listener recording starting exactly at plan.startRoomTime. */
@@ -93,9 +95,17 @@ export function renderListenerRecording(spec: RecordingSpec): Float32Array {
     const amp = sp.gain / Math.max(d, 0.1); // 1/r spreading re 1 m
     for (const slot of plan.slots.filter((s) => s.deviceId === sp.id)) {
       const sig = processCascade(sp.filters, calibrationSignal(slot.signal, slot.deviceIndex, sr));
-      const atMs = slot.offsetMs + sp.latencyMs + (d / SPEED_OF_SOUND) * 1000 + spec.inputLatencyMs;
-      const at = Math.round((atMs / 1000) * sr);
-      for (let i = 0; i < sig.length && at + i < out.length; i++) out[at + i] = out[at + i]! + amp * sig[i]!;
+      for (let k = 0; k < (slot.repeat ?? 1); k++) {
+        const atMs =
+          slot.offsetMs +
+          k * (slot.periodMs ?? 0) +
+          sp.latencyMs +
+          (spec.clickJitterMs?.(sp.id, k) ?? 0) +
+          (d / SPEED_OF_SOUND) * 1000 +
+          spec.inputLatencyMs;
+        const at = Math.round((atMs / 1000) * sr);
+        for (let i = 0; i < sig.length && at + i < out.length; i++) out[at + i] = out[at + i]! + amp * sig[i]!;
+      }
     }
   }
   // Gaussian white noise (Box–Muller) at noiseDb RMS

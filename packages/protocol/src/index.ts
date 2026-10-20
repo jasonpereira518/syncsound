@@ -210,6 +210,9 @@ export const CalibrationSlot = z.object({
   /** ms after plan.startRoomTime */
   offsetMs: finite().min(0).max(600000),
   durationMs: finite().min(1).max(20000),
+  /** repeat the signal this many times (sync measurement), every periodMs */
+  repeat: z.number().int().min(1).max(600).optional(),
+  periodMs: finite().min(100).max(10000).optional(),
 });
 export type CalibrationSlot = z.infer<typeof CalibrationSlot>;
 
@@ -218,6 +221,8 @@ export const CalibrationPlan = z.object({
   listenerId: Id,
   startRoomTime: finite(),
   slots: z.array(CalibrationSlot).max(256),
+  /** calibrate = measure latency/response/level and apply; measure = sync-measurement run (full compensation, no changes) */
+  purpose: z.enum(['calibrate', 'measure']).optional(),
 });
 export type CalibrationPlan = z.infer<typeof CalibrationPlan>;
 
@@ -319,7 +324,11 @@ export const ClientMessage = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('STATS'), stats: DeviceStats }),
   /** sent by the listening device: request a calibration run; server assigns id + startRoomTime and broadcasts */
-  z.object({ type: z.literal('CALIBRATION_START'), slots: z.array(CalibrationSlot).min(1).max(256) }),
+  z.object({
+    type: z.literal('CALIBRATION_START'),
+    slots: z.array(CalibrationSlot).min(1).max(256),
+    purpose: CalibrationPlan.shape.purpose,
+  }),
   z.object({
     type: z.literal('CALIBRATION_RESULT'),
     planId: Id,

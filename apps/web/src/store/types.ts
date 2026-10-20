@@ -76,6 +76,30 @@ export interface CalibrationUi {
   emitting: boolean;
 }
 
+export interface SyncMeasureDeviceUi {
+  deviceId: string;
+  detected: number;
+  total: number;
+  /** mean / std / p95|·| / max|·| inter-device error, ms (single device: click jitter around its mean) */
+  meanMs: number;
+  stdMs: number;
+  p95AbsMs: number;
+  maxAbsMs: number;
+}
+
+/** Sync-measurement tool (listener records every device's synchronized clicks for ~60 s) */
+export interface SyncMeasureUi {
+  running: boolean;
+  step: 'idle' | 'recording' | 'analyzing' | 'done' | 'error';
+  progress: number;
+  message: string;
+  durationSec: number;
+  devices: SyncMeasureDeviceUi[];
+  histogram: { edgesMs: number[]; counts: number[] } | null;
+  overall: { p50AbsMs: number; p95AbsMs: number; maxAbsMs: number; samples: number } | null;
+  warnings: string[];
+}
+
 export interface CaptureUi {
   /** this device is capturing tab/system audio and sending it */
   active: boolean;
@@ -108,6 +132,7 @@ export interface RoomStoreState {
   clock: ClockStats | null;
   engine: EngineStats;
   calibration: CalibrationUi;
+  syncMeasure: SyncMeasureUi;
   capture: CaptureUi;
   remote: RemoteUi;
   /** this device's computed mix (gains etc.) */
@@ -142,6 +167,8 @@ export interface RoomActions {
   /** Runs the acoustic calibration wizard with this device as the listener. */
   startCalibration(): Promise<void>;
   cancelCalibration(): void;
+  /** Sync-measurement tool with this device as the listener (mic → user gesture). Cancel with cancelCalibration. */
+  startSyncMeasurement(durationSec?: number): Promise<void>;
   /** Apply class-preset EQ (no-mic fallback) to a device */
   applyPresetEq(targetDeviceId: string): void;
   setEqBypass(bypass: boolean): void;
