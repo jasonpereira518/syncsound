@@ -3,7 +3,22 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { MAX_UPLOAD_BYTES, type Track, type TrackKind } from '@syncsound/protocol';
 import { positionAt } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
-import { Badge, Button, Icon, IconButton, Panel, RangeField, Tabs, Toggle, fmtMs, fmtTime, inputClass, tabPanelProps, type IconName, type TabDef } from '../ui';
+import {
+  Badge,
+  Button,
+  Icon,
+  IconButton,
+  Panel,
+  RangeField,
+  Tabs,
+  Toggle,
+  fmtMs,
+  fmtTime,
+  inputClass,
+  tabPanelProps,
+  type IconName,
+  type TabDef,
+} from '../ui';
 import { act, attempt, currentTrack, errMsg, roomNowMs, useCanControl } from './shared';
 
 type Source = 'demo' | 'upload' | 'url' | 'spotify' | 'apple' | 'capture' | 'youtube' | 'video';
@@ -37,7 +52,8 @@ export function Player() {
     <Panel title="Player" icon="music">
       {!canControl && (
         <p className="mb-3 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
-          <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> Only the host can control playback in this room.
+          <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> Only the host can control playback
+          in this room.
         </p>
       )}
       <fieldset disabled={!canControl} className="min-w-0">
@@ -55,17 +71,19 @@ export function Player() {
         className="no-scrollbar -mx-1 flex overflow-x-auto border-b border-ink-700"
         tabClassName="border-b-2 border-transparent aria-selected:border-accent"
       />
-      <fieldset disabled={!canControl} {...tabPanelProps('src', source)} className="min-w-0 pt-4">
-        <legend className="sr-only">{SOURCES.find((s) => s.id === source)?.label} source</legend>
-        {source === 'demo' && <DemoSource />}
-        {source === 'upload' && <UploadSource />}
-        {source === 'url' && <UrlSource />}
-        {source === 'spotify' && <RemoteSource kind="spotify" />}
-        {source === 'apple' && <RemoteSource kind="apple" />}
-        {source === 'capture' && <CaptureSource />}
-        {source === 'youtube' && <YouTubeSource />}
-        {source === 'video' && <LocalVideoSource />}
-      </fieldset>
+      <div {...tabPanelProps('src', source)} className="min-w-0 pt-4">
+        <fieldset disabled={!canControl} className="min-w-0">
+          <legend className="sr-only">{SOURCES.find((s) => s.id === source)?.label} source</legend>
+          {source === 'demo' && <DemoSource />}
+          {source === 'upload' && <UploadSource />}
+          {source === 'url' && <UrlSource />}
+          {source === 'spotify' && <RemoteSource kind="spotify" />}
+          {source === 'apple' && <RemoteSource kind="apple" />}
+          {source === 'capture' && <CaptureSource />}
+          {source === 'youtube' && <YouTubeSource />}
+          {source === 'video' && <LocalVideoSource />}
+        </fieldset>
+      </div>
 
       <fieldset disabled={!canControl} className="mt-6 min-w-0">
         <legend className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Queue</legend>
@@ -98,7 +116,9 @@ function Transport() {
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium">{track?.title ?? 'Nothing playing'}</p>
-          <p className="text-xs text-ink-400">{track ? `${track.kind} · ${playback.status}` : 'Queue a demo track to start'}</p>
+          <p className="text-xs text-ink-400">
+            {track ? `${track.kind} · ${playback.status}` : 'Queue a demo track to start'}
+          </p>
         </div>
         {track?.sourceClass === 'remote' && <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>}
       </div>
@@ -155,7 +175,10 @@ function Seek({ duration }: { duration: number }) {
         p = positionAt(playback, roomNowMs(clock));
       } catch {
         // audio-core not ready: same formula, inline
-        p = playback.status === 'playing' ? playback.trackOffset + (roomNowMs(clock) - playback.startRoomTime) / 1000 : playback.trackOffset;
+        p =
+          playback.status === 'playing'
+            ? playback.trackOffset + (roomNowMs(clock) - playback.startRoomTime) / 1000
+            : playback.trackOffset;
       }
       setPos(Math.max(0, duration > 0 ? Math.min(p, duration) : p));
       if (playback.status === 'playing') raf = requestAnimationFrame(tick);
@@ -199,7 +222,12 @@ function Seek({ duration }: { duration: number }) {
 function Queue() {
   const queue = useRoomStore((s) => s.room?.queue);
   const currentId = useRoomStore((s) => s.room?.playback.trackId ?? null);
-  if (!queue?.length) return <p className="rounded-xl border border-dashed border-ink-700 p-4 text-center text-sm text-ink-400">The queue is empty.</p>;
+  if (!queue?.length)
+    return (
+      <p className="rounded-xl border border-dashed border-ink-700 p-4 text-center text-sm text-ink-400">
+        The queue is empty.
+      </p>
+    );
   return (
     <ol className="space-y-1.5">
       {queue.map((t: Track, i) => {
@@ -212,7 +240,10 @@ function Queue() {
             className={`flex items-center gap-2 rounded-xl border px-2 py-1 ${current ? 'border-accent/60 bg-accent/10' : 'border-ink-700 bg-ink-850/50'}`}
           >
             <span className="w-5 text-center font-mono text-xs text-ink-500">{i + 1}</span>
-            <Icon name={KIND_ICON[t.kind]} className={`size-4 shrink-0 ${current ? 'text-accent' : 'text-ink-400'}`} />
+            <Icon
+              name={KIND_ICON[t.kind]}
+              className={`size-4 shrink-0 ${current ? 'text-accent' : 'text-ink-400'}`}
+            />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm">{t.title}</span>
               <span className="block text-xs text-ink-500">
@@ -221,8 +252,18 @@ function Queue() {
                 {t.sourceClass === 'remote' ? ' · sync-only' : ''}
               </span>
             </span>
-            <IconButton icon="play" label={`Play ${t.title}`} onClick={() => control({ type: 'play', trackId: t.id })} className="border-transparent" />
-            <IconButton icon="trash" label={`Remove ${t.title}`} onClick={() => control({ type: 'remove', trackId: t.id })} className="border-transparent" />
+            <IconButton
+              icon="play"
+              label={`Play ${t.title}`}
+              onClick={() => control({ type: 'play', trackId: t.id })}
+              className="border-transparent"
+            />
+            <IconButton
+              icon="trash"
+              label={`Remove ${t.title}`}
+              onClick={() => control({ type: 'remove', trackId: t.id })}
+              className="border-transparent"
+            />
           </li>
         );
       })}
@@ -238,8 +279,16 @@ function DemoSource() {
   useEffect(() => attempt(() => roomActions.loadDemoAssets(), setErr), []);
   return (
     <div>
-      {err && <p role="alert" className="mb-2 text-sm text-bad">Couldn&rsquo;t load demo tracks: {err}</p>}
-      {assets.length === 0 && !err && <p className="text-sm text-ink-400">Loading demo tracks… (run <code className="font-mono">pnpm demo</code> if none appear)</p>}
+      {err && (
+        <p role="alert" className="mb-2 text-sm text-bad">
+          Couldn&rsquo;t load demo tracks: {err}
+        </p>
+      )}
+      {assets.length === 0 && !err && (
+        <p className="text-sm text-ink-400">
+          Loading demo tracks… (run <code className="font-mono">pnpm demo</code> if none appear)
+        </p>
+      )}
       <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
         {assets.map((a) => (
           <li key={a.id}>
@@ -253,7 +302,14 @@ function DemoSource() {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{a.title}</span>
                 <span className="block text-xs text-ink-400">
-                  {a.channels === 6 ? '5.1' : a.channels === 2 ? 'stereo' : a.channels === 1 ? 'mono' : `${a.channels} ch`} · {fmtTime(a.durationSec)}
+                  {a.channels === 6
+                    ? '5.1'
+                    : a.channels === 2
+                      ? 'stereo'
+                      : a.channels === 1
+                        ? 'mono'
+                        : `${a.channels} ch`}{' '}
+                  · {fmtTime(a.durationSec)}
                 </span>
               </span>
             </button>
@@ -264,7 +320,11 @@ function DemoSource() {
   );
 }
 
-type Job = { state: 'idle' } | { state: 'busy'; name: string } | { state: 'done'; msg: string } | { state: 'error'; msg: string };
+type Job =
+  | { state: 'idle' }
+  | { state: 'busy'; name: string }
+  | { state: 'done'; msg: string }
+  | { state: 'error'; msg: string };
 
 function JobStatus({ job }: { job: Job }) {
   if (job.state === 'busy')
@@ -276,15 +336,26 @@ function JobStatus({ job }: { job: Job }) {
         </div>
       </div>
     );
-  if (job.state === 'done') return <p role="status" className="mt-3 text-sm text-ok">{job.msg}</p>;
-  if (job.state === 'error') return <p role="alert" className="mt-3 text-sm text-bad">{job.msg}</p>;
+  if (job.state === 'done')
+    return (
+      <p role="status" className="mt-3 text-sm text-ok">
+        {job.msg}
+      </p>
+    );
+  if (job.state === 'error')
+    return (
+      <p role="alert" className="mt-3 text-sm text-bad">
+        {job.msg}
+      </p>
+    );
   return null;
 }
 
 function useUpload() {
   const [job, setJob] = useState<Job>({ state: 'idle' });
   const upload = (file: File) => {
-    if (file.size > MAX_UPLOAD_BYTES) return setJob({ state: 'error', msg: `That file is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.` });
+    if (file.size > MAX_UPLOAD_BYTES)
+      return setJob({ state: 'error', msg: `That file is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.` });
     setJob({ state: 'busy', name: file.name });
     let p: Promise<Track>;
     try {
@@ -292,7 +363,9 @@ function useUpload() {
     } catch (e) {
       p = Promise.reject(e);
     }
-    p.then((t) => setJob({ state: 'done', msg: `Queued “${t.title}”.` })).catch((e: unknown) => setJob({ state: 'error', msg: errMsg(e) }));
+    p.then((t) => setJob({ state: 'done', msg: `Queued “${t.title}”.` })).catch((e: unknown) =>
+      setJob({ state: 'error', msg: errMsg(e) }),
+    );
   };
   return { job, upload };
 }
@@ -320,7 +393,11 @@ function UploadSource() {
   const { job, upload } = useUpload();
   return (
     <div>
-      <FilePick accept="audio/*,video/*" label="Choose an audio or video file (it's uploaded to the room server and decoded on every device)" onFile={upload} />
+      <FilePick
+        accept="audio/*,video/*"
+        label="Choose an audio or video file (it's uploaded to the room server and decoded on every device)"
+        onFile={upload}
+      />
       <JobStatus job={job} />
     </div>
   );
@@ -354,12 +431,34 @@ function UrlSource() {
   };
   return (
     <form onSubmit={submit} className="grid gap-2" noValidate>
-      <label htmlFor="src-url" className="text-sm text-ink-200">Audio URL</label>
-      <input id="src-url" type="url" inputMode="url" placeholder="https://example.com/track.mp3" value={url} onChange={(e) => setUrl(e.target.value)} className={inputClass} />
-      <label htmlFor="src-url-title" className="text-sm text-ink-200">Title (optional)</label>
-      <input id="src-url-title" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} className={inputClass} />
-      <Button type="submit" variant="primary" className="mt-1">Queue URL</Button>
-      <p className="text-xs text-ink-400">Only use audio you own or have the rights to play. The server must allow cross-origin access (CORS).</p>
+      <label htmlFor="src-url" className="text-sm text-ink-200">
+        Audio URL
+      </label>
+      <input
+        id="src-url"
+        type="url"
+        inputMode="url"
+        placeholder="https://example.com/track.mp3"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        className={inputClass}
+      />
+      <label htmlFor="src-url-title" className="text-sm text-ink-200">
+        Title (optional)
+      </label>
+      <input
+        id="src-url-title"
+        value={title}
+        maxLength={200}
+        onChange={(e) => setTitle(e.target.value)}
+        className={inputClass}
+      />
+      <Button type="submit" variant="primary" className="mt-1">
+        Queue URL
+      </Button>
+      <p className="text-xs text-ink-400">
+        Only use audio you own or have the rights to play. The server must allow cross-origin access (CORS).
+      </p>
       <JobStatus job={job} />
     </form>
   );
@@ -407,8 +506,16 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
       <div className="rounded-xl border border-ink-600 bg-ink-850 p-4 text-sm">
         <p className="font-medium text-ink-100">Not configured</p>
         <p className="mt-1 text-ink-300">
-          Set <code className="font-mono text-accent">{meta.env}</code> in <code className="font-mono">apps/web/.env.local</code> and restart the dev
-          server{kind === 'spotify' ? <> (and add <code className="font-mono">/spotify-callback</code> as a redirect URI in the Spotify dashboard)</> : null}.
+          Set <code className="font-mono text-accent">{meta.env}</code> in{' '}
+          <code className="font-mono">apps/web/.env.local</code> and restart the dev server
+          {kind === 'spotify' ? (
+            <>
+              {' '}
+              (and add <code className="font-mono">/spotify-callback</code> as a redirect URI in the Spotify
+              dashboard)
+            </>
+          ) : null}
+          .
         </p>
         <p className="mt-2 text-ink-400">{meta.req}</p>
       </div>
@@ -436,39 +543,67 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
     <div className="space-y-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>
-        <Badge tone={status === 'ready' ? 'ok' : status === 'signed-out' ? 'neutral' : 'bad'}>this device: {status}</Badge>
+        <Badge tone={status === 'ready' ? 'ok' : status === 'signed-out' ? 'neutral' : 'bad'}>
+          this device: {status}
+        </Badge>
       </div>
       <p className="text-ink-300">
-        {meta.name} audio is DRM-protected, so it plays through the official player on each device. SyncSound keeps the players in time, but can&rsquo;t pan
-        or EQ them. {meta.req}
+        {meta.name} audio is DRM-protected, so it plays through the official player on each device. SyncSound
+        keeps the players in time, but can&rsquo;t pan or EQ them. {meta.req}
       </p>
       {status !== 'ready' && (
         <Button variant="primary" onClick={connect}>
           Connect {meta.name}
         </Button>
       )}
-      {status === 'needs-premium' && <p className="text-warn">This account can&rsquo;t use the web player. A Premium / paid subscription is required.</p>}
+      {status === 'needs-premium' && (
+        <p className="text-warn">
+          This account can&rsquo;t use the web player. A Premium / paid subscription is required.
+        </p>
+      )}
       {message && <p className="text-ink-400">{message}</p>}
       {remote.meanAbsErrorMs !== null && (
-        <p data-testid="remote-sync-stats" className="rounded-lg border border-ink-700 bg-ink-850/60 px-3 py-2 text-ink-300">
-          Measured sync on this device: <span className="font-mono text-ink-100">{remote.errorMs ?? '—'} ms</span> now,{' '}
-          <span className="font-mono text-ink-100">{remote.meanAbsErrorMs} ms</span> mean |error|, {remote.seeks} corrective seek
-          {remote.seeks === 1 ? '' : 's'}. Sync-only sources typically land within 20–150 ms (rendered sources: under 10 ms).
+        <p
+          data-testid="remote-sync-stats"
+          className="rounded-lg border border-ink-700 bg-ink-850/60 px-3 py-2 text-ink-300"
+        >
+          Measured sync on this device:{' '}
+          <span className="font-mono text-ink-100">{remote.errorMs ?? '—'} ms</span> now,{' '}
+          <span className="font-mono text-ink-100">{remote.meanAbsErrorMs} ms</span> mean |error|,{' '}
+          {remote.seeks} corrective seek
+          {remote.seeks === 1 ? '' : 's'}. Sync-only sources typically land within 20–150 ms (rendered
+          sources: under 10 ms).
         </p>
       )}
       <form onSubmit={queue} className="flex gap-2" noValidate>
-        <label htmlFor={`remote-${kind}`} className="sr-only">{meta.name} track</label>
-        <input id={`remote-${kind}`} placeholder={meta.placeholder} value={id} onChange={(e) => setId(e.target.value)} className={inputClass} />
+        <label htmlFor={`remote-${kind}`} className="sr-only">
+          {meta.name} track
+        </label>
+        <input
+          id={`remote-${kind}`}
+          placeholder={meta.placeholder}
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+          className={inputClass}
+        />
         <Button type="submit">Queue</Button>
       </form>
-      {err && <p role="alert" className="text-bad">{err}</p>}
+      {err && (
+        <p role="alert" className="text-bad">
+          {err}
+        </p>
+      )}
       {devices && (
         <ul className="divide-y divide-ink-700 rounded-xl border border-ink-700">
           {devices.map((d) => (
             <li key={d.id} className="flex items-center justify-between gap-2 px-3 py-2">
               <span className="truncate">{d.name}</span>
               <span className="flex items-center gap-2">
-                {d.stats?.remoteErrorMs != null && <span className="font-mono text-xs text-ink-300 tabular">{Math.round(d.stats.remoteErrorMs)} ms</span>}
+                {d.stats?.remoteErrorMs != null && (
+                  <span className="font-mono text-xs text-ink-300 tabular">
+                    {Math.round(d.stats.remoteErrorMs)} ms
+                  </span>
+                )}
                 <Badge tone={d.remote[kind] === 'ready' ? 'ok' : 'neutral'}>{d.remote[kind]}</Badge>
               </span>
             </li>
@@ -482,24 +617,37 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
 function CaptureSource() {
   const capture = useRoomStore((s) => s.capture);
   const settings = useRoomStore((s) => s.room?.settings);
-  const captureHost = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.room?.captureHostId)?.name ?? null);
+  const captureHost = useRoomStore(
+    (s) => s.room?.devices.find((d) => d.id === s.room?.captureHostId)?.name ?? null,
+  );
   return (
     <div className="space-y-3 text-sm">
       <p className="text-ink-300">
-        <strong className="text-ink-100">Mode 1: capture this tab.</strong> Play a video or music in another tab or app, start capture, and choose that tab
-        (tick &ldquo;share audio&rdquo;). Its sound is streamed to every device over WebRTC with a fixed buffer so all speakers play together. Your own
-        speaker plays the same delayed copy.
+        <strong className="text-ink-100">Mode 1: capture this tab.</strong> Play a video or music in another
+        tab or app, start capture, and choose that tab (tick &ldquo;share audio&rdquo;). Its sound is streamed
+        to every device over WebRTC with a fixed buffer so all speakers play together. Your own speaker plays
+        the same delayed copy.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {capture.active ? (
-          <Button variant="danger" onClick={() => act(() => roomActions.stopCapture())}>Stop capture</Button>
+          <Button variant="danger" onClick={() => act(() => roomActions.stopCapture())}>
+            Stop capture
+          </Button>
         ) : (
           <Button variant="primary" onClick={() => act(() => roomActions.startCapture())}>
             <Icon name="capture" className="size-4" /> Start capture
           </Button>
         )}
-        {capture.active && <Badge tone="ok">capturing · {capture.peers} peer{capture.peers === 1 ? '' : 's'}</Badge>}
-        {capture.receiving && <Badge tone="accent">receiving from {captureHost ?? 'host'} · {fmtMs(capture.pipelineDelayMs, 0)}</Badge>}
+        {capture.active && (
+          <Badge tone="ok">
+            capturing · {capture.peers} peer{capture.peers === 1 ? '' : 's'}
+          </Badge>
+        )}
+        {capture.receiving && (
+          <Badge tone="accent">
+            receiving from {captureHost ?? 'host'} · {fmtMs(capture.pipelineDelayMs, 0)}
+          </Badge>
+        )}
       </div>
       {capture.silent && (
         <div role="alert" className="rounded-xl border border-warn/60 bg-warn/10 p-3">
@@ -507,12 +655,16 @@ function CaptureSource() {
             <Icon name="warning" className="size-5" /> This tab is silent.
           </p>
           <p className="mt-1 text-ink-200">
-            DRM-protected sites (Netflix, Disney+, Prime Video…) block audio capture and deliver silence. Use <strong>Local video</strong> or a non-DRM
-            source instead.
+            DRM-protected sites (Netflix, Disney+, Prime Video…) block audio capture and deliver silence. Use{' '}
+            <strong>Local video</strong> or a non-DRM source instead.
           </p>
         </div>
       )}
-      {capture.error && <p role="alert" className="text-bad">{capture.error}</p>}
+      {capture.error && (
+        <p role="alert" className="text-bad">
+          {capture.error}
+        </p>
+      )}
       {settings && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
           <RangeField
@@ -548,7 +700,12 @@ interface YTPlayer {
 }
 declare global {
   interface Window {
-    YT?: { Player: new (el: HTMLElement, opts: { videoId: string; width?: string; height?: string; playerVars?: Record<string, number> }) => YTPlayer };
+    YT?: {
+      Player: new (
+        el: HTMLElement,
+        opts: { videoId: string; width?: string; height?: string; playerVars?: Record<string, number> },
+      ) => YTPlayer;
+    };
     onYouTubeIframeAPIReady?: () => void;
   }
 }
@@ -573,7 +730,8 @@ function loadYouTubeApi(): Promise<void> {
   return ytReady;
 }
 const youtubeId = (s: string) =>
-  /(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/.exec(s)?.[1] ?? (/^[A-Za-z0-9_-]{11}$/.test(s.trim()) ? s.trim() : null);
+  /(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/.exec(s)?.[1] ??
+  (/^[A-Za-z0-9_-]{11}$/.test(s.trim()) ? s.trim() : null);
 
 function YouTubeSource() {
   const [input, setInput] = useState('');
@@ -592,7 +750,12 @@ function YouTubeSource() {
         if (!live || !window.YT) return;
         const el = document.createElement('div'); // YT replaces this node; keep React's node untouched
         host.appendChild(el);
-        player = new window.YT.Player(el, { videoId, width: '100%', height: '100%', playerVars: { playsinline: 1, rel: 0 } });
+        player = new window.YT.Player(el, {
+          videoId,
+          width: '100%',
+          height: '100%',
+          playerVars: { playsinline: 1, rel: 0 },
+        });
       })
       .catch((e: unknown) => setErr(errMsg(e)));
     return () => {
@@ -614,16 +777,33 @@ function YouTubeSource() {
           if (id) setVideoId(id);
         }}
       >
-        <label htmlFor="yt-url" className="sr-only">YouTube link</label>
-        <input id="yt-url" inputMode="url" placeholder="https://youtube.com/watch?v=…" value={input} onChange={(e) => setInput(e.target.value)} className={inputClass} />
+        <label htmlFor="yt-url" className="sr-only">
+          YouTube link
+        </label>
+        <input
+          id="yt-url"
+          inputMode="url"
+          placeholder="https://youtube.com/watch?v=…"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          className={inputClass}
+        />
         <Button type="submit">Load</Button>
       </form>
-      {err && <p role="alert" className="text-bad">{err}</p>}
-      <div ref={hostRef} className={`aspect-video w-full overflow-hidden rounded-xl bg-black ${videoId ? '' : 'hidden'}`} />
+      {err && (
+        <p role="alert" className="text-bad">
+          {err}
+        </p>
+      )}
+      <div
+        ref={hostRef}
+        className={`aspect-video w-full overflow-hidden rounded-xl bg-black ${videoId ? '' : 'hidden'}`}
+      />
       {videoId && (
         <div className="rounded-xl border border-accent/40 bg-accent/5 p-3">
           <p className="text-ink-200">
-            <strong>Next:</strong> the picture plays here. To send its sound to every speaker, start tab capture and pick <em>this</em> tab with audio sharing on.
+            <strong>Next:</strong> the picture plays here. To send its sound to every speaker, start tab
+            capture and pick <em>this</em> tab with audio sharing on.
           </p>
           {!capturing && (
             <Button variant="primary" className="mt-2" onClick={() => act(() => roomActions.startCapture())}>
@@ -632,7 +812,9 @@ function YouTubeSource() {
           )}
         </div>
       )}
-      <p className="text-xs text-ink-400">YouTube is shown with its official embedded player. Streams are never downloaded or re-hosted.</p>
+      <p className="text-xs text-ink-400">
+        YouTube is shown with its official embedded player. Streams are never downloaded or re-hosted.
+      </p>
     </div>
   );
 }
@@ -643,7 +825,14 @@ function LocalVideoSource() {
   const track = useRoomStore((s) => currentTrack(s.room));
   const { job, upload } = useUpload();
   const [localUrl, setLocalUrl] = useState<string | null>(null);
-  const attach = useCallback((el: HTMLVideoElement | null) => attempt(() => roomActions.attachVideo(el), () => {}), []);
+  const attach = useCallback(
+    (el: HTMLVideoElement | null) =>
+      attempt(
+        () => roomActions.attachVideo(el),
+        () => {},
+      ),
+    [],
+  );
   const src = localUrl ?? (track?.kind === 'video' ? track.url : undefined);
   useEffect(
     () => () => {
@@ -655,8 +844,8 @@ function LocalVideoSource() {
   return (
     <div className="space-y-3 text-sm">
       <p className="text-ink-300">
-        <strong className="text-ink-100">Mode 2: local video.</strong> The file&rsquo;s audio is uploaded and played in sync on every speaker. This screen
-        shows the muted picture, locked to the room clock.
+        <strong className="text-ink-100">Mode 2: local video.</strong> The file&rsquo;s audio is uploaded and
+        played in sync on every speaker. This screen shows the muted picture, locked to the room clock.
       </p>
       <FilePick
         accept="video/*"
