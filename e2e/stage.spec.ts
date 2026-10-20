@@ -15,6 +15,9 @@ test('stage presets propagate to every client and undo/redo restore them', async
   await joinRoom(guest.page, code, 'Guest');
   await waitConverged(host.page);
   await host.page.getByRole('tab', { name: /stage/i }).click({ timeout: 1500 }).catch(() => {});
+  // both devices placed (and agreed on) before taking the baseline
+  await expect.poll(async () => Object.keys(JSON.parse(await positions(host.page))).length).toBe(2);
+  await expect.poll(() => positions(guest.page)).toBe(await positions(host.page));
   const before = await positions(host.page);
 
   await host.page.getByTestId('preset-frontStage').click();

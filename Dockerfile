@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Multi-target image: `--target server` (WS room server) or `--target web` (Next.js frontend).
 FROM node:24-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH

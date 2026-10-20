@@ -25,7 +25,7 @@ import { AudioEngine } from '../lib/engine/audioEngine';
 import { CalibrationController, presetPatch } from '../lib/engine/calibration';
 import { CaptureController } from '../lib/engine/capture';
 import { VideoDriver } from '../lib/engine/videoSync';
-import { History } from '../lib/history';
+import { History, restoreScene } from '../lib/history';
 import { installInstrumentation } from '../lib/instrumentation';
 import { RoomClient } from '../lib/roomClient';
 import { RemoteSyncManager } from '../lib/sources/remoteSync';
@@ -195,7 +195,9 @@ function sendStats(s: Session) {
   }
 }
 
-function applyFullScene(s: Session, scene: Scene) {
+function applyFullScene(s: Session, snapshot: Scene) {
+  const current = useRoomStore.getState().room?.scene;
+  const scene = current ? restoreScene(snapshot, current) : snapshot;
   s.scene.cancel();
   setRoom((r) => ({ ...r, scene }));
   s.lastLocalSceneEdit = performance.now();

@@ -1,3 +1,5 @@
+import type { Scene } from '@syncsound/protocol';
+
 /** Undo/redo stack of snapshots. A gesture's base is captured on its first edit and recorded on commit. */
 export class History<T> {
   private past: T[] = [];
@@ -55,4 +57,9 @@ export class History<T> {
     this.future = [];
     this.base = null;
   }
+}
+
+/** Undo/redo snapshot over the current scene: devices that joined after the snapshot keep their positions. */
+export function restoreScene(snapshot: Scene, current: Scene): Scene {
+  return { ...snapshot, devices: { ...current.devices, ...snapshot.devices } };
 }

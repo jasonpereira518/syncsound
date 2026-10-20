@@ -64,3 +64,13 @@ describe('History', () => {
     expect(h.undo(0)).toBeNull();
   });
 });
+
+describe('undo snapshot restore', () => {
+  it('keeps positions of devices that joined after the snapshot', async () => {
+    const { restoreScene } = await import('./history');
+    const { defaultScene } = await import('@syncsound/protocol');
+    const snap = { ...defaultScene(), devices: { a: { x: 0, y: -1 } } };
+    const cur = { ...defaultScene(), devices: { a: { x: 2, y: 2 }, b: { x: 1, y: 1 } } };
+    expect(restoreScene(snap, cur).devices).toEqual({ a: { x: 0, y: -1 }, b: { x: 1, y: 1 } });
+  });
+});
