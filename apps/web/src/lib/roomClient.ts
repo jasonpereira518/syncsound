@@ -2,6 +2,7 @@
  * WebSocket room client: JOIN, NTP-style clock sync (ClockSync), reconnect with backoff, seq filtering.
  * Browser-only (uses WebSocket/performance/localStorage); construct it from client code only.
  */
+import { dueNow } from './power';
 import { ClockSync } from '@syncsound/audio-core';
 import {
   CreateRoomResponse,
@@ -185,6 +186,11 @@ export class RoomClient {
   }
 
   private ping = () => this.send({ type: 'PING', t0: performance.now() });
+  private lastTimerPing = { t: 0 };
+  /** periodic (post-burst) ping; thinned to every 5 s in battery-friendly mode once synced */
+  private timerPing = () => {
+    if (!this.synced || dueNow(this.lastTimerPing, 5000)) this.ping();
+  };
 
   private startBurst(reason: 'connect' | 'resync') {
     this.stopPings();
@@ -198,7 +204,7 @@ export class RoomClient {
     // fallback: declare synced shortly after the burst even if some pongs were lost
     this.later(() => this.finishBurst(), BURST_COUNT * BURST_GAP_MS + 650);
     this.later(() => {
-      if (this.pingTimer === null && !this.closed) this.pingTimer = setInterval(this.ping, 1000);
+      if (this.pingTimer === null && !this.closed) this.pingTimer = setInterval(this.timerPing, 1000);
     }, BURST_COUNT * BURST_GAP_MS);
   }
 

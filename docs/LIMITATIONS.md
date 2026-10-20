@@ -61,6 +61,9 @@ An honest list of what is not done, what can't be verified without hardware, and
   room. Use separate browser profiles/devices.
 - **Spotify tokens** aren't refreshed (they expire after 1 h; reconnect). Apple Music has no reliable
   missing-subscription check.
+- **Profiles persist** (server `profiles.json`, keyed by the device id in localStorage): name, role, trim, latency,
+  calibrated latency, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to
+  see curves again.
 - **Calibration does not auto-pause music.** Users are told to pause first.
 - **Room creation and uploads** are rate-limited per remote address in-process. Behind a proxy, use a trusted
   `X-Forwarded-For`.

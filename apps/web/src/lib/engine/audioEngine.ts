@@ -3,6 +3,7 @@
  * compensation, drift correction, spatial mix + EQ graph, click test, identify beeps.
  * Browser-only: create it from client code after a user gesture (`unlock()`).
  */
+import { dueNow } from '../power';
 import {
   AudioClockMap,
   DriftController,
@@ -430,7 +431,10 @@ export class AudioEngine {
 
   // ---------- drift loop ----------
 
+  private lastTick = { t: 0 };
+
   private tick() {
+    if (!dueNow(this.lastTick, 1500)) return;
     const ctx = this.ctx;
     const room = useRoomStore.getState().room;
     const pv = this.voice;

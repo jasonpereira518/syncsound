@@ -2,6 +2,7 @@
  * The zustand store itself (no actions). Split from roomStore.ts so engine modules in src/lib can read and
  * patch state without importing the action layer (avoids an import cycle).
  */
+import { batterySaver } from '../lib/power';
 import { create } from 'zustand';
 import type { RoomStoreState } from './types';
 
@@ -27,6 +28,7 @@ export const initialState = (): RoomStoreState => ({
     eqBypassed: false,
     clickTest: false,
     wakeLock: false,
+    batterySaver: batterySaver(),
   },
   calibration: {
     running: false,

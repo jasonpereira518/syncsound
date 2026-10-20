@@ -3,6 +3,7 @@
  * Import only from client components. Actions that need a user gesture (call directly from a click
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
+import { dueNow, setBatterySaverFlag } from '../lib/power';
 import { defaultObjectsFor } from '@syncsound/audio-core';
 import {
   DemoAsset,
@@ -166,7 +167,9 @@ function maybeAutoObjects(s: Session, room: RoomState) {
   }
 }
 
+const lastStats = { t: 0 };
 function sendStats(s: Session) {
+  if (!dueNow(lastStats, 10_000)) return;
   if (!s.client.synced) return;
   try {
     const est = s.client.clock.estimate();
@@ -564,6 +567,11 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   setEqBypass(bypass) {
     session?.engine.setEqBypass(bypass);
+  },
+
+  setBatterySaver(on) {
+    setBatterySaverFlag(on);
+    patch('engine', { batterySaver: on });
   },
 
   setClickTest(on) {

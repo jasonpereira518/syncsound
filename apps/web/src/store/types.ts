@@ -46,6 +46,8 @@ export interface EngineStats {
   eqBypassed: boolean;
   clickTest: boolean;
   wakeLock: boolean;
+  /** battery-friendly mode: slower pings/drift loop/stats once synced (this device only) */
+  batterySaver: boolean;
 }
 
 export type CalibrationStep = 'idle' | 'place' | 'mic' | 'recording' | 'analyzing' | 'done' | 'error';
@@ -173,6 +175,7 @@ export interface RoomActions {
   applyPresetEq(targetDeviceId: string): void;
   setEqBypass(bypass: boolean): void;
   setClickTest(on: boolean): void;
+  setBatterySaver(on: boolean): void;
   dismissRouteChange(): void;
   /** Capture this tab / system audio and send it to every device (video mode 1). */
   startCapture(): Promise<void>;

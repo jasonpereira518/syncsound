@@ -10,6 +10,18 @@ const ROLE_LABEL: Record<DeviceRole, string> = { L: 'Left', R: 'Right', C: 'Cent
 
 const update = (patch: DevicePatch, id: string) => act(() => roomActions.updateDevice(patch, id));
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+function BatterySaverToggle() {
+  const on = useRoomStore((s) => s.engine.batterySaver);
+  return (
+    <Toggle
+      label="Battery-friendly mode"
+      description={on ? 'Fewer clock pings and sync checks on this device' : 'Full-rate sync on this device'}
+      checked={on}
+      onChange={(v) => act(() => roomActions.setBatterySaver(v))}
+    />
+  );
+}
 const db = (v: number) => `${fmtSigned(v, 1)} dB`;
 
 export function DeviceList() {
@@ -168,6 +180,11 @@ function DeviceRow({ d }: { d: Device }) {
               onChange={(v) => update({ eq: { ...d.eq, enabled: v } }, d.id)}
             />
           </div>
+          {isSelf && (
+            <div className="sm:col-span-2">
+              <BatterySaverToggle />
+            </div>
+          )}
         </fieldset>
       </details>
     </li>
@@ -256,6 +273,9 @@ export function SpeakerCard() {
           format={(v) => `${fmtSigned(v, 0)} ms`}
           onCommit={(v) => update({ latencyMs: Math.round(v) }, self.id)}
         />
+        <div className="sm:col-span-2">
+          <BatterySaverToggle />
+        </div>
       </div>
       <p className="mt-3 text-xs text-ink-400">
         {hostOnly
