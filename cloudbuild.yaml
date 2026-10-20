@@ -1,0 +1,6 @@
+# Builds the room-server image for Cloud Run (amd64) without needing buildx locally:
+# gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE=us-central1-docker.pkg.dev/<project>/syncsound/server:latest .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '--target', 'server', '-t', '${_IMAGE}', '.']
+images: ['${_IMAGE}']
