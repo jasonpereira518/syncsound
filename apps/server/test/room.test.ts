@@ -162,12 +162,12 @@ describe('Room join', () => {
     };
     const a = mkRoom({ profiles });
     join(a, 'c1', 'g1');
-    a.handle('c1', { type: 'DEVICE_UPDATE', patch: { role: 'L', latencyMs: 42, name: 'Kitchen' } }, 1100);
-    expect(store.get('g1')).toMatchObject({ role: 'L', latencyMs: 42, name: 'Kitchen' });
+    a.handle('c1', { type: 'DEVICE_UPDATE', patch: { role: 'L', latencyMs: 42, name: 'Kitchen', volume: 0.6 } }, 1100);
+    expect(store.get('g1')).toMatchObject({ role: 'L', latencyMs: 42, name: 'Kitchen', volume: 0.6 });
 
     const b = mkRoom({ profiles });
     join(b, 'c9', 'g1');
-    expect(b.device('g1')).toMatchObject({ role: 'L', latencyMs: 42, name: 'Kitchen', connected: true });
+    expect(b.device('g1')).toMatchObject({ role: 'L', latencyMs: 42, name: 'Kitchen', volume: 0.6, connected: true });
   });
 
   it('rejects messages from connections that never joined', () => {
@@ -406,7 +406,9 @@ describe('Room devices + scene', () => {
             rolloffHz: 150,
             bassCapable: false,
             trimDb: -2,
+            volumeUpDb: 7.5,
           },
+          { deviceId: 'h', heard: true, volumeUpDb: null },
           { deviceId: 'ghost', heard: true, calibratedLatencyMs: 1 },
         ],
       },
@@ -419,8 +421,10 @@ describe('Room devices + scene', () => {
       rolloffHz: 150,
       bassCapable: false,
       trimDb: -2,
+      volumeUpDb: 7.5,
     });
     expect(room.device('h')!.calibratedLatencyMs).toBeNull();
+    expect(room.device('h')!.volumeUpDb).toBeNull();
 
     const bad = room.handle('c2', { type: 'CALIBRATION_RESULT', planId: 'nope', results: [] }, 5000);
     expect(one(bad, 'ERROR').msg.code).toBe('unknown_plan');
@@ -435,6 +439,9 @@ describe('Room devices + scene', () => {
     const rtc = one(room.handle('c1', { type: 'RTC_SIGNAL', to: 'g2', data }, 1000), 'RTC_SIGNAL');
     expect(rtc.to).toEqual(['c2']);
     expect(rtc.msg).toMatchObject({ from: 'g1', data });
+    expect(rtc.msg).not.toHaveProperty('ch');
+    const clk = one(room.handle('c1', { type: 'RTC_SIGNAL', to: 'g2', data, ch: 'clock' }, 1000), 'RTC_SIGNAL');
+    expect(clk.msg).toMatchObject({ from: 'g1', data, ch: 'clock' });
 
     const err = one(room.handle('c1', { type: 'RTC_SIGNAL', to: 'nobody', data }, 1000), 'ERROR');
     expect(err).toMatchObject({ to: ['c1'], msg: { code: 'unknown_target' } });

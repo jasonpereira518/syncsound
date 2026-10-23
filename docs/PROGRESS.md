@@ -11,3 +11,14 @@
 - [x] M7 – Spotify / Apple Music sync-only (adapters, mock, seek sync w/ hysteresis, labeling)
 - [x] M8 – Polish & deploy (PWA, a11y, error states, docs, Docker, CI, deploy guide)
 - [x] Final: fresh-clone `pnpm verify`, self-review, SYNC_RESULTS, HUMAN_TEST_CHECKLIST
+
+## Revamp (plan: home surround, <1 ms, simple UI + Advanced view)
+
+- [x] R1 – Sub-ms sync: PI drift controller, LAN clock master over DataChannel (`ClockLink`), Bluetooth latency heuristic, <1 ms sync status
+- [x] R2 – One speaker-layout model (LayoutId + slots, channel-routed mix, 7.1, `suggestLayout`, Stage layout buttons)
+- [x] R3 – Calibration v2: auto-pause/resume, "turn this device up" hints (volumeUpDb), quick re-sync (chirps only), volume persisted
+- [x] R4 – Persistent Home + rooms (server/protocol; built in its own session, merged)
+- [x] R5 – Simple UI: landing → Home → room; one-tap join; 3-step setup wizard with room diagram; Now Playing; speaker screen
+- [x] R6 – Advanced view (previous full shell behind "Advanced", debug only there)
+- [ ] R7 – Native shells (later)
+- [x] Gap pass: group-play button, one-step YouTube, rejoin prompt, volume-to-max prompt, re-sync on clock steps, Bluetooth wobble during tuning, room name in title, balance / "Only I can control" renames, tests (home flow with tuning + volume, group play + rejoin, Bluetooth wobble sim)

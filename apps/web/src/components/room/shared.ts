@@ -20,15 +20,15 @@ export function currentTrack(room: RoomState | null): Track | null {
 }
 
 /**
- * green: |syncError| < 5 ms with a converged clock; yellow: < 20 ms; red otherwise / disconnected / no stats.
+ * green: |syncError| < 1 ms with a converged clock; yellow: < 5 ms; red otherwise / disconnected / no stats.
  * Only this device knows its own convergence (ClockStats); for peers, reported stats imply a running clock.
  */
 export function syncStatusOf(d: Device, selfId: string, clock: ClockStats | null): SyncStatus {
   if (!d.connected || !d.stats) return 'bad';
   const e = Math.abs(d.stats.syncErrorMs);
   const converged = d.id === selfId ? !!clock?.converged : true;
-  if (e < 5 && converged) return 'ok';
-  if (e < 20) return 'warn';
+  if (e < 1 && converged) return 'ok';
+  if (e < 5) return 'warn';
   return 'bad';
 }
 

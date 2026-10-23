@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, waitConverged } from './helpers';
+import { createRoom, joinRoom, newPage, openAdvanced, pageErrors, waitConverged } from './helpers';
 
 interface CalDevice {
   deviceId: string;
@@ -50,6 +50,15 @@ test('calibration wizard completes against a loopback microphone', async ({ brow
   await expect
     .poll(() => page.evaluate(() => (window as unknown as Win).__syncsound.getState().room.devices[0]!.eq.source))
     .toBe('measured');
+
+  // quick re-sync: timing-only pass completes and leaves the measured EQ in place
+  await page.getByTestId('calibrate-quick').click();
+  await expect(page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 60_000 });
+  const quick = await page.evaluate(() => (window as unknown as Win).__syncsound.getState().calibration);
+  console.log('quick re-sync:', quick.step, '-', quick.message);
+  expect(quick.step).toBe('done');
+  expect(quick.devices[0]!.heard).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as Win).__syncsound.getState().room.devices[0]!.eq.source)).toBe('measured');
   expect(pageErrors(page)).toEqual([]);
   await ctx.close();
 });
@@ -95,6 +104,7 @@ test('calibration started immediately after joining waits for the clocks and com
   await page.getByTestId('join-name').fill('Eager');
   await page.getByTestId('join-button').click();
   await expect(page.getByTestId('room-code').first()).toBeVisible();
+  await openAdvanced(page);
   await page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
   await page.getByTestId('calibrate-start').click(); // no waitConverged: the earliest a user can tap it
   await expect(page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 90_000 });

@@ -1,4 +1,4 @@
-/** HTTP routes: health, room create/info, asset upload + ranged serving, demo listing. */
+/** HTTP routes: health, room create/info, homes, asset upload + ranged serving, demo listing. */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, stat, unlink } from 'node:fs/promises';
@@ -6,7 +6,20 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { CreateRoomRequest, DemoAsset, isValidRoomCode, type UploadResponse } from '@syncsound/protocol';
+import {
+  CreateRoomRequest,
+  DemoAsset,
+  HomeGroupRequest,
+  HomeRoomRequest,
+  MAX_HOME_ROOMS,
+  OWNER_KEY_HEADER,
+  isValidRoomCode,
+  type HomeCreateResponse,
+  type HomeView,
+  type UploadResponse,
+} from '@syncsound/protocol';
+import type { HomeStore } from './homes.ts';
+import type { Outbound, Room } from './room.ts';
 import type { RoomManager } from './roomManager.ts';
 import type { Storage } from './storage.ts';
 
@@ -18,6 +31,11 @@ export interface HttpDeps {
   publicUrl?: string;
   maxUploadBytes: number;
   clock: () => number;
+  homes: HomeStore;
+  /** fan out room messages to its connections (group play) */
+  deliver: (room: Room, out: Outbound[]) => void;
+  /** disconnect every device of a removed room */
+  kick: (room: Room) => void;
 }
 
 const ASSET_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -181,6 +199,72 @@ async function demoList(req: IncomingMessage, d: HttpDeps) {
   });
 }
 
+async function homeRoute(req: IncomingMessage, res: ServerResponse, path: string[], d: HttpDeps) {
+  const m = req.method ?? 'GET';
+  if (m === 'POST' && path.length === 0) {
+    if (overLimit(`homes:${req.socket.remoteAddress}`, 10, 60_000, Date.now()))
+      throw new HttpError(429, 'too many homes created, slow down');
+    const { home, ownerKey } = d.homes.create();
+    return json(res, 201, { homeId: home.id, ownerKey } satisfies HomeCreateResponse);
+  }
+  const home = d.homes.get(path[0] ?? '');
+  if (!home) throw new HttpError(404, 'no such home');
+  const [, sub, roomId] = path;
+  const owner = () => {
+    const key = req.headers[OWNER_KEY_HEADER];
+    if (!d.homes.isOwner(home, typeof key === 'string' ? key : undefined))
+      throw new HttpError(403, 'owner key required');
+  };
+  const body = async <T>(schema: { safeParse(v: unknown): { success: true; data: T } | { success: false } }) => {
+    const p = schema.safeParse(await readJson(req));
+    if (!p.success) throw new HttpError(400, 'invalid request');
+    return p.data;
+  };
+
+  if ((m === 'GET' || m === 'HEAD') && path.length === 1) {
+    const view: HomeView = {
+      id: home.id,
+      rooms: home.rooms.map((r) => ({
+        id: r.id,
+        name: r.name,
+        connected: d.manager.rooms.get(r.id)?.connectedCount ?? 0,
+      })),
+    };
+    return json(res, 200, view);
+  }
+  if (sub === 'rooms' && path.length === 2 && m === 'POST') {
+    owner();
+    if (home.rooms.length >= MAX_HOME_ROOMS) throw new HttpError(409, 'home is full');
+    const { name } = await body(HomeRoomRequest);
+    const r = d.manager.addHomeRoom(home, name);
+    return json(res, 201, { id: r.id, name: r.name });
+  }
+  if (sub === 'rooms' && path.length === 3 && (m === 'PATCH' || m === 'DELETE')) {
+    owner();
+    const r = home.rooms.find((x) => x.id === roomId);
+    if (!r) throw new HttpError(404, 'no such room');
+    if (m === 'PATCH') {
+      const { name } = await body(HomeRoomRequest);
+      d.homes.updateRoom(r.id, { name });
+      return json(res, 200, { id: r.id, name });
+    }
+    const { live } = d.manager.removeHomeRoom(home, r.id);
+    if (live) d.kick(live);
+    res.writeHead(204);
+    return void res.end();
+  }
+  if (sub === 'group' && path.length === 2 && m === 'POST') {
+    owner();
+    const { roomIds, command } = await body(HomeGroupRequest);
+    if (!roomIds.every((id) => home.rooms.some((r) => r.id === id)))
+      throw new HttpError(400, 'room not in this home');
+    const { updates, ...result } = d.manager.groupControl(roomIds, command, d.clock());
+    for (const u of updates) d.deliver(u.room, u.out);
+    return json(res, 200, result);
+  }
+  throw new HttpError(404, 'not found');
+}
+
 export function createHttpHandler(d: HttpDeps) {
   async function route(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -206,8 +290,11 @@ export function createHttpHandler(d: HttpDeps) {
     if (get && parts[0] === 'api' && parts[1] === 'rooms' && parts.length === 3) {
       const code = seg(2).toUpperCase();
       const room = isValidRoomCode(code) ? d.manager.get(code) : undefined;
-      return json(res, 200, { exists: !!room, hasPassword: room?.state.settings.hasPassword ?? false });
+      const name = room ? d.homes.findRoom(code)?.room.name : undefined;
+      return json(res, 200, { exists: !!room, hasPassword: room?.state.settings.hasPassword ?? false, ...(name ? { name } : {}) });
     }
+    if (parts[0] === 'api' && parts[1] === 'homes')
+      return homeRoute(req, res, parts.slice(2).map((_, i) => seg(i + 2)), d);
     if (get && p === '/api/demo') return json(res, 200, await demoList(req, d));
     if (m === 'POST' && p === '/api/assets') {
       if (overLimit(`assets:${req.socket.remoteAddress}`, 60, 60_000, Date.now())) throw new HttpError(429, 'too many uploads, slow down');
@@ -242,8 +329,8 @@ export function createHttpHandler(d: HttpDeps) {
     }
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        'access-control-allow-methods': 'GET, HEAD, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type, x-filename, range',
+        'access-control-allow-methods': 'GET, HEAD, POST, PATCH, DELETE, OPTIONS',
+        'access-control-allow-headers': `content-type, x-filename, range, ${OWNER_KEY_HEADER}`,
         'access-control-max-age': '86400',
       });
       return void res.end();

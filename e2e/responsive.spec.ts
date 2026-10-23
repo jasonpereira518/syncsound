@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openAdvanced } from './helpers';
 
 const noHorizontalScroll = () => document.documentElement.scrollWidth <= window.innerWidth;
 
@@ -22,6 +23,13 @@ test('360 px: landing + room have no horizontal scroll; join works by keyboard',
   await expect(page.getByTestId('join-button')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('room-code').first()).toBeVisible();
+  // simple views first: the setup wizard, then the everyday controls
+  await expect(page.getByTestId('wizard-title')).toBeVisible();
+  expect(await page.evaluate(noHorizontalScroll), 'no horizontal scroll in the setup wizard').toBe(true);
+  await page.getByTestId('wizard-later').click();
+  await expect(page.getByTestId('room-health')).toBeVisible();
+  expect(await page.evaluate(noHorizontalScroll), 'no horizontal scroll on Now Playing').toBe(true);
+  await openAdvanced(page);
   for (const tab of [/library/i, /stage/i, /devices/i, /calibrat/i]) {
     await page.getByRole('tab', { name: tab }).last().click();
     expect(await page.evaluate(noHorizontalScroll), `no horizontal scroll on ${tab}`).toBe(true);

@@ -38,9 +38,15 @@ interface UAData {
 const uaData = (): UAData | undefined => (navigator as Navigator & { userAgentData?: UAData }).userAgentData;
 
 const BT_RE = /bluetooth|airpods|beats|bose|jbl|sony wh|sony wf|galaxy buds|headset|hands-free/i;
+/** reported output latency above this is a Bluetooth link in practice (wired/built-in outputs report ≲ 60 ms) */
+const BT_LATENCY_MS = 120;
 
-export function detectDeviceClass(ua: string, opts: { mobile?: boolean; touchPoints?: number; outputLabel?: string } = {}): DeviceClass {
+export function detectDeviceClass(
+  ua: string,
+  opts: { mobile?: boolean; touchPoints?: number; outputLabel?: string; outputLatencyMs?: number | null } = {},
+): DeviceClass {
   if (opts.outputLabel && BT_RE.test(opts.outputLabel)) return 'bluetooth';
+  if ((opts.outputLatencyMs ?? 0) > BT_LATENCY_MS) return 'bluetooth';
   if (/iPad|Tablet|PlayBook|Silk/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return 'tablet';
   // iPadOS reports a Mac UA; touch points give it away.
   if (/Macintosh/i.test(ua) && (opts.touchPoints ?? 0) > 1) return 'tablet';
@@ -67,13 +73,14 @@ export async function buildCaps(ctx: AudioContext | null): Promise<DeviceCaps> {
   const ua = navigator.userAgent;
   const { hasMic, outputLabel } = await mediaInfo();
   const ms = (s: number | undefined) => (typeof s === 'number' && Number.isFinite(s) ? s * 1000 : null);
+  const outputLatencyMs = ms(ctx?.outputLatency);
   return {
     userAgent: ua.slice(0, 400),
     platform: (uaData()?.platform || navigator.platform || 'unknown').slice(0, 80),
-    deviceClass: detectDeviceClass(ua, { mobile: uaData()?.mobile, touchPoints: navigator.maxTouchPoints, outputLabel }),
+    deviceClass: detectDeviceClass(ua, { mobile: uaData()?.mobile, touchPoints: navigator.maxTouchPoints, outputLabel, outputLatencyMs }),
     sampleRate: Math.min(192000, Math.max(8000, ctx?.sampleRate ?? 48000)),
     baseLatencyMs: ms(ctx?.baseLatency),
-    outputLatencyMs: ms(ctx?.outputLatency),
+    outputLatencyMs,
     hasOutputTimestamp: typeof ctx?.getOutputTimestamp === 'function',
     hasMic,
     ...(outputLabel ? { outputLabel } : {}),
