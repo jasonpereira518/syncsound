@@ -14,7 +14,23 @@ An honest list of what is not done, what can't be verified without hardware, and
   `http://<LAN-IP>` can play, but can't calibrate or capture. See DEPLOY.md.
 - **iOS Safari** suspends audio in the background and some versions lack `outputLatency`. The app re-syncs and
   reschedules on `visibilitychange`, but background playback on iOS is not possible.
-- **Bluetooth output latency** is not reported by browsers. It needs acoustic calibration or the manual slider.
+- **Bluetooth output latency** is not reported by browsers. It needs acoustic calibration or the manual slider
+  (±1000 ms). The schedule lead grows with the largest device compensation, so a Bluetooth room has a slightly
+  slower response to play/seek (e.g. ~550 ms instead of ~250 ms).
+- **Bluetooth latency can change mid-session** (reconnect, codec renegotiation, speaker waking from sleep, RF
+  interference). The browser can't see this; only re-running calibration or *Measure sync* catches it.
+- **One phone drives one Bluetooth speaker.** A page has one audio output; OS "dual audio" features are outside
+  the app's control and not compensated.
+- **A Bluetooth listener can't measure its own speaker.** Opening the mic switches Bluetooth to its hands-free
+  profile, so a device playing through Bluetooth is left out of a run it listens for (with a warning). Calibrate
+  it from another device.
+- **Per-output calibration memory** needs readable output labels: desktop Chromium/Firefox after mic permission
+  was granted on that device. On iOS, and on Android where output devices aren't listed, a route change still
+  only prompts to recalibrate. A device that never granted mic permission (calibrated from another listener)
+  has no labels either. Calibrated latencies are relative to the fastest device *in that run*, so values from
+  runs with different device sets are not strictly comparable.
+- **Calibration's search window is 500 ms**, so a speaker slower than ~500 ms beyond the fastest device is not
+  heard by calibration; use the manual slider for it.
 - **Clock asymmetry:** NTP-style sync can't observe asymmetric network paths. The bias (asymmetry/2, e.g.
   15 ms for a 30 ms asymmetry) gets absorbed by acoustic calibration; without calibration it remains.
 

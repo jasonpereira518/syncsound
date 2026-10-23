@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MIN_SCHEDULE_LEAD_MS, SCHEDULE_SAFETY_MARGIN_MS } from '@syncsound/protocol';
-import { computeStart, minScheduleLeadMs, positionAt } from './scheduler';
+import { MAX_LEAD_OUTPUT_LATENCY_MS, computeStart, minScheduleLeadMs, positionAt } from './scheduler';
 
 const roomToCtx = (ms: number) => (ms - 10_000) / 1000; // room 10 s ↔ ctx 0
 
@@ -45,7 +45,20 @@ describe('positionAt / minScheduleLeadMs', () => {
   });
   it('minScheduleLeadMs', () => {
     expect(minScheduleLeadMs([])).toBe(MIN_SCHEDULE_LEAD_MS);
-    expect(minScheduleLeadMs([40, 300])).toBe(300 + SCHEDULE_SAFETY_MARGIN_MS);
-    expect(minScheduleLeadMs([40], 10)).toBe(MIN_SCHEDULE_LEAD_MS);
+    expect(minScheduleLeadMs([{ rttMs: 40 }, { rttMs: 300 }])).toBe(300 + SCHEDULE_SAFETY_MARGIN_MS);
+    expect(minScheduleLeadMs([{ rttMs: 40 }], 10)).toBe(MIN_SCHEDULE_LEAD_MS);
+  });
+  it('minScheduleLeadMs adds each device’s output latency to its RTT (Bluetooth starts earlier)', () => {
+    // 250 ms Bluetooth speaker on a 30 ms RTT beats a 100 ms RTT device with no extra latency
+    expect(minScheduleLeadMs([{ rttMs: 100, outputLatencyMs: 0 }, { rttMs: 30, outputLatencyMs: 250 }])).toBe(
+      280 + SCHEDULE_SAFETY_MARGIN_MS,
+    );
+    // negative compensation (plays later) never shortens the lead
+    expect(minScheduleLeadMs([{ rttMs: 200, outputLatencyMs: -400 }])).toBe(200 + SCHEDULE_SAFETY_MARGIN_MS);
+    // clamped, and non-finite values are ignored
+    expect(minScheduleLeadMs([{ rttMs: 10, outputLatencyMs: 1e9 }])).toBe(
+      10 + MAX_LEAD_OUTPUT_LATENCY_MS + SCHEDULE_SAFETY_MARGIN_MS,
+    );
+    expect(minScheduleLeadMs([{ rttMs: NaN, outputLatencyMs: NaN }])).toBe(MIN_SCHEDULE_LEAD_MS);
   });
 });

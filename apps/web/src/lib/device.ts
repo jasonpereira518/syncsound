@@ -11,7 +11,7 @@ export function randomId(len = 16): string {
   return Array.from(bytes, (b) => ID_CHARS[b % ID_CHARS.length]).join('');
 }
 
-function storage(): Storage | null {
+export function storage(): Storage | null {
   try {
     return typeof window === 'undefined' ? null : window.localStorage;
   } catch {
@@ -41,11 +41,13 @@ const BT_RE = /bluetooth|airpods|beats|bose|jbl|sony wh|sony wf|galaxy buds|head
 /** reported output latency above this is a Bluetooth link in practice (wired/built-in outputs report ≲ 60 ms) */
 const BT_LATENCY_MS = 120;
 
+export const isBluetoothLabel = (label: string | null | undefined): boolean => !!label && BT_RE.test(label);
+
 export function detectDeviceClass(
   ua: string,
   opts: { mobile?: boolean; touchPoints?: number; outputLabel?: string; outputLatencyMs?: number | null } = {},
 ): DeviceClass {
-  if (opts.outputLabel && BT_RE.test(opts.outputLabel)) return 'bluetooth';
+  if (isBluetoothLabel(opts.outputLabel)) return 'bluetooth';
   if ((opts.outputLatencyMs ?? 0) > BT_LATENCY_MS) return 'bluetooth';
   if (/iPad|Tablet|PlayBook|Silk/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return 'tablet';
   // iPadOS reports a Mac UA; touch points give it away.
@@ -56,13 +58,49 @@ export function detectDeviceClass(
   return 'unknown';
 }
 
+type MediaDeviceLike = Pick<MediaDeviceInfo, 'kind' | 'deviceId' | 'label'>;
+
+/** label of the output the page plays through; undefined when the browser hides labels (no mic permission, iOS) */
+export function defaultOutputLabel(devices: readonly MediaDeviceLike[]): string | undefined {
+  const out = devices.find((d) => d.kind === 'audiooutput' && d.deviceId === 'default') ?? devices.find((d) => d.kind === 'audiooutput');
+  return out?.label ? out.label.slice(0, 120) : undefined;
+}
+
+export async function currentOutputLabel(): Promise<string | undefined> {
+  try {
+    return defaultOutputLabel((await navigator.mediaDevices?.enumerateDevices?.()) ?? []);
+  } catch {
+    return undefined;
+  }
+}
+
+export type CalibrationInputChoice = { kind: 'keep' } | { kind: 'switch'; deviceId: string } | { kind: 'bluetooth-only' };
+
+/**
+ * Which mic a calibration listener should record with. A Bluetooth headset mic is the wrong one: it sits at the
+ * speaker instead of the listening position, records in call quality, and holds the output in its hands-free
+ * profile (different latency from music playback). Prefer any real non-Bluetooth input.
+ */
+export function chooseCalibrationInput(openedLabel: string, inputs: readonly MediaDeviceLike[]): CalibrationInputChoice {
+  if (!isBluetoothLabel(openedLabel)) return { kind: 'keep' };
+  const alt = inputs.find(
+    (d) =>
+      d.kind === 'audioinput' &&
+      d.deviceId &&
+      d.deviceId !== 'default' &&
+      d.deviceId !== 'communications' &&
+      d.label &&
+      !isBluetoothLabel(d.label),
+  );
+  return alt ? { kind: 'switch', deviceId: alt.deviceId } : { kind: 'bluetooth-only' };
+}
+
 async function mediaInfo(): Promise<{ hasMic: boolean; outputLabel?: string }> {
   try {
     const devices = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
-    const out = devices.find((d) => d.kind === 'audiooutput' && d.deviceId === 'default') ?? devices.find((d) => d.kind === 'audiooutput');
     return {
       hasMic: devices.some((d) => d.kind === 'audioinput') && !!navigator.mediaDevices?.getUserMedia,
-      outputLabel: out?.label ? out.label.slice(0, 120) : undefined,
+      outputLabel: defaultOutputLabel(devices),
     };
   } catch {
     return { hasMic: false };

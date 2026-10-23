@@ -17,6 +17,8 @@ export const RoomCode = z
   .length(ROOM_CODE_LENGTH)
   .regex(new RegExp(`^[${ROOM_CODE_ALPHABET}]+$`));
 export const isValidRoomCode = (s: string) => RoomCode.safeParse(s).success;
+/** manual latency slider range, ±ms (same span as the calibrated offset) */
+export const MAX_MANUAL_LATENCY_MS = 1000;
 
 export const Id = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 export const Name = z.string().trim().min(1).max(40);
@@ -104,8 +106,8 @@ export const Device = z.object({
   trimDb: finite().min(-24).max(12),
   muted: z.boolean(),
   solo: z.boolean(),
-  /** manual fine-tune, ms, +ve = this device plays earlier */
-  latencyMs: finite().min(-500).max(500),
+  /** manual fine-tune, ms, +ve = this device plays earlier (slow Bluetooth speakers can need > 500 ms) */
+  latencyMs: finite().min(-MAX_MANUAL_LATENCY_MS).max(MAX_MANUAL_LATENCY_MS),
   /** acoustic calibration result (relative output latency), ms, +ve = this device plays earlier */
   calibratedLatencyMs: finite().min(-1000).max(1000).nullable(),
   eq: DeviceEq,
