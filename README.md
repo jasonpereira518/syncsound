@@ -111,7 +111,7 @@ Copy `.env.example`. Everything is optional; the app runs fully without credenti
 | `NEXT_PUBLIC_SERVER_URL` | server URL the browser uses (default `<page host>:8787`) |
 | `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`, `NEXT_PUBLIC_SPOTIFY_REDIRECT_URI` | Spotify sync-only mode (Premium per device) |
 | `NEXT_PUBLIC_APPLE_MUSIC_DEVELOPER_TOKEN` | Apple Music sync-only mode (subscription per device) |
-| `PORT`, `DATA_DIR`, `ALLOWED_ORIGINS`, `ROOM_TTL_MINUTES`, `PUBLIC_URL` | server |
+| `PORT`, `DATA_DIR`, `ALLOWED_ORIGINS`, `ROOM_TTL_MINUTES`, `PUBLIC_URL` | server (`ALLOWED_ORIGINS` is comma-separated; `*` matches one hostname fragment, e.g. `https://web-*-team.vercel.app`) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` | S3/R2/MinIO uploads |
 
 ## Docs

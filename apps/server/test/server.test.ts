@@ -13,6 +13,7 @@ import type {
   ServerMessage,
   UploadResponse,
 } from '@syncsound/protocol';
+import { originAllowed } from '../src/http.ts';
 import { MAX_DROPS, RATE_BURST, startServer } from '../src/index.ts';
 import { perfClock } from '../src/room.ts';
 
@@ -345,6 +346,18 @@ describe('server integration', () => {
 
     for (let i = 0; i < MAX_DROPS + 50; i++) c.send({ type: 'PING', t0: i });
     expect(await c.until(() => c.closeCode ?? undefined)).toBe(1008);
+  });
+});
+
+describe('originAllowed patterns', () => {
+  const allowed = ['https://app.test', 'https://web-*-team.vercel.app'];
+  it('matches exact origins and one-label wildcards only', () => {
+    expect(originAllowed('https://app.test', allowed)).toBe(true);
+    expect(originAllowed('https://web-abc123-team.vercel.app', allowed)).toBe(true);
+    expect(originAllowed('https://web-git-my-branch-team.vercel.app', allowed)).toBe(true);
+    expect(originAllowed('https://web-x.evil.com-team.vercel.app', allowed)).toBe(false);
+    expect(originAllowed('https://web-abc-team.vercel.app.evil.com', allowed)).toBe(false);
+    expect(originAllowed('https://evil.test', allowed)).toBe(false);
   });
 });
 
