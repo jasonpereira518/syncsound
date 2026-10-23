@@ -85,3 +85,24 @@ test('sync measurement tool: loopback clicks are detected and stable', async ({ 
   expect(pageErrors(page)).toEqual([]);
   await ctx.close();
 });
+
+// Pressing Calibrate right after joining (before the audio clock has converged) must wait for it, not fail.
+test('calibration started immediately after joining waits for the clocks and completes', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { ctx, page } = await newPage(browser);
+  const code = await createRoom(page);
+  await page.goto(`/room/${code}?loopbackMic=80`);
+  await page.getByTestId('join-name').fill('Eager');
+  await page.getByTestId('join-button').click();
+  await expect(page.getByTestId('room-code').first()).toBeVisible();
+  await page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  await page.getByTestId('calibrate-start').click(); // no waitConverged: the earliest a user can tap it
+  await expect(page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 90_000 });
+  const cal = await page.evaluate(
+    () => (window as unknown as { __syncsound: { getState(): { calibration: { step: string; message: string } } } }).__syncsound.getState().calibration,
+  );
+  console.log('early calibration:', cal.step, '-', cal.message);
+  expect(cal.step).toBe('done');
+  expect(pageErrors(page)).toEqual([]);
+  await ctx.close();
+});

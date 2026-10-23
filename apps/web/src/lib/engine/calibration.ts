@@ -52,6 +52,8 @@ registerProcessor('syncsound-recorder', SyncSoundRecorder);
 
 /** same value for slot building and analysis (guard gaps + search windows) */
 const MAX_LATENCY_MS = 500;
+/** how long calibration waits for clocks to converge before giving up, ms */
+const TIMING_WAIT_MS = 10_000;
 /** sync measurement runs after calibration: residuals are small */
 const SYNC_MAX_LATENCY_MS = 300;
 
@@ -234,12 +236,12 @@ export class CalibrationController {
       const clock = this.clock();
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
-      if (!this.engine.timingReady()) throw new Error('Still syncing clocks. Try again in a second.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS, () =>
-        patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' }),
+      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS,
+        () => patch('calibration', { message: 'Syncing clocks…' }),
+        () => patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' }),
         (progress) => patch('calibration', { progress }),
       );
       patch('calibration', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
@@ -322,12 +324,25 @@ export class CalibrationController {
     }
   }
 
+  /** poll until the room clock + audio clock are usable; give up after TIMING_WAIT_MS */
+  private async waitForTiming(run: { cancelled: boolean }): Promise<void> {
+    const deadline = performance.now() + TIMING_WAIT_MS;
+    while (!this.engine.timingReady()) {
+      if (run.cancelled) throw new Cancelled();
+      if (performance.now() > deadline) {
+        throw new Error("Couldn't sync this device's clock with the room. Check your connection and try again.");
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
   /** mic (or loopback) → recorder → CALIBRATION_START → wait for the plan → record until the plan ends */
   private async record(
     run: NonNullable<CalibrationController['run']>,
     slots: CalibrationPlan['slots'],
     purpose: 'calibrate' | 'measure',
     maxLatencyMs: number,
+    onWaiting: () => void,
     onRecording: () => void,
     onProgress: (p: number) => void,
   ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number } }> {
@@ -358,6 +373,12 @@ export class CalibrationController {
     // re-converged (step confirmation needs ~0.75 s) before anything is scheduled.
     await new Promise((r) => setTimeout(r, 1500));
     check();
+    // The clock/audio-clock mapping may still be converging (it needs ~1 s after joining). The mic is already
+    // open (so the permission prompt stayed tied to the user's tap), so wait here instead of failing.
+    if (!this.engine.timingReady()) {
+      onWaiting();
+      await this.waitForTiming(run);
+    }
     onRecording();
     const plan = await new Promise<CalibrationPlan>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error("The server didn't start the run. Try again.")), 8000);
@@ -406,13 +427,13 @@ export class CalibrationController {
       const clock = this.clock();
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
-      if (!this.engine.timingReady()) throw new Error('Still syncing clocks. Try again in a second.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
       const { plan, rec } = await this.record(
         run,
         buildSyncMeasurementSlots(deviceIds, { durationSec }),
         'measure',
         SYNC_MAX_LATENCY_MS,
+        () => patch('syncMeasure', { message: 'Syncing clocks…' }),
         () => patch('syncMeasure', { message: `Measuring for ${durationSec} s: every speaker clicks once per second.` }),
         (progress) => patch('syncMeasure', { progress }),
       );
