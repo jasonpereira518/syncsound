@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { DeviceRole, type Device, type DevicePatch } from '@syncsound/protocol';
+import { DeviceRole, MAX_MANUAL_LATENCY_MS, type Device, type DevicePatch } from '@syncsound/protocol';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, CLASS_ICON, Icon, IconButton, Panel, RangeField, ROLE_COLOR, StatusDot, Toggle, fmtMs, fmtSigned } from '../ui';
 import { act, currentTrack, syncStatusOf, useCanControl } from './shared';
@@ -162,8 +162,8 @@ function DeviceRow({ d }: { d: Device }) {
           <div className="sm:col-span-2">
             <RangeField
               label="Manual latency (ms, + plays earlier)"
-              min={-500}
-              max={500}
+              min={-MAX_MANUAL_LATENCY_MS}
+              max={MAX_MANUAL_LATENCY_MS}
               step={1}
               withNumber
               value={d.latencyMs}
@@ -265,8 +265,8 @@ export function SpeakerCard() {
         <RangeField label="My volume" min={0} max={1} step={0.01} value={self.volume} format={pct} onCommit={(v) => update({ volume: v }, self.id)} />
         <RangeField
           label="My latency trim (ms)"
-          min={-500}
-          max={500}
+          min={-MAX_MANUAL_LATENCY_MS}
+          max={MAX_MANUAL_LATENCY_MS}
           step={1}
           withNumber
           value={self.latencyMs}

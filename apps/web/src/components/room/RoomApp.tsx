@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRoomStore, roomActions } from '@/store/roomStore';
-import { Icon, Tabs, tabPanelProps, type TabDef } from '../ui';
+import { Icon, Tabs, fmtSigned, tabPanelProps, type TabDef } from '../ui';
 import { CalibrationWizard } from './CalibrationWizard';
 import { DeviceList, SpeakerCard } from './DeviceList';
 import { JoinGate } from './JoinGate';
@@ -119,9 +119,30 @@ export function RoomApp({ code }: { code: string }) {
 
 function Banners() {
   const routeChanged = useRoomStore((s) => s.routeChanged);
+  const routeRestored = useRoomStore((s) => s.routeRestored);
   const emitting = useRoomStore((s) => s.calibration.emitting);
   return (
     <>
+      {routeRestored && !routeChanged && (
+        <div
+          role="status"
+          data-testid="route-restored"
+          className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm"
+        >
+          <Icon name="bluetooth" className="size-5 shrink-0 text-accent" />
+          <p className="min-w-0 flex-1">
+            <strong className="text-accent">Audio output changed to {routeRestored.label}.</strong> Using its saved
+            calibration ({fmtSigned(routeRestored.calibratedLatencyMs, 0)} ms). Recalibrate if it sounds out of sync.
+          </p>
+          <button
+            type="button"
+            onClick={() => act(() => roomActions.dismissRouteChange())}
+            className="min-h-11 rounded-lg px-3 text-ink-200 hover:bg-ink-800"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {routeChanged && (
         <div
           role="status"

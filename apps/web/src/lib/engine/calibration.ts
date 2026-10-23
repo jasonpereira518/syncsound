@@ -15,6 +15,7 @@ import {
 } from '@syncsound/audio-core';
 import type { CalibrationDeviceResult, CalibrationPlan, ClientMessage, Device, DevicePatch } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
+import { chooseCalibrationInput, defaultOutputLabel, isBluetoothLabel } from '../device';
 import type { CalibrationDeviceUi } from '../../store/types';
 import type { AudioEngine } from './audioEngine';
 
@@ -123,6 +124,45 @@ async function startRecorder(ctx: AudioContext, input: MediaStream | AudioNode):
       teardown();
     },
   };
+}
+
+const MIC_CONSTRAINTS = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+
+const BT_MIC_ONLY_ERROR =
+  "This device's only microphone is its Bluetooth speaker or headset. It would record at the speaker, not where " +
+  'you listen. Disconnect Bluetooth on this device, or run calibration from another phone or laptop.';
+const BT_SELF_WARNING =
+  "This device plays through Bluetooth or headphones, so its own speaker wasn't measured (opening the mic " +
+  "switches Bluetooth into call mode, which has a different delay). Run calibration from another device to measure it.";
+
+/**
+ * Open the listener mic, avoiding a Bluetooth headset mic. `outputBluetooth`: this device's own output is (or was
+ * just switched to) Bluetooth, so measuring it from here would capture the hands-free profile, not music playback.
+ */
+async function openCalibrationMic(): Promise<{ stream: MediaStream; outputBluetooth: boolean }> {
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
+  } catch (e) {
+    throw new Error(micError(e));
+  }
+  let devices: MediaDeviceInfo[] = [];
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices(); // labels are readable now that the mic is granted
+  } catch {
+    /* labels unknown: keep the default mic */
+  }
+  const choice = chooseCalibrationInput(stream.getAudioTracks()[0]?.label ?? '', devices);
+  if (choice.kind !== 'keep') {
+    stream.getTracks().forEach((t) => t.stop());
+    if (choice.kind === 'bluetooth-only') throw new Error(BT_MIC_ONLY_ERROR);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { ...MIC_CONSTRAINTS, deviceId: { exact: choice.deviceId } } });
+    } catch (e) {
+      throw new Error(micError(e));
+    }
+  }
+  return { stream, outputBluetooth: choice.kind !== 'keep' || isBluetoothLabel(defaultOutputLabel(devices)) };
 }
 
 function micError(e: unknown): string {
@@ -239,7 +279,7 @@ export class CalibrationController {
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS,
+      const { plan, rec, selfExcluded } = await this.record(run, deviceIds, (ids) => buildCalibrationSlots(ids, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS,
         () => patch('calibration', { message: 'Syncing clocks…' }),
         () => patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' }),
         (progress) => patch('calibration', { progress }),
@@ -305,9 +345,10 @@ export class CalibrationController {
         freqs: report.devices.find((d) => d.response)?.response?.freqs ?? null,
         targetDb: report.targetDb,
         devices: ui,
-        warnings: report.warnings,
+        warnings: selfExcluded ? [BT_SELF_WARNING, ...report.warnings] : report.warnings,
       });
-      useRoomStore.setState({ routeChanged: false });
+      // the listener's own output wasn't measured, so its route-change prompt still stands
+      if (!selfExcluded) useRoomStore.setState({ routeChanged: false });
     } catch (e) {
       if (e instanceof Cancelled || run.cancelled) patch('calibration', { step: 'idle', message: 'Calibration cancelled.', progress: 0 });
       else patch('calibration', { step: 'error', message: errMsg(e) });
@@ -339,13 +380,14 @@ export class CalibrationController {
   /** mic (or loopback) → recorder → CALIBRATION_START → wait for the plan → record until the plan ends */
   private async record(
     run: NonNullable<CalibrationController['run']>,
-    slots: CalibrationPlan['slots'],
+    deviceIds: string[],
+    buildSlots: (deviceIds: string[]) => CalibrationPlan['slots'],
     purpose: 'calibrate' | 'measure',
     maxLatencyMs: number,
     onWaiting: () => void,
     onRecording: () => void,
     onProgress: (p: number) => void,
-  ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number } }> {
+  ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number }; selfExcluded: boolean }> {
     const check = () => {
       if (run.cancelled) throw new Cancelled();
     };
@@ -353,18 +395,20 @@ export class CalibrationController {
     const clock = this.clock()!;
     const lb = this.engine.loopback();
     let stream: MediaStream | null = null;
+    let selfExcluded = false;
     if (!lb) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        });
-      } catch (e) {
-        throw new Error(micError(e));
-      }
-      const s = stream;
+      const mic = await openCalibrationMic();
+      const s = mic.stream;
       run.cleanup.push(() => s.getTracks().forEach((t) => t.stop()));
+      stream = s;
+      const { room, deviceId } = useRoomStore.getState();
+      selfExcluded = mic.outputBluetooth || room?.devices.find((d) => d.id === deviceId)?.caps.deviceClass === 'bluetooth';
     }
     check();
+    const myId = useRoomStore.getState().deviceId;
+    const ids = selfExcluded ? deviceIds.filter((id) => id !== myId) : deviceIds;
+    if (!ids.length) throw new Error(`${BT_SELF_WARNING} No other speakers are connected yet.`);
+    const slots = buildSlots(ids);
     const recorder = await startRecorder(ctx, stream ?? lb!);
     run.cleanup.push(() => recorder.abort());
     check();
@@ -413,7 +457,7 @@ export class CalibrationController {
       });
     });
     check();
-    return { plan, rec: await recorder.stop() };
+    return { plan, rec: await recorder.stop(), selfExcluded };
   }
 
   /** Sync-measurement tool: every device clicks (device-unique chirp) once per second through normal compensation. */
@@ -428,9 +472,10 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
-      const { plan, rec } = await this.record(
+      const { plan, rec, selfExcluded } = await this.record(
         run,
-        buildSyncMeasurementSlots(deviceIds, { durationSec }),
+        deviceIds,
+        (ids) => buildSyncMeasurementSlots(ids, { durationSec }),
         'measure',
         SYNC_MAX_LATENCY_MS,
         () => patch('syncMeasure', { message: 'Syncing clocks…' }),
@@ -460,7 +505,7 @@ export class CalibrationController {
         devices: report.devices.map(({ deviceId, detected, total, meanMs, stdMs, p95AbsMs, maxAbsMs }) => ({ deviceId, detected, total, meanMs, stdMs, p95AbsMs, maxAbsMs })),
         histogram: { edgesMs: report.histogram.edgesMs, counts: report.histogram.counts },
         overall: report.overall,
-        warnings: report.warnings,
+        warnings: selfExcluded ? [BT_SELF_WARNING, ...report.warnings] : report.warnings,
       });
     } catch (e) {
       if (e instanceof Cancelled || run.cancelled) patch('syncMeasure', { step: 'idle', message: 'Measurement cancelled.', progress: 0 });

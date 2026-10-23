@@ -59,8 +59,26 @@ export function positionAt(playback: Playback, roomMs: number): number {
   return playback.trackOffset + Math.max(0, roomMs - playback.startRoomTime) / 1000;
 }
 
-/** Minimum lead time for a scheduled action given device RTTs: max(rtt) + safety, at least MIN_SCHEDULE_LEAD_MS. */
-export function minScheduleLeadMs(rttsMs: number[], safetyMs: number = SCHEDULE_SAFETY_MARGIN_MS): number {
-  const maxRtt = rttsMs.reduce((a, b) => (Number.isFinite(b) ? Math.max(a, b) : a), 0);
-  return Math.max(MIN_SCHEDULE_LEAD_MS, maxRtt + safetyMs);
+export interface LeadInput {
+  rttMs: number;
+  /** how much earlier than the room time this device starts its source (browser + calibrated + manual), ms */
+  outputLatencyMs?: number;
+}
+
+/** Output compensation counted towards the lead is clamped to this, so one bogus value can't stall the room. */
+export const MAX_LEAD_OUTPUT_LATENCY_MS = 2000;
+
+/**
+ * Minimum lead time for a scheduled action: max over devices of (rtt + output latency) + safety, at least
+ * MIN_SCHEDULE_LEAD_MS. A device with output latency L starts its source L before the room time, so the message must
+ * reach it L earlier than it would a zero-latency device; otherwise it starts late and skips the start of the audio.
+ */
+export function minScheduleLeadMs(devices: LeadInput[], safetyMs: number = SCHEDULE_SAFETY_MARGIN_MS): number {
+  let need = 0;
+  for (const d of devices) {
+    const rtt = Number.isFinite(d.rttMs) ? Math.max(0, d.rttMs) : 0;
+    const out = Number.isFinite(d.outputLatencyMs) ? d.outputLatencyMs! : 0;
+    need = Math.max(need, rtt + Math.min(MAX_LEAD_OUTPUT_LATENCY_MS, Math.max(0, out)));
+  }
+  return Math.max(MIN_SCHEDULE_LEAD_MS, need + safetyMs);
 }

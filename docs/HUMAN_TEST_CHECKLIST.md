@@ -45,6 +45,16 @@ Record results in the table at the bottom.
     in sync, without a manual reload. Check that Wake Lock keeps the screen on while foregrounded.
 13. **Route change prompt.** Plug headphones or connect Bluetooth mid-session. The "recalibrate" banner should
     appear.
+    - **Per-output memory (desktop Chrome, mic permission granted):** calibrate with a Bluetooth speaker
+      connected, disconnect it (banner + calibrated offset cleared), reconnect it: the blue "using its saved
+      calibration" banner should show the same offset and the clicks should fuse without recalibrating.
+    - **Bluetooth listener:** start *Calibrate* on a device that plays through Bluetooth. It should record with
+      the built-in mic (or refuse if only a Bluetooth mic exists), and the result should warn that its own
+      speaker wasn't measured.
+    - **Lead time:** with a calibrated Bluetooth device in the room, press play/seek repeatedly. The Bluetooth
+      device must not skip the first ~100–300 ms of audio (devtools: `__syncsound.schedules` has no `late: true`).
+    - **Stability:** leave a calibrated Bluetooth speaker playing 30 min (Android SBC/AAC/aptX, iPhone AAC,
+      macOS, Windows), run *Measure sync* at 0 / 15 / 30 min and after pausing 5 min. Record how far it moves.
 14. **Install as PWA** on Android Chrome and iOS Safari (Add to Home Screen). It should launch standalone and
     join a room.
 

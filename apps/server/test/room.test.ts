@@ -218,6 +218,22 @@ describe('Room playback control', () => {
     expect(s.msg.startRoomTime - 6000).toBe(MIN_SCHEDULE_LEAD_MS);
   });
 
+  it('schedule lead covers each device’s output compensation (Bluetooth starts its source early)', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('a') }), 1000);
+    room.handle('c1', { type: 'STATS', stats: { ...stats(30), autoLatencyMs: 40 } }, 1500);
+    room.handle('c2', { type: 'STATS', stats: stats(100) }, 1500);
+    // calibrated Bluetooth residual 220 ms + manual 10 ms + browser 40 ms = 270 ms on a 30 ms RTT
+    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { calibratedLatencyMs: 220, latencyMs: 10 } }, 1600);
+    const s = one(room.handle('ch', ctl({ type: 'play' }), 2000), 'SCHEDULE');
+    expect(s.msg.startRoomTime - 2000).toBe(30 + 270 + SCHEDULE_SAFETY_MARGIN_MS);
+
+    // a device compensating negatively (plays later) doesn't shorten anything below the RTT rule
+    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { calibratedLatencyMs: null, latencyMs: -300 } }, 2500);
+    const s2 = one(room.handle('ch', ctl({ type: 'seek', position: 5 }), 3000), 'SCHEDULE');
+    expect(s2.msg.startRoomTime - 3000).toBe(100 + SCHEDULE_SAFETY_MARGIN_MS);
+  });
+
   it('play → pause → seek → resume position math', () => {
     const room = setup();
     const q = room.handle('ch', ctl({ type: 'queue', track: track('a') }), 1000);

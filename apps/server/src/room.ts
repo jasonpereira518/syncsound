@@ -3,8 +3,6 @@
  * the transport feeds it parsed messages + arrival times and fans out the returned Outbound list.
  */
 import {
-  MIN_SCHEDULE_LEAD_MS,
-  SCHEDULE_SAFETY_MARGIN_MS,
   defaultEq,
   defaultScene,
   defaultSettings,
@@ -15,7 +13,7 @@ import {
   type ServerMessage,
   type ServerMessageBody,
 } from '@syncsound/protocol';
-import { clampToRoom } from '@syncsound/audio-core';
+import { clampToRoom, minScheduleLeadMs } from '@syncsound/audio-core';
 
 export type Target = 'all' | 'others' | string[];
 /** `msg` already carries the room-assigned seq; broadcast copies share one seq. */
@@ -132,11 +130,20 @@ export class Room {
     return to === 'all' ? ids : ids.filter((id) => id !== senderConnId);
   }
 
-  /** schedule lead: ≥ max connected RTT + safety margin, never below MIN_SCHEDULE_LEAD_MS */
+  /**
+   * schedule lead: ≥ max over connected devices of (RTT + output compensation) + safety margin, never below
+   * MIN_SCHEDULE_LEAD_MS. Output compensation = manual + calibrated + browser-reported latency, so a Bluetooth
+   * device that starts its source ~250 ms early still gets the message in time.
+   */
   lead(): number {
-    let maxRtt = 0;
-    for (const d of this.state.devices) if (d.connected && d.stats) maxRtt = Math.max(maxRtt, d.stats.rttMs);
-    return Math.max(MIN_SCHEDULE_LEAD_MS, maxRtt + SCHEDULE_SAFETY_MARGIN_MS);
+    return minScheduleLeadMs(
+      this.state.devices
+        .filter((d) => d.connected)
+        .map((d) => ({
+          rttMs: d.stats?.rttMs ?? 0,
+          outputLatencyMs: d.latencyMs + (d.calibratedLatencyMs ?? 0) + (d.stats?.autoLatencyMs ?? 0),
+        })),
+    );
   }
 
   private out(to: Target, body: ServerMessageBody): Outbound {

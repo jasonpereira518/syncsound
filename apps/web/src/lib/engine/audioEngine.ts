@@ -45,6 +45,8 @@ export interface EngineDeps {
   clock: () => ClockSync | null;
   /** clock burst done since the last (re)connect */
   clockReady: () => boolean;
+  /** media devices changed outside a calibration run; default: prompt to recalibrate */
+  onRouteChange?: () => void;
 }
 
 const playbackKey = (pb: Playback) => `${pb.trackId}|${pb.startRoomTime}|${pb.trackOffset}`;
@@ -147,7 +149,9 @@ export class AudioEngine {
 
   private onDeviceChange = () => {
     // granting mic permission during calibration can fire devicechange without a route change
-    if (!useRoomStore.getState().calibration.running) useRoomStore.setState({ routeChanged: true });
+    if (useRoomStore.getState().calibration.running) return;
+    if (this.deps.onRouteChange) this.deps.onRouteChange();
+    else useRoomStore.setState({ routeChanged: true });
   };
 
   private async acquireWakeLock() {

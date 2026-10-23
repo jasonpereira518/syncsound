@@ -57,6 +57,7 @@ export const initialState = (): RoomStoreState => ({
   mix: null,
   identifyFlash: null,
   routeChanged: false,
+  routeRestored: null,
   demoAssets: [],
   canUndo: false,
   canRedo: false,
