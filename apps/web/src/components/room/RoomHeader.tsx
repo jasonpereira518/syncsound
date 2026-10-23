@@ -31,7 +31,7 @@ export function useJoinLink(): { code: string; joinUrl: string; qr: string | nul
 }
 
 /** debug: show the debug drawer toggle (Advanced only); extra: buttons placed before Leave */
-export function RoomHeader({ debug = false, extra }: { debug?: boolean; extra?: ReactNode }) {
+export function RoomHeader({ name, debug = false, extra }: { name?: string; debug?: boolean; extra?: ReactNode }) {
   const router = useRouter();
   const conn = useRoomStore((s) => s.conn);
   const isHost = useRoomStore((s) => s.isHost);
@@ -79,6 +79,7 @@ export function RoomHeader({ debug = false, extra }: { debug?: boolean; extra?: 
       </button>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
         <p className="leading-none">
+          {name && <span className="mr-3 font-display text-xl font-semibold text-ink-100">{name}</span>}
           <span className="sr-only">Room code </span>
           <span data-testid="room-code" className="font-mono text-2xl font-bold tracking-[0.16em] text-accent">
             {code}

@@ -1,12 +1,13 @@
 'use client';
-import { useState } from 'react';
-import type { Device } from '@syncsound/protocol';
-import { isRoutedLayout, layoutLabel } from '@syncsound/audio-core';
+import { useEffect, useState } from 'react';
+import type { Device, HomeView } from '@syncsound/protocol';
+import { isRoutedLayout, layoutLabel, positionAt } from '@syncsound/audio-core';
+import { getHome, groupControl, savedHome } from '@/lib/home';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon, IconButton, StatusDot } from '../ui';
 import { Library, MasterVolume } from './Player';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
-import { act, syncStatusOf, useCanControl } from './shared';
+import { act, currentTrack, errMsg, roomNowMs, syncStatusOf, toast, useCanControl } from './shared';
 
 /** the room's one-line health summary: how many speakers, and whether they're all locked together */
 function useRoomHealth() {
@@ -54,8 +55,85 @@ export function NowPlaying({ onSetup }: { onSetup: () => void }) {
           </Button>
         </div>
       </section>
+      <OtherRooms />
       <Library />
     </div>
+  );
+}
+
+/** tracks every device fetches and decodes itself; streamed sources (tab capture, YouTube, Spotify…) live in one room */
+const SHAREABLE = new Set(['demo', 'file', 'url', 'video']);
+
+/** Owner of a home room: play the current track in other rooms too, all starting at the same instant. */
+function OtherRooms() {
+  const code = useRoomStore((s) => s.room?.code);
+  const track = useRoomStore((s) => currentTrack(s.room));
+  const playback = useRoomStore((s) => s.room?.playback);
+  const clock = useRoomStore((s) => s.clock);
+  const [home, setHome] = useState<{ id: string; rooms: HomeView['rooms'] } | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const h = savedHome();
+    if (!h?.ownerKey || !code) return;
+    getHome(h.homeId)
+      .then((v) => v.rooms.some((r) => r.id === code) && setHome({ id: h.homeId, rooms: v.rooms.filter((r) => r.id !== code) }))
+      .catch(() => {});
+  }, [code]);
+  if (!home || !home.rooms.length || !code || !playback) return null;
+
+  const shareable = !!track && SHAREABLE.has(track.kind);
+  const others = picked.filter((id) => home.rooms.some((r) => r.id === id));
+  const playTogether = async () => {
+    if (!track) return;
+    setBusy(true);
+    try {
+      await groupControl(home.id, others, { type: 'queue', track });
+      const position = playback.status === 'playing' ? positionAt(playback, roomNowMs(clock)) : playback.trackOffset;
+      const r = await groupControl(home.id, [code, ...others], { type: 'play', trackId: track.id, position: Math.max(0, position) });
+      const failed = Object.keys(r.errors);
+      if (failed.length) toast(`Couldn't start in ${failed.length} room${failed.length === 1 ? '' : 's'}.`);
+    } catch (e) {
+      toast(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pauseAll = () => groupControl(home.id, [code, ...others], { type: 'pause' }).catch((e: unknown) => toast(errMsg(e)));
+
+  return (
+    <section className="rounded-2xl border border-ink-700 p-4" aria-labelledby="other-rooms-h">
+      <h2 id="other-rooms-h" className="font-display text-lg font-semibold">
+        Play in other rooms too
+      </h2>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {home.rooms.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            aria-pressed={others.includes(r.id)}
+            data-testid={`group-room-${r.id}`}
+            onClick={() => setPicked(others.includes(r.id) ? others.filter((x) => x !== r.id) : [...others, r.id])}
+            className={`min-h-10 rounded-full border px-4 text-sm ${others.includes(r.id) ? 'border-accent bg-accent/15' : 'border-ink-600 hover:border-ink-400'}`}
+          >
+            {r.name}
+            <span className="ml-1.5 text-xs text-ink-400">{r.connected ? `${r.connected} speaker${r.connected === 1 ? '' : 's'}` : 'no speakers'}</span>
+          </button>
+        ))}
+      </div>
+      {track && !shareable && <p className="mt-2 text-sm text-ink-400">{track.title} streams from this room only. Pick a music or video file to play it in several rooms.</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="primary" data-testid="group-play" disabled={!shareable || !others.length || busy} onClick={() => void playTogether()}>
+          <Icon name="play" className="size-4" /> {others.length ? `Play here and in ${others.length} more` : 'Pick rooms to play in'}
+        </Button>
+        {others.length > 0 && (
+          <Button variant="ghost" data-testid="group-pause" onClick={() => void pauseAll()}>
+            Pause them all
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -128,6 +206,12 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
         <div className="rounded-2xl border border-ink-700 bg-ink-950 p-2">
           <RoomDiagram layout={layout} scene={scene} devices={devices} highlight={self.id} />
         </div>
+      )}
+      {self.calibratedLatencyMs === null && !self.volumeUpDb && (
+        <p role="status" data-testid="volume-max-hint" className="rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-sm">
+          <strong>Turn this device&rsquo;s volume all the way up.</strong> Tuning then matches every speaker&rsquo;s loudness from the listening
+          seat, and the room&rsquo;s master volume does the rest.
+        </p>
       )}
       {!!self.volumeUpDb && (
         <p role="status" data-testid="volume-up-hint" className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">

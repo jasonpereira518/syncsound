@@ -409,7 +409,8 @@ export function parseServerMessage(raw: unknown) {
 export const CreateRoomRequest = z.object({ password: z.string().max(100).optional() });
 export const CreateRoomResponse = z.object({ code: RoomCode, hostKey: z.string() });
 export type CreateRoomResponse = z.infer<typeof CreateRoomResponse>;
-export const RoomInfoResponse = z.object({ exists: z.boolean(), hasPassword: z.boolean() });
+/** name: set for rooms saved in a home (never the home id: that link is a capability, a room code isn't) */
+export const RoomInfoResponse = z.object({ exists: z.boolean(), hasPassword: z.boolean(), name: Name.optional() });
 export type RoomInfoResponse = z.infer<typeof RoomInfoResponse>;
 export const UploadResponse = z.object({
   id: Id,

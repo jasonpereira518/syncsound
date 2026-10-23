@@ -176,6 +176,8 @@ export class AudioEngine {
 
   // ---------- clocks ----------
 
+  private measuringUntil = 0;
+
   private observeClock() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
@@ -184,6 +186,7 @@ export class AudioEngine {
       const useTs = !!ts && (ts.performanceTime ?? 0) > 0 && typeof ts.contextTime === 'number';
       if (useTs !== this.usingOutputTimestamp) this.audioClock.reset();
       this.usingOutputTimestamp = useTs;
+      const steps = this.audioClock.steps;
       if (useTs) {
         this.audioClock.addObservation(ts!.performanceTime!, ts!.contextTime!);
         // display only: render→heard latency derived from the output timestamp
@@ -192,6 +195,11 @@ export class AudioEngine {
         this.audioClock.addObservation(performance.now(), ctx.currentTime);
         this.autoLatencyMs = ((ctx.baseLatency || 0) + (ctx.outputLatency || 0)) * 1000;
       }
+      // the output delay jumped (Bluetooth profile switch, device re-open…): acoustic alignment is stale.
+      // Opening/closing a measurement's recorder causes such a step too, so steps during one (+5 s) don't count.
+      const st = useRoomStore.getState();
+      if (st.calibration.running || st.syncMeasure.running) this.measuringUntil = performance.now() + 5000;
+      else if (this.audioClock.steps > steps && performance.now() > this.measuringUntil) useRoomStore.setState({ routeChanged: true });
       const ready = this.timingReady();
       if (ready && !this.clockWasReady) this.reconcile();
       this.clockWasReady = ready;

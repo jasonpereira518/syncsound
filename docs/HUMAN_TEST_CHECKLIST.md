@@ -56,6 +56,15 @@ Record results in the table at the bottom.
     and that device's screen should show its new spot name at once. Tune from the seat: every speaker should be listed
     as "in sync, level matched", or as needing its volume turned up. Close everything and reopen the home link: the
     room should open straight to Now Playing with the same layout.
+17. **Gap pass (real devices).**
+    - **YouTube:** paste a link and tap "Play on all speakers", pick this tab with tab audio on, and every speaker
+      should play it.
+    - **Bluetooth:** with a Bluetooth speaker in the room, finish tuning; it should show "Bluetooth timing varies by
+      ±X ms".
+    - **Re-sync banner:** switch a phone's output to Bluetooth mid-song; the "audio delay changed" banner should
+      appear.
+    - **Group play:** in a home with two rooms, "Play here and in 1 more" should start both rooms together. Listen in
+      the doorway.
 
 | # | Date | Devices / browsers | Result / numbers | Notes |
 |---|------|--------------------|------------------|-------|

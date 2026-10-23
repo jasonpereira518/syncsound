@@ -2,7 +2,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode } from '@syncsound/protocol';
-import { addRoom, createHome, savedHome } from '@/lib/home';
+import Link from 'next/link';
+import { addRoom, createHome, lastRoom, savedHome } from '@/lib/home';
 import { createRoom } from '@/lib/roomClient';
 import { Icon, inputClass } from './ui';
 
@@ -22,7 +23,11 @@ export function LandingActions() {
   const [code, setCode] = useState('');
   const [joinError, setJoinError] = useState<string | null>(null);
   const [home, setHome] = useState<string | null>(null);
-  useEffect(() => setHome(savedHome()?.homeId ?? null), []);
+  const [rejoin, setRejoin] = useState<{ code: string; name?: string } | null>(null);
+  useEffect(() => {
+    setHome(savedHome()?.homeId ?? null);
+    setRejoin(lastRoom());
+  }, []);
 
   const onHome = async () => {
     if (home) return router.push(`/h/${home}`);
@@ -72,6 +77,16 @@ export function LandingActions() {
           <Icon name={home ? 'stage' : 'plus'} className="size-5" />
           {creating ? 'Setting up…' : home ? 'Open my home' : 'Set up my home'}
         </button>
+        {rejoin && (
+          <Link
+            href={`/room/${rejoin.code}`}
+            data-testid="rejoin-room"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-accent/60 px-5 font-semibold text-ink-100 hover:bg-accent/10"
+          >
+            <Icon name="volume" className="size-5 text-accent" />
+            Rejoin {rejoin.name ?? `room ${rejoin.code}`}
+          </Link>
+        )}
         <button
           type="button"
           data-testid="create-room"

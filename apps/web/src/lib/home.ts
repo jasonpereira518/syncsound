@@ -4,9 +4,11 @@
  */
 import {
   HomeCreateResponse,
+  HomeGroupResponse,
   HomeRoom,
   HomeView,
   OWNER_KEY_HEADER,
+  type ControlCommand,
 } from '@syncsound/protocol';
 import { serverUrl } from './config';
 import { hostKeyName, readError } from './roomClient';
@@ -94,5 +96,34 @@ export async function addRoom(homeId: string, name: string): Promise<HomeRoom> {
 export const renameRoom = (homeId: string, roomId: string, name: string) =>
   call(`/${encodeURIComponent(homeId)}/rooms/${roomId}`, { method: 'PATCH', body: JSON.stringify({ name }) }, (x) => HomeRoom.parse(x), ownerKeyFor(homeId));
 
+/** one command to several rooms at once: plays start at the same room time everywhere */
+export const groupControl = (homeId: string, roomIds: string[], command: ControlCommand) =>
+  call(
+    `/${encodeURIComponent(homeId)}/group`,
+    { method: 'POST', body: JSON.stringify({ roomIds, command }) },
+    (x) => HomeGroupResponse.parse(x),
+    ownerKeyFor(homeId),
+  );
+
 export const removeRoom = (homeId: string, roomId: string) =>
   call(`/${encodeURIComponent(homeId)}/rooms/${roomId}`, { method: 'DELETE' }, () => undefined, ownerKeyFor(homeId));
+
+const LAST_ROOM_KEY = 'syncsound:lastRoom';
+
+/** the room this device last joined as a speaker, so the landing page can offer "Rejoin Living room" */
+export function rememberLastRoom(code: string, name?: string) {
+  try {
+    localStorage.setItem(LAST_ROOM_KEY, JSON.stringify({ code, ...(name ? { name } : {}) }));
+  } catch {
+    /* storage blocked */
+  }
+}
+
+export function lastRoom(): { code: string; name?: string } | null {
+  try {
+    const raw = localStorage.getItem(LAST_ROOM_KEY);
+    return raw ? (JSON.parse(raw) as { code: string; name?: string }) : null;
+  } catch {
+    return null;
+  }
+}

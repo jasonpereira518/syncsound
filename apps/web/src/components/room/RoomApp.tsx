@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRoomStore, roomActions } from '@/store/roomStore';
+import { rememberLastRoom } from '@/lib/home';
+import { getRoomInfo } from '@/lib/roomClient';
 import { Icon, Tabs, tabPanelProps, type TabDef } from '../ui';
 import { CalibrationWizard } from './CalibrationWizard';
 import { DeviceList, SpeakerCard } from './DeviceList';
@@ -37,6 +39,17 @@ export function RoomApp({ code }: { code: string }) {
   useEffect(() => {
     if (joined && picked === null && view === 'setup') setPicked('setup');
   }, [joined, picked, view]);
+  // a home room has a name ("Living room"); quick rooms only have their code
+  const [name, setName] = useState<string | undefined>();
+  useEffect(() => {
+    getRoomInfo(code)
+      .then((r) => setName(r.name))
+      .catch(() => {});
+  }, [code]);
+  useEffect(() => {
+    document.title = `${name ?? `Room ${code}`} · SyncSound`;
+    if (joined) rememberLastRoom(code, name);
+  }, [code, name, joined]);
   const go = (v: View) => {
     setPicked(v);
     history.replaceState(null, '', v === 'advanced' ? '#advanced' : window.location.pathname + window.location.search);
@@ -77,7 +90,7 @@ export function RoomApp({ code }: { code: string }) {
   if (view !== 'advanced') {
     return (
       <div className="flex min-h-dvh flex-col">
-        <RoomHeader extra={toggle} />
+        <RoomHeader name={name} extra={toggle} />
         <Banners />
         <main id="main" className="flex flex-1 flex-col pt-2">
           {view === 'setup' && <SetupWizard onDone={() => go('controls')} />}
@@ -93,7 +106,7 @@ export function RoomApp({ code }: { code: string }) {
       </div>
     );
   }
-  return <AdvancedRoom header={<RoomHeader debug extra={toggle} />} />;
+  return <AdvancedRoom header={<RoomHeader name={name} debug extra={toggle} />} />;
 }
 
 /** The full expert shell: library | free-placement stage | devices & calibration, plus debug. */
@@ -186,10 +199,17 @@ function Banners() {
         >
           <Icon name="warning" className="size-5 shrink-0 text-warn" />
           <p className="min-w-0 flex-1">
-            <strong className="text-warn">Audio output changed.</strong> Headphones or Bluetooth add latency
-            the browser often doesn&rsquo;t report. Run a quick re-sync (Calibrate tab, about 1 s per speaker)
-            or fine-tune the latency slider.
+            <strong className="text-warn">This speaker&rsquo;s audio delay changed.</strong> Headphones or Bluetooth add delay
+            the browser doesn&rsquo;t report. Re-sync from where you sit (about 1 s per speaker).
           </p>
+          <button
+            type="button"
+            data-testid="banner-resync"
+            onClick={() => act(() => roomActions.startCalibration({ quick: true }))}
+            className="min-h-11 rounded-lg bg-warn/20 px-3 font-medium text-ink-100 hover:bg-warn/30"
+          >
+            Re-sync now
+          </button>
           <button
             type="button"
             onClick={() => act(() => roomActions.dismissRouteChange())}

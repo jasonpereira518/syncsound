@@ -7,7 +7,7 @@ import { getRoomInfo, hostKeyName } from '@/lib/roomClient';
 import { Icon, inputClass } from '../ui';
 import { errMsg } from './shared';
 
-type Info = { state: 'loading' } | { state: 'ok'; hasPassword: boolean } | { state: 'missing' } | { state: 'unreachable' };
+type Info = { state: 'loading' } | { state: 'ok'; hasPassword: boolean; name?: string } | { state: 'missing' } | { state: 'unreachable' };
 const NAME_KEY = 'syncsound:name';
 
 /** a friendly default speaker name from the user agent, so joining is one tap */
@@ -45,7 +45,7 @@ export function JoinGate({ code }: { code: string }) {
     if (!validCode) return;
     let live = true;
     getRoomInfo(code)
-      .then((r) => live && setInfo(r.exists ? { state: 'ok', hasPassword: r.hasPassword } : { state: 'missing' }))
+      .then((r) => live && setInfo(r.exists ? { state: 'ok', hasPassword: r.hasPassword, name: r.name } : { state: 'missing' }))
       .catch(() => live && setInfo({ state: 'unreachable' }));
     return () => {
       live = false;
@@ -106,7 +106,7 @@ export function JoinGate({ code }: { code: string }) {
         </span>
         SyncSound
       </Link>
-      <p className="font-mono text-xs tracking-widest text-ink-400 uppercase">Room</p>
+      <p className="text-sm text-ink-400">{info.state === 'ok' && info.name ? info.name : 'Room'}</p>
       <p className="font-mono text-5xl font-bold tracking-[0.18em] text-accent">{code}</p>
       <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">{mine ? 'Your room' : 'Use this device as a speaker'}</h1>
 

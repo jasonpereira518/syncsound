@@ -16,7 +16,7 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const all = useRoomStore((s) => s.room?.devices);
   const devices = (all ?? []).filter((d) => d.connected);
-  const busy = useRoomStore((s) => s.calibration.running);
+  const busy = useRoomStore((s) => s.calibration.running || s.syncMeasure.running);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-2 pb-28">
@@ -194,8 +194,10 @@ function ChooseSound({ devices }: { devices: Device[] }) {
 
 function Tune({ devices }: { devices: Device[] }) {
   const cal = useRoomStore((s) => s.calibration);
+  const sm = useRoomStore((s) => s.syncMeasure);
   const selfHasMic = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.deviceId)?.caps.hasMic ?? true);
-  const busy = cal.running && cal.step !== 'done' && cal.step !== 'error';
+  const busy = (cal.running && cal.step !== 'done' && cal.step !== 'error') || sm.running;
+  const jitterOf = (id: string) => (sm.step === 'done' ? sm.devices.find((m) => m.deviceId === id)?.stdMs : undefined);
   const perDevice = CALIBRATION_SIGNAL_MS.chirp + CALIBRATION_SIGNAL_MS.sweep + CALIBRATION_SIGNAL_MS.noise + 3 * 700;
   const seconds = Math.round((devices.length * perDevice) / 1000) + 5;
   const byId = new Map(devices.map((d) => [d.id, d]));
@@ -215,8 +217,9 @@ function Tune({ devices }: { devices: Device[] }) {
   return (
     <div className="space-y-4">
       <p className="text-ink-200">
-        Sit where you usually listen and hold this device in front of you. Keep the room quiet: each speaker chirps and sweeps in turn for
-        about {seconds} seconds. SyncSound then lines them up in time and matches their loudness.
+        Check that every speaker&rsquo;s own volume is all the way up (each one shows a reminder). Then sit where you usually listen and
+        hold this device in front of you. Keep the room quiet: each speaker chirps and sweeps in turn for about {seconds} seconds.
+        SyncSound then lines them up in time and matches their loudness.
       </p>
       {busy ? (
         <Button variant="danger" onClick={() => act(() => roomActions.cancelCalibration())}>
@@ -250,6 +253,15 @@ function Tune({ devices }: { devices: Device[] }) {
                           ? `: in sync, but about ${Math.round(d.volumeUpDb)} dB quieter. Turn it up and tune again.`
                           : ': in sync, level matched'
                         : ': not heard. Check its volume and that it is unmuted.'}
+                      {r.heard && d?.caps.deviceClass === 'bluetooth' && (
+                        <span data-testid={`bt-jitter-${d.id}`} className="block text-ink-400">
+                          {sm.running
+                            ? 'Measuring how steady its Bluetooth timing is…'
+                            : jitterOf(d.id) !== undefined
+                              ? `Bluetooth timing varies by about ±${jitterOf(d.id)!.toFixed(1)} ms${jitterOf(d.id)! >= 1 ? ', so it can drift slightly from the others' : ''}.`
+                              : null}
+                        </span>
+                      )}
                     </span>
                   </li>
                 );

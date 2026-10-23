@@ -290,7 +290,8 @@ export function createHttpHandler(d: HttpDeps) {
     if (get && parts[0] === 'api' && parts[1] === 'rooms' && parts.length === 3) {
       const code = seg(2).toUpperCase();
       const room = isValidRoomCode(code) ? d.manager.get(code) : undefined;
-      return json(res, 200, { exists: !!room, hasPassword: room?.state.settings.hasPassword ?? false });
+      const name = room ? d.homes.findRoom(code)?.room.name : undefined;
+      return json(res, 200, { exists: !!room, hasPassword: room?.state.settings.hasPassword ?? false, ...(name ? { name } : {}) });
     }
     if (parts[0] === 'api' && parts[1] === 'homes')
       return homeRoute(req, res, parts.slice(2).map((_, i) => seg(i + 2)), d);

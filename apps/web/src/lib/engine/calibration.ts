@@ -242,15 +242,7 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
-      const me = room.devices.find((d) => d.id === useRoomStore.getState().deviceId);
-      if (room.playback.status === 'playing' && (me?.isHost || !room.settings.hostOnlyControl)) {
-        const trackId = room.playback.trackId;
-        this.send({ type: 'CONTROL', command: { type: 'pause' } });
-        run.cleanup.push(() => {
-          const pb = useRoomStore.getState().room?.playback;
-          if (pb?.status === 'paused' && pb.trackId === trackId) this.send({ type: 'CONTROL', command: { type: 'play' } });
-        });
-      }
+      this.pauseDuring(run);
       const include: Array<'chirp' | 'sweep' | 'noise'> = opts.quick ? ['chirp'] : ['chirp', 'sweep', 'noise'];
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
@@ -434,6 +426,20 @@ export class CalibrationController {
   }
 
   /** Sync-measurement tool: every device clicks (device-unique chirp) once per second through normal compensation. */
+  /** pause playback for this run if this device may control it; resume the same track when the run ends */
+  private pauseDuring(run: { cleanup: Array<() => void> }) {
+    const st = useRoomStore.getState();
+    const room = st.room;
+    const me = room?.devices.find((d) => d.id === st.deviceId);
+    if (!room || room.playback.status !== 'playing' || !(me?.isHost || !room.settings.hostOnlyControl)) return;
+    const trackId = room.playback.trackId;
+    this.send({ type: 'CONTROL', command: { type: 'pause' } });
+    run.cleanup.push(() => {
+      const pb = useRoomStore.getState().room?.playback;
+      if (pb?.status === 'paused' && pb.trackId === trackId) this.send({ type: 'CONTROL', command: { type: 'play' } });
+    });
+  }
+
   async measureSync(durationSec = 60): Promise<void> {
     if (this.run) return;
     const run = { cancelled: false, cleanup: [] as Array<() => void>, planWaiter: null as ((p: CalibrationPlan) => void) | null };
@@ -445,6 +451,7 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
+      this.pauseDuring(run);
       const { plan, rec } = await this.record(
         run,
         buildSyncMeasurementSlots(deviceIds, { durationSec }),

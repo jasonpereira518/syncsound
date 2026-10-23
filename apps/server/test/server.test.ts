@@ -161,7 +161,7 @@ describe('server integration', () => {
       ],
     });
     expect((await api('/nosuchhome')).status).toBe(404);
-    expect(await (await fetch(`${base}/api/rooms/${kitchen.id}`)).json()).toEqual({ exists: true, hasPassword: false });
+    expect(await (await fetch(`${base}/api/rooms/${kitchen.id}`)).json()).toEqual({ exists: true, hasPassword: false, name: 'Kitchen' });
 
     const [a, b] = await Promise.all([Client.open(srv.port), Client.open(srv.port)]);
     clients.push(a!, b!);

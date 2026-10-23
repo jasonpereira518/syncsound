@@ -588,6 +588,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   async startCalibration(opts) {
     if (!session) return setError('Join the room first.');
     await session.calibration.start(opts);
+    // Bluetooth links wobble: after a full pass, measure how much (10 s of clicks) so the UI can say "±X ms"
+    const st = useRoomStore.getState();
+    const bt = st.room?.devices.some((d) => d.connected && d.caps.deviceClass === 'bluetooth');
+    if (!opts?.quick && bt && st.calibration.step === 'done') await session.calibration.measureSync(10);
   },
 
   async startSyncMeasurement(durationSec = 60) {

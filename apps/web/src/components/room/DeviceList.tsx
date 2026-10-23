@@ -157,7 +157,7 @@ function DeviceRow({ d }: { d: Device }) {
         </div>
         <fieldset disabled={!editable} className="mt-3 grid gap-3 sm:grid-cols-2">
           <legend className="sr-only">Settings for {d.name}</legend>
-          <RangeField label="Volume" min={0} max={1} step={0.01} value={d.volume} format={pct} onCommit={(v) => update({ volume: v }, d.id)} />
+          <RangeField label="Balance (this speaker only)" min={0} max={1} step={0.01} value={d.volume} format={pct} onCommit={(v) => update({ volume: v }, d.id)} />
           <RangeField label="Trim" min={-24} max={12} step={0.5} value={d.trimDb} format={db} onCommit={(v) => update({ trimDb: v }, d.id)} />
           <div className="sm:col-span-2">
             <RangeField
@@ -268,7 +268,7 @@ export function SpeakerCard() {
         </p>
       )}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <RangeField label="My volume" min={0} max={1} step={0.01} value={self.volume} format={pct} onCommit={(v) => update({ volume: v }, self.id)} />
+        <RangeField label="My balance" min={0} max={1} step={0.01} value={self.volume} format={pct} onCommit={(v) => update({ volume: v }, self.id)} />
         <RangeField
           label="My latency trim (ms)"
           min={-500}

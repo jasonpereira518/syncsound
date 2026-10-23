@@ -73,8 +73,11 @@ An honest list of what is not done, what can't be verified without hardware, and
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked
   around with tsconfig `paths` for zustand) and makes Vite print a warning. Neither affects clones at normal paths.
-- **Group play across rooms** exists in the server API (`POST /api/homes/:id/group`) but has no button yet; each room
-  is controlled from its own page.
-- **YouTube** still takes two steps (load the video, then start tab capture).
+- **Group play** only shares tracks every device decodes itself (demo, music/video files, links). Tab capture,
+  YouTube and Spotify/Apple stream from one room, so they can't be played in several rooms at once.
+- **YouTube's one-step play** still depends on the person picking *this* tab with "share tab audio" on in the
+  browser's share dialog; a wrong pick leaves the sound on this device only (the UI offers to share again).
+- **Bluetooth wobble** is measured relative to the room's average, so with few speakers it reads somewhat lower than
+  the true jitter (about 75 % of it with 4 speakers, per `syncMeasure.test.ts`).
 - **Home links are capabilities:** anyone with a home link can see and join its rooms; only the browser that created
   the home (it holds the owner key) can change them. Losing that browser's storage loses ownership.
