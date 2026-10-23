@@ -12,3 +12,6 @@ apps/server/data/
 next-env.d.ts
 *.tsbuildinfo
 apps/web/AGENTS.md
+.vercel
+.env*
+!.env.example
