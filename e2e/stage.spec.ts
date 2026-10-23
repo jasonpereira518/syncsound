@@ -5,8 +5,8 @@ type Win = { __syncsound: { getState(): { room: { scene: { devices: Record<strin
 const positions = (page: import('@playwright/test').Page) =>
   page.evaluate(() => JSON.stringify((window as unknown as Win).__syncsound.getState().room.scene.devices));
 
-// Spatial stage: preset layouts reposition devices for everyone; undo/redo restore the scene.
-test('stage presets propagate to every client and undo/redo restore them', async ({ browser }) => {
+// Spatial stage: layouts assign slots + reposition devices for everyone; undo/redo restore the scene.
+test('stage layouts propagate to every client and undo/redo restore them', async ({ browser }) => {
   test.setTimeout(120_000);
   const host = await newPage(browser);
   const guest = await newPage(browser);
@@ -20,7 +20,7 @@ test('stage presets propagate to every client and undo/redo restore them', async
   await expect.poll(() => positions(guest.page)).toBe(await positions(host.page));
   const before = await positions(host.page);
 
-  await host.page.getByTestId('preset-frontStage').click();
+  await host.page.getByTestId('layout-stereo').click();
   await expect.poll(() => positions(host.page)).not.toBe(before);
   const front = await positions(host.page);
   await expect.poll(() => positions(guest.page), { timeout: 10_000 }).toBe(front);

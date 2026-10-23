@@ -63,7 +63,7 @@ let session: Session | null = null;
 const activeClock = (s: Session): RoomClock => (s.link.ready ? s.link : s.client.clock);
 let joining: string | null = null;
 
-const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix'] as const;
+const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout'] as const;
 const fin = (x: number) => (Number.isFinite(x) ? x : 0);
 const newTrackId = () => `t_${randomId(12)}`;
 

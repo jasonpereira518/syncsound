@@ -25,8 +25,16 @@ const finite = () => z.number().finite();
 export const Vec2 = z.object({ x: finite().min(-50).max(50), y: finite().min(-50).max(50) });
 export type Vec2 = z.infer<typeof Vec2>;
 
-export const DeviceRole = z.enum(['L', 'R', 'C', 'SL', 'SR', 'Sub', 'Full']);
+/** a device's slot in the room layout; 'Full' = unassigned (custom/party layouts pan by position instead) */
+export const DeviceRole = z.enum(['L', 'R', 'C', 'SL', 'SR', 'RL', 'RR', 'Sub', 'Full']);
 export type DeviceRole = z.infer<typeof DeviceRole>;
+
+/**
+ * Speaker layout. Standard layouts route each content channel to the device(s) in its slot (device.role);
+ * 'party' and 'custom' pan every object by position (DBAP). A Sub slot can be added to any layout (→ "x.1").
+ */
+export const LayoutId = z.enum(['mono', 'stereo', 'lcr', 'quad', 'surround5', 'surround7', 'party', 'custom']);
+export type LayoutId = z.infer<typeof LayoutId>;
 
 export const DeviceClass = z.enum(['phone', 'tablet', 'laptop', 'desktop', 'bluetooth', 'unknown']);
 export type DeviceClass = z.infer<typeof DeviceClass>;
@@ -109,7 +117,7 @@ export const Device = z.object({
 });
 export type Device = z.infer<typeof Device>;
 
-export const ObjectChannel = z.enum(['L', 'R', 'C', 'LFE', 'SL', 'SR', 'MONO', 'AMB', 'STEM']);
+export const ObjectChannel = z.enum(['L', 'R', 'C', 'LFE', 'SL', 'SR', 'RL', 'RR', 'MONO', 'AMB', 'STEM']);
 export type ObjectChannel = z.infer<typeof ObjectChannel>;
 
 export const AudioObject = z.object({
@@ -137,6 +145,8 @@ export const Scene = z.object({
   crossoverHz: finite().min(40).max(250),
   /** stereo → surround upmix for 2-channel sources */
   upmix: z.boolean(),
+  /** absent = 'custom' (scenes saved before layouts existed) */
+  layout: LayoutId.optional(),
 });
 export type Scene = z.infer<typeof Scene>;
 
@@ -288,6 +298,7 @@ export const SceneUpdate = z.object({
   blur: Scene.shape.blur.optional(),
   crossoverHz: Scene.shape.crossoverHz.optional(),
   upmix: z.boolean().optional(),
+  layout: LayoutId.optional(),
 });
 export type SceneUpdate = z.infer<typeof SceneUpdate>;
 

@@ -6,7 +6,7 @@ import { Badge, CLASS_ICON, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Sta
 import { act, currentTrack, syncStatusOf, useCanControl } from './shared';
 
 const ROLES = DeviceRole.options;
-const ROLE_LABEL: Record<DeviceRole, string> = { L: 'Left', R: 'Right', C: 'Centre', SL: 'Surround L', SR: 'Surround R', Sub: 'Sub', Full: 'Full range' };
+const ROLE_LABEL: Record<DeviceRole, string> = { L: 'Left', R: 'Right', C: 'Centre', SL: 'Surround L', SR: 'Surround R', RL: 'Rear L', RR: 'Rear R', Sub: 'Sub', Full: 'Full range' };
 
 const update = (patch: DevicePatch, id: string) => act(() => roomActions.updateDevice(patch, id));
 const pct = (v: number) => `${Math.round(v * 100)}%`;
