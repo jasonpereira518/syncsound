@@ -26,7 +26,7 @@ export function DebugDrawer() {
         aria-controls="debug-drawer"
         aria-keyshortcuts="D"
         onClick={() => setOpen(!open)}
-        className="fixed right-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-40 inline-flex size-11 items-center justify-center rounded-full border border-ink-600 bg-ink-900/90 text-ink-300 backdrop-blur hover:text-accent lg:bottom-6"
+        className={`inline-flex size-11 shrink-0 items-center justify-center rounded-xl border transition hover:text-accent ${open ? 'border-accent/70 bg-accent/15 text-accent' : 'border-transparent text-ink-300'}`}
       >
         <Icon name="bug" />
         <span className="sr-only">{open ? 'Hide' : 'Show'} debug info (D)</span>
@@ -58,7 +58,7 @@ function DebugBody() {
     <aside
       id="debug-drawer"
       aria-label="Debug info"
-      className="fixed inset-x-0 bottom-0 z-40 max-h-[70dvh] overflow-y-auto border-t border-ink-600 bg-ink-950/97 p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] font-mono text-xs backdrop-blur lg:inset-x-auto lg:top-0 lg:right-0 lg:max-h-none lg:w-[420px] lg:border-t-0 lg:border-l lg:pb-20"
+      className="fixed inset-x-0 bottom-0 z-40 max-h-[70dvh] overflow-y-auto border-t border-ink-600 bg-ink-950/97 p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] font-mono text-xs backdrop-blur lg:inset-x-auto lg:top-16 lg:right-0 lg:max-h-none lg:w-[420px] lg:border-t-0 lg:border-l lg:pb-20"
     >
       <h2 className="mb-3 font-display text-base font-semibold">Debug</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">

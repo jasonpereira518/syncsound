@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { ConnStatus } from '@/store/types';
 import { Badge, Icon, IconButton } from '../ui';
+import { DebugDrawer } from './DebugDrawer';
 
 const CONN: Record<ConnStatus, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
   idle: { label: 'Offline', tone: 'neutral' },
@@ -55,44 +56,56 @@ export function RoomHeader() {
   const c = CONN[conn];
 
   return (
-    <header className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-3 py-4 sm:gap-5 sm:px-6">
+    <header className="flex shrink-0 items-center gap-3 px-3 py-2">
       <button
         type="button"
         onClick={() => setBigQr(true)}
         aria-label="Show QR code to join"
-        className="shrink-0 overflow-hidden rounded-xl border border-ink-600 bg-white p-1 transition hover:border-accent"
+        className="shrink-0 overflow-hidden rounded-lg border border-ink-600 bg-white p-0.5 transition hover:border-accent"
       >
         {qr ? (
-          <img src={qr} alt="" className="size-14 sm:size-20" />
+          <img src={qr} alt="" className="size-10" />
         ) : (
-          <span className="grid size-14 place-items-center text-ink-950 sm:size-20">
-            <Icon name="qr" className="size-6" />
+          <span className="grid size-10 place-items-center text-ink-950">
+            <Icon name="qr" className="size-5" />
           </span>
         )}
       </button>
-      <div className="min-w-0 flex-1">
-        <p className="font-mono text-[11px] tracking-widest text-ink-400 uppercase">Room code</p>
-        <p data-testid="room-code" className="font-mono text-3xl leading-none font-bold tracking-[0.16em] text-accent sm:text-4xl">
-          {code}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
+        <p className="leading-none">
+          <span className="sr-only">Room code </span>
+          <span data-testid="room-code" className="font-mono text-2xl font-bold tracking-[0.16em] text-accent">
+            {code}
+          </span>
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge tone={c.tone}>
             <span aria-hidden className={`size-1.5 rounded-full ${c.tone === 'ok' ? 'bg-ok' : c.tone === 'warn' ? 'bg-warn' : c.tone === 'bad' ? 'bg-bad' : 'bg-ink-400'}`} />
             <span role="status">{c.label}</span>
           </Badge>
-          {isHost && (
-            <Badge tone="accent">
-              <Icon name="crown" className="size-3.5" /> Host
+          {/* phones: connection status only, so the header stays one row */}
+          <span className="contents max-sm:hidden">
+            {isHost && (
+              <Badge tone="accent">
+                <Icon name="crown" className="size-3.5" /> Host
+              </Badge>
+            )}
+            <Badge>
+              {deviceCount} speaker{deviceCount === 1 ? '' : 's'}
             </Badge>
-          )}
-          <Badge>
-            {deviceCount} speaker{deviceCount === 1 ? '' : 's'}
-          </Badge>
+          </span>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <IconButton icon={copied ? 'check' : 'link'} label={copied ? 'Link copied' : 'Copy join link'} onClick={copy} />
-        {canShare && <IconButton icon="share" label="Share join link" onClick={share} />}
+      <div className="flex shrink-0 items-center gap-1">
+        {/* phones get the native share sheet instead of copy, to keep the header on one row */}
+        <IconButton
+          icon={copied ? 'check' : 'link'}
+          label={copied ? 'Link copied' : 'Copy join link'}
+          onClick={copy}
+          className={`border-transparent ${canShare ? 'max-sm:hidden' : ''}`}
+        />
+        {canShare && <IconButton icon="share" label="Share join link" onClick={share} className="border-transparent sm:hidden" />}
+        <DebugDrawer />
         <button type="button" onClick={leave} className="min-h-11 rounded-xl px-3 text-sm text-ink-400 hover:bg-ink-800 hover:text-ink-100">
           Leave
         </button>

@@ -45,33 +45,41 @@ const KIND_ICON: Record<TrackKind, IconName> = {
 
 const control = (cmd: Parameters<typeof roomActions.control>[0]) => act(() => roomActions.control(cmd));
 
-export function Player() {
+/** Left pane: queue + sources (Spotify's "Your Library"). */
+export function Library() {
   const canControl = useCanControl();
   const [source, setSource] = useState<Source>('demo');
   return (
-    <Panel title="Player" icon="music">
+    <Panel title="Library" icon="music" className="lg:h-full">
       {!canControl && (
         <p className="mb-3 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
           <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> Only the host can control playback
           in this room.
         </p>
       )}
-      <fieldset disabled={!canControl} className="min-w-0">
-        <legend className="sr-only">Transport</legend>
-        <Transport />
+      {/* the player bar has no room for these on phones */}
+      <fieldset disabled={!canControl} className="mb-4 min-w-0 space-y-1 md:hidden">
+        <legend className="sr-only">Room playback settings</legend>
+        <MasterVolume />
+        <HostOnlyToggle />
       </fieldset>
 
-      <h3 className="mt-6 mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Add audio</h3>
+      <fieldset disabled={!canControl} className="min-w-0">
+        <legend className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Queue</legend>
+        <Queue />
+      </fieldset>
+
+      <h3 className="mt-5 mb-1 text-xs font-medium tracking-widest text-ink-400 uppercase">Add audio</h3>
       <Tabs
         tabs={SOURCES}
         value={source}
         onChange={setSource}
         label="Audio source"
         idPrefix="src"
-        className="no-scrollbar -mx-1 flex overflow-x-auto border-b border-ink-700"
-        tabClassName="border-b-2 border-transparent aria-selected:border-accent"
+        className="flex flex-wrap gap-1.5 py-1"
+        tabClassName="!min-h-8 rounded-full border border-ink-700 !px-3 text-xs aria-selected:border-accent/60 aria-selected:bg-accent/10"
       />
-      <div {...tabPanelProps('src', source)} className="min-w-0 pt-4">
+      <div {...tabPanelProps('src', source)} className="min-w-0 pt-3">
         <fieldset disabled={!canControl} className="min-w-0">
           <legend className="sr-only">{SOURCES.find((s) => s.id === source)?.label} source</legend>
           {source === 'demo' && <DemoSource />}
@@ -84,23 +92,17 @@ export function Player() {
           {source === 'video' && <LocalVideoSource />}
         </fieldset>
       </div>
-
-      <fieldset disabled={!canControl} className="mt-6 min-w-0">
-        <legend className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Queue</legend>
-        <Queue />
-      </fieldset>
     </Panel>
   );
 }
 
-// ---------- transport ----------
+// ---------- player bar ----------
 
-function Transport() {
+/** Bottom now-playing bar: track | transport + seek | room volume (Spotify layout). */
+export function Player() {
+  const canControl = useCanControl();
   const playback = useRoomStore((s) => s.room?.playback);
   const queue = useRoomStore((s) => s.room?.queue);
-  const volume = useRoomStore((s) => s.room?.volume ?? 1);
-  const isHost = useRoomStore((s) => s.isHost);
-  const hostOnly = useRoomStore((s) => !!s.room?.settings.hostOnlyControl);
   const track = useRoomStore((s) => currentTrack(s.room));
   if (!playback || !queue) return null;
   const playing = playback.status === 'playing';
@@ -112,51 +114,112 @@ function Transport() {
   };
 
   return (
-    <div className="rounded-xl border border-ink-700 bg-ink-850/70 p-3">
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{track?.title ?? 'Nothing playing'}</p>
-          <p className="text-xs text-ink-400">
-            {track ? `${track.kind} · ${playback.status}` : 'Queue a demo track to start'}
+    <section
+      aria-label="Player"
+      className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-ink-700 bg-ink-900/95 px-3 pt-1.5 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] md:pt-2"
+    >
+      <div className="flex min-w-0 items-center gap-3 md:row-span-2">
+        <span className="hidden size-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent/30 to-ink-800 text-accent sm:grid">
+          <Icon name={track ? KIND_ICON[track.kind] : 'music'} className="size-6" />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{track?.title ?? 'Nothing playing'}</p>
+          <p className="truncate text-xs text-ink-400">
+            {track ? `${track.kind} · ${playback.status}` : 'Queue a track from the library'}
           </p>
+          {track?.sourceClass === 'remote' && <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>}
         </div>
-        {track?.sourceClass === 'remote' && <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>}
       </div>
-      <Seek duration={track?.durationSec ?? 0} />
-      <div className="mt-1 flex items-center justify-center gap-3">
-        <IconButton icon="prev" label="Previous track" onClick={() => control({ type: 'previous' })} />
+
+      <fieldset disabled={!canControl} className="flex items-center justify-center gap-2">
+        <legend className="sr-only">Transport</legend>
+        <IconButton
+          icon="prev"
+          label="Previous track"
+          className="border-transparent"
+          onClick={() => control({ type: 'previous' })}
+        />
         <button
           type="button"
           data-testid="play-pause"
           aria-label={playing ? 'Pause' : 'Play'}
           onClick={togglePlay}
           disabled={!playing && queue.length === 0}
-          className="inline-flex size-16 items-center justify-center rounded-full bg-accent text-accent-ink shadow-[0_0_32px_-6px_var(--color-accent)] transition hover:brightness-110 disabled:opacity-40"
+          className="inline-flex size-11 items-center justify-center rounded-full bg-accent text-accent-ink shadow-[0_0_24px_-6px_var(--color-accent)] transition hover:brightness-110 disabled:opacity-40"
         >
-          <Icon name={playing ? 'pause' : 'play'} className="size-7" />
+          <Icon name={playing ? 'pause' : 'play'} className="size-5" />
         </button>
-        <IconButton icon="next" label="Next track" onClick={() => control({ type: 'next' })} />
-      </div>
-      <div className="mt-2">
-        <RangeField
-          label="Master volume"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          format={(v) => `${Math.round(v * 100)}%`}
-          onCommit={(v) => control({ type: 'volume', volume: v })}
+        <IconButton
+          icon="next"
+          label="Next track"
+          className="border-transparent"
+          onClick={() => control({ type: 'next' })}
         />
-      </div>
-      {isHost && (
-        <Toggle
-          label="Host-only control"
-          description="Guests can only adjust their own speaker"
-          checked={hostOnly}
-          onChange={(v) => act(() => roomActions.updateSettings({ hostOnlyControl: v }))}
-        />
-      )}
+      </fieldset>
+
+      <fieldset disabled={!canControl} className="col-span-2 -mt-1.5 min-w-0 md:col-span-1 md:col-start-2">
+        <legend className="sr-only">Seek</legend>
+        <Seek duration={track?.durationSec ?? 0} />
+      </fieldset>
+
+      <fieldset
+        disabled={!canControl}
+        className="hidden min-w-0 items-center justify-end gap-2 md:col-start-3 md:row-span-2 md:row-start-1 md:flex"
+      >
+        <legend className="sr-only">Room volume</legend>
+        {!canControl && (
+          <Icon
+            name="lock"
+            label="Only the host can control playback"
+            className="size-4 shrink-0 text-ink-400"
+          />
+        )}
+        <HostOnlyToggle compact />
+        <MasterVolume compact />
+      </fieldset>
+    </section>
+  );
+}
+
+function MasterVolume({ compact }: { compact?: boolean }) {
+  const volume = useRoomStore((s) => s.room?.volume ?? 1);
+  return (
+    <div className={compact ? 'flex w-40 min-w-0 items-center gap-2' : undefined}>
+      {compact && <Icon name="volume" className="size-5 shrink-0 text-ink-400" />}
+      <RangeField
+        label="Master volume"
+        min={0}
+        max={1}
+        step={0.01}
+        value={volume}
+        format={(v) => `${Math.round(v * 100)}%`}
+        onCommit={(v) => control({ type: 'volume', volume: v })}
+        compact={compact}
+      />
     </div>
+  );
+}
+
+function HostOnlyToggle({ compact }: { compact?: boolean }) {
+  const isHost = useRoomStore((s) => s.isHost);
+  const hostOnly = useRoomStore((s) => !!s.room?.settings.hostOnlyControl);
+  if (!isHost) return null;
+  const set = (v: boolean) => act(() => roomActions.updateSettings({ hostOnlyControl: v }));
+  return compact ? (
+    <IconButton
+      icon="lock"
+      label="Host-only control: guests can only adjust their own speaker"
+      pressed={hostOnly}
+      className={hostOnly ? '' : 'border-transparent'}
+      onClick={() => set(!hostOnly)}
+    />
+  ) : (
+    <Toggle
+      label="Host-only control"
+      description="Guests can only adjust their own speaker"
+      checked={hostOnly}
+      onChange={set}
+    />
   );
 }
 
@@ -194,7 +257,7 @@ function Seek({ duration }: { duration: number }) {
     setDrag(null);
   };
   return (
-    <div className="mt-2 flex items-center gap-3">
+    <div className="flex items-center gap-3">
       <span className="w-11 text-right font-mono text-xs text-ink-400 tabular">{fmtTime(v)}</span>
       <input
         type="range"
@@ -289,14 +352,14 @@ function DemoSource() {
           Loading demo tracks… (run <code className="font-mono">pnpm demo</code> if none appear)
         </p>
       )}
-      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+      <ul className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
         {assets.map((a) => (
           <li key={a.id}>
             <button
               type="button"
               data-testid="demo-asset"
               onClick={() => act(() => roomActions.queueDemo(a))}
-              className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-ink-700 bg-ink-850/60 px-3 text-left transition hover:border-accent/60 disabled:opacity-50"
+              className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-ink-700 bg-ink-850/60 px-3 text-left transition hover:border-accent/60 disabled:opacity-50"
             >
               <Icon name="plus" className="size-4 shrink-0 text-accent" />
               <span className="min-w-0 flex-1">
@@ -666,7 +729,7 @@ function CaptureSource() {
         </p>
       )}
       {settings && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
           <RangeField
             label="Stream buffer"
             min={40}

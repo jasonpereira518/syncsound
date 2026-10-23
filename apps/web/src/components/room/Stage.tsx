@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
-import { computeDeviceMix, dbapGains, presetLayout, type DeviceMix, type PresetName } from '@syncsound/audio-core';
+import { computeDeviceMix, dbapGains, freeSpot, presetLayout, resizeRoom, type DeviceMix, type PresetName } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
 import { act, isTypingTarget, toast, errMsg, useCanControl } from './shared';
@@ -10,6 +10,7 @@ type Target = { kind: 'object' | 'device' | 'listener'; id: string };
 type ScenePatch = Omit<SceneUpdate, 'type'>;
 
 const SNAP = 0.25;
+const GLYPH_PX = 34; // on-screen size of one glyph unit, so labels stay legible at any map or room size
 const PRESETS: { name: PresetName; label: string }[] = [
   { name: 'stereo', label: 'Stereo pair' },
   { name: 'surround51', label: '5.1 ring' },
@@ -80,13 +81,30 @@ export function Stage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [canControl]);
 
+  // rendered pixels per metre, so glyphs can be sized in screen pixels rather than room metres
+  const [pxPerM, setPxPerM] = useState(0);
   const geo = useMemo(() => {
     const W = scene?.room.width ?? 8;
     const D = scene?.room.depth ?? 6;
     const pad = Math.max(0.9, Math.max(W, D) * 0.13);
-    const u = Math.max(W, D) / 13;
+    const u = pxPerM > 0 ? Math.min(GLYPH_PX / pxPerM, pad * 0.8) : Math.max(W, D) / 13;
     return { W, D, pad, u };
-  }, [scene?.room.width, scene?.room.depth]);
+  }, [scene?.room.width, scene?.room.depth, pxPerM]);
+
+  const hasScene = !!scene;
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => {
+      const vb = el.viewBox.baseVal;
+      const r = el.getBoundingClientRect();
+      if (vb.width > 0 && r.width > 0) setPxPerM(Math.min(r.width / vb.width, r.height / vb.height));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasScene, geo.W, geo.D]);
 
   // Unplaced devices wait in a tray below the room until dragged in.
   const tray = useMemo(() => {
@@ -187,7 +205,8 @@ export function Stage() {
       deleteObject(t.id);
       return;
     }
-    const step = e.shiftKey ? 0.5 : 0.1;
+    // with snap on, a 0.1 m step would round straight back onto the same grid point
+    const step = e.shiftKey ? 0.5 : snap ? SNAP : 0.1;
     const delta: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     const dv = delta[e.key];
     const p = posOf(base, t, tray);
@@ -233,6 +252,7 @@ export function Stage() {
     <Panel
       title="Stage"
       icon="stage"
+      className="lg:h-full"
       actions={
         <>
           <IconButton icon="undo" label="Undo (Ctrl/Cmd+Z)" disabled={!canControl || !canUndo} onClick={() => act(() => roomActions.undo())} />
@@ -241,248 +261,267 @@ export function Stage() {
         </>
       }
     >
-      {!canControl && (
-        <p className="mb-3 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
-          <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> The host has locked the stage. You can look, not move.
+      {/* desktop: the map takes whatever height the controls leave */}
+      <div className="flex flex-col gap-3 lg:h-full">
+        {!canControl && (
+          <p className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
+            <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> The host has locked the stage. You can look, not move.
+          </p>
+        )}
+        <p id="stage-help" className="sr-only">
+          Top-down map of the room, front stage at the top. Drag items, or focus one with Tab and use the arrow keys to move it by 0.1 metres (Shift
+          for 0.5). Delete removes a selected sound object.
         </p>
-      )}
-      <p id="stage-help" className="sr-only">
-        Top-down map of the room, front stage at the top. Drag items, or focus one with Tab and use the arrow keys to move it by 0.1 metres (Shift
-        for 0.5). Delete removes a selected sound object.
-      </p>
-      <div className="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-950">
-        <svg
-          ref={svgRef}
-          data-testid="stage-svg"
-          viewBox={`${-W / 2 - pad} ${-D / 2 - pad} ${W + 2 * pad} ${D + 2 * pad}`}
-          className="block h-auto max-h-[70vh] w-full touch-none select-none"
-          role="group"
-          aria-label={`Room map, ${W} by ${D} metres`}
-          aria-describedby="stage-help"
-          onPointerDown={(e) => !(e.target as Element).closest('.stage-item') && setSel(null)}
-        >
-          <defs>
-            <radialGradient id="stage-glow">
-              <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.18" />
-              <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={u * 0.3} fill="var(--color-ink-900)" stroke="var(--color-ink-600)" strokeWidth={u * 0.05} />
-          {gridX.map((x) => (
-            <line key={`gx${x}`} x1={x} x2={x} y1={-D / 2} y2={D / 2} stroke="var(--color-ink-700)" strokeWidth={x === 0 ? u * 0.04 : u * 0.02} />
-          ))}
-          {gridY.map((y) => (
-            <line key={`gy${y}`} y1={y} y2={y} x1={-W / 2} x2={W / 2} stroke="var(--color-ink-700)" strokeWidth={y === 0 ? u * 0.04 : u * 0.02} />
-          ))}
-          <rect x={-W / 2} y={-D / 2} width={W} height={u * 0.18} fill="var(--color-accent)" opacity={0.5} />
-          <text x={0} y={-D / 2 - pad * 0.35} textAnchor="middle" fontSize={fs} fill="var(--color-ink-400)" letterSpacing={u * 0.1} className="font-mono">
-            FRONT · STAGE
-          </text>
-          <text x={W / 2} y={D / 2 + pad * 0.3} textAnchor="end" fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
-            {W} × {D} m
-          </text>
-          {Object.keys(tray).length > 0 && (
-            <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
-              unplaced: drag into the room ↑
-            </text>
-          )}
-
-          {/* listener */}
-          <circle cx={lis.x} cy={lis.y} r={u * 2.2} fill="url(#stage-glow)" pointerEvents="none" />
-          <StageItem
-            t={{ kind: 'listener', id: 'listener' }}
-            testid="stage-listener"
-            label={`Listener (sweet spot) at ${fmtPos(lis)}`}
-            p={lis}
-            sel={sel}
-            canMove={canControl}
-            handlers={{ onDown, onMove, onUp, onItemKey }}
-            name="Listener"
+        <div className="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-950 lg:min-h-48 lg:flex-1">
+          <svg
+            ref={svgRef}
+            data-testid="stage-svg"
+            viewBox={`${-W / 2 - pad} ${-D / 2 - pad} ${W + 2 * pad} ${D + 2 * pad}`}
+            className="block h-auto max-h-[60vh] w-full touch-none select-none lg:absolute lg:inset-0 lg:h-full lg:max-h-none"
+            role="group"
+            aria-label={`Room map, ${W} by ${D} metres`}
+            aria-describedby="stage-help"
+            onPointerDown={(e) => !(e.target as Element).closest('.stage-item') && setSel(null)}
           >
-            <circle className="focus-ring" r={u * 0.62} fill="none" strokeWidth={u * 0.06} />
-            <circle r={u * 0.38} fill="var(--color-ink-950)" stroke="#fff" strokeWidth={u * 0.07} />
-            <circle r={u * 0.1} fill="#fff" />
-            <path d={`M${-u * 0.6} 0h${u * 0.15}M${u * 0.45} 0h${u * 0.15}M0 ${-u * 0.6}v${u * 0.15}`} stroke="#fff" strokeWidth={u * 0.05} />
-            <text y={u * 0.95} textAnchor="middle" fontSize={fs * 0.85} fill="var(--color-ink-200)">
-              listener
+            <defs>
+              <radialGradient id="stage-glow">
+                <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.18" />
+                <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
+              </radialGradient>
+            </defs>
+            <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={u * 0.3} fill="var(--color-ink-900)" stroke="var(--color-ink-600)" strokeWidth={u * 0.05} />
+            {gridX.map((x) => (
+              <line key={`gx${x}`} x1={x} x2={x} y1={-D / 2} y2={D / 2} stroke="var(--color-ink-700)" strokeWidth={x === 0 ? u * 0.04 : u * 0.02} />
+            ))}
+            {gridY.map((y) => (
+              <line key={`gy${y}`} y1={y} y2={y} x1={-W / 2} x2={W / 2} stroke="var(--color-ink-700)" strokeWidth={y === 0 ? u * 0.04 : u * 0.02} />
+            ))}
+            <rect x={-W / 2} y={-D / 2} width={W} height={u * 0.18} fill="var(--color-accent)" opacity={0.5} />
+            <text x={0} y={-D / 2 - pad * 0.35} textAnchor="middle" fontSize={fs} fill="var(--color-ink-400)" letterSpacing={u * 0.1} className="font-mono">
+              FRONT · STAGE
             </text>
-          </StageItem>
+            <text x={W / 2} y={D / 2 + pad * 0.3} textAnchor="end" fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
+              {W} × {D} m
+            </text>
+            <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
+              {Object.keys(tray).length > 0 ? 'unplaced: drag into the room ↑' : canControl ? 'drag to move · click to inspect' : 'click to inspect'}
+            </text>
 
-          {/* gain lines for the selected object */}
-          {selObj &&
-            selGains &&
-            speakers.map((s) => {
-              const g = selGains[s.id] ?? 0;
-              return (
-                <line
-                  key={`gl-${s.id}`}
-                  x1={selObj.position.x}
-                  y1={selObj.position.y}
-                  x2={s.pos.x}
-                  y2={s.pos.y}
-                  stroke={CHANNEL_COLOR[selObj.channel]}
-                  strokeOpacity={0.15 + 0.85 * g}
-                  strokeWidth={u * (0.03 + 0.22 * g)}
-                  strokeDasharray={g < 0.05 ? `${u * 0.1} ${u * 0.1}` : undefined}
-                  pointerEvents="none"
-                />
-              );
-            })}
-
-          {/* devices */}
-          {devices.map((d) => {
-            const p = scene.devices[d.id] ?? tray[d.id];
-            if (!p) return null;
-            const mix = mixes?.[d.id];
-            const g = selGains?.[d.id];
-            return (
-              <StageItem
-                key={d.id}
-                t={{ kind: 'device', id: d.id }}
-                testid={`stage-device-${d.id}`}
-                label={`${d.name}, ${d.role} speaker, ${scene.devices[d.id] ? `at ${fmtPos(p)}` : 'not placed yet'}`}
-                p={p}
-                sel={sel}
-                canMove={canControl}
-                handlers={{ onDown, onMove, onUp, onItemKey }}
-                name={d.name}
-                className={identifyFlash === d.id ? 'animate-flash' : undefined}
-                dim={!d.connected || !scene.devices[d.id]}
-              >
-                <DeviceGlyph d={d} u={u} />
-                <text y={u * 1.0} textAnchor="middle" fontSize={fs * 0.82} fill="var(--color-ink-100)">
-                  {d.name.length > 14 ? `${d.name.slice(0, 13)}…` : d.name}
-                </text>
-                {mix && (
-                  <g transform={`translate(${-u * 0.6} ${u * 1.18})`}>
-                    <rect width={u * 1.2} height={u * 0.13} rx={u * 0.06} fill="var(--color-ink-700)" />
-                    <rect width={u * 1.2 * totalGain(mix)} height={u * 0.13} rx={u * 0.06} fill="var(--color-accent)" />
-                    {scene.propagationComp && mix.delaySec > 0.00005 && (
-                      <text x={u * 0.6} y={u * 0.5} textAnchor="middle" fontSize={fs * 0.66} fill="var(--color-ink-400)" className="font-mono">
-                        +{(mix.delaySec * 1000).toFixed(1)} ms
-                      </text>
-                    )}
-                  </g>
-                )}
-                {g != null && (
-                  <text y={-u * 0.85} textAnchor="middle" fontSize={fs * 0.75} fill={CHANNEL_COLOR[selObj!.channel]} className="font-mono">
-                    {(20 * Math.log10(Math.max(g, 1e-4))).toFixed(1)} dB
-                  </text>
-                )}
-              </StageItem>
-            );
-          })}
-
-          {/* audio objects */}
-          {scene.objects.map((o) => (
+            {/* listener */}
+            <circle cx={lis.x} cy={lis.y} r={u * 2.2} fill="url(#stage-glow)" pointerEvents="none" />
             <StageItem
-              key={o.id}
-              t={{ kind: 'object', id: o.id }}
-              testid={`stage-object-${o.id}`}
-              label={`Sound object ${o.label} (${o.channel}) at ${fmtPos(o.position)}`}
-              p={o.position}
+              t={{ kind: 'listener', id: 'listener' }}
+              testid="stage-listener"
+              label={`Listener (sweet spot) at ${fmtPos(lis)}`}
+              p={lis}
               sel={sel}
               canMove={canControl}
               handlers={{ onDown, onMove, onUp, onItemKey }}
-              name={o.label}
+              name="Listener"
             >
-              <circle className="focus-ring" r={u * 0.66} fill="none" strokeWidth={u * 0.06} />
-              <circle
-                r={u * 0.44}
-                fill={CHANNEL_COLOR[o.channel]}
-                fillOpacity={o.muted ? 0.08 : 0.28}
-                stroke={CHANNEL_COLOR[o.channel]}
-                strokeWidth={u * 0.07}
-                strokeDasharray={o.muted ? `${u * 0.12} ${u * 0.08}` : undefined}
-              />
-              <text y={fs * 0.36} textAnchor="middle" fontSize={o.channel.length > 2 ? fs * 0.72 : fs} fontWeight={700} fill="#fff" className="font-mono">
-                {o.channel}
-              </text>
-              <text y={u * 0.9} textAnchor="middle" fontSize={fs * 0.72} fill="var(--color-ink-300)">
-                {o.label.length > 16 ? `${o.label.slice(0, 15)}…` : o.label}
+              <circle className="focus-ring" r={u * 0.62} fill="none" strokeWidth={u * 0.06} />
+              <circle r={u * 0.38} fill="var(--color-ink-950)" stroke="#fff" strokeWidth={u * 0.07} />
+              <circle r={u * 0.1} fill="#fff" />
+              <path d={`M${-u * 0.6} 0h${u * 0.15}M${u * 0.45} 0h${u * 0.15}M0 ${-u * 0.6}v${u * 0.15}`} stroke="#fff" strokeWidth={u * 0.05} />
+              <text y={u * 0.95} textAnchor="middle" fontSize={fs * 0.85} fill="var(--color-ink-200)">
+                listener
               </text>
             </StageItem>
-          ))}
-        </svg>
-        <span className="sr-only" aria-live="polite">
-          {announce}
-        </span>
-      </div>
 
-      <fieldset disabled={!canControl} className="mt-4 grid min-w-0 gap-4 md:grid-cols-2">
-        <legend className="sr-only">Stage controls</legend>
-        <div className="min-w-0 space-y-4">
-          <div>
-            <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layouts</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {PRESETS.map((p) => (
-                <Button key={p.name} data-testid={`preset-${p.name}`} onClick={() => applyPreset(p.name)}>
-                  {p.label}
-                </Button>
-              ))}
+            {/* gain lines for the selected object */}
+            {selObj &&
+              selGains &&
+              speakers.map((s) => {
+                const g = selGains[s.id] ?? 0;
+                return (
+                  <line
+                    key={`gl-${s.id}`}
+                    x1={selObj.position.x}
+                    y1={selObj.position.y}
+                    x2={s.pos.x}
+                    y2={s.pos.y}
+                    stroke={CHANNEL_COLOR[selObj.channel]}
+                    strokeOpacity={0.15 + 0.85 * g}
+                    strokeWidth={u * (0.03 + 0.22 * g)}
+                    strokeDasharray={g < 0.05 ? `${u * 0.1} ${u * 0.1}` : undefined}
+                    pointerEvents="none"
+                  />
+                );
+              })}
+
+            {/* devices */}
+            {devices.map((d) => {
+              const p = scene.devices[d.id] ?? tray[d.id];
+              if (!p) return null;
+              const mix = mixes?.[d.id];
+              const g = selGains?.[d.id];
+              return (
+                <StageItem
+                  key={d.id}
+                  t={{ kind: 'device', id: d.id }}
+                  testid={`stage-device-${d.id}`}
+                  label={`${d.name}, ${d.role} speaker, ${scene.devices[d.id] ? `at ${fmtPos(p)}` : 'not placed yet'}`}
+                  p={p}
+                  sel={sel}
+                  canMove={canControl}
+                  handlers={{ onDown, onMove, onUp, onItemKey }}
+                  name={d.name}
+                  className={identifyFlash === d.id ? 'animate-flash' : undefined}
+                  dim={!d.connected || !scene.devices[d.id]}
+                >
+                  <DeviceGlyph d={d} u={u} />
+                  <text y={u * 1.0} textAnchor="middle" fontSize={fs * 0.82} fill="var(--color-ink-100)">
+                    {d.name.length > 14 ? `${d.name.slice(0, 13)}…` : d.name}
+                  </text>
+                  {mix && (
+                    <g transform={`translate(${-u * 0.6} ${u * 1.18})`}>
+                      <rect width={u * 1.2} height={u * 0.13} rx={u * 0.06} fill="var(--color-ink-700)" />
+                      <rect width={u * 1.2 * totalGain(mix)} height={u * 0.13} rx={u * 0.06} fill="var(--color-accent)" />
+                      {scene.propagationComp && mix.delaySec > 0.00005 && (
+                        <text x={u * 0.6} y={u * 0.5} textAnchor="middle" fontSize={fs * 0.66} fill="var(--color-ink-400)" className="font-mono">
+                          +{(mix.delaySec * 1000).toFixed(1)} ms
+                        </text>
+                      )}
+                    </g>
+                  )}
+                  {g != null && (
+                    <text y={-u * 0.85} textAnchor="middle" fontSize={fs * 0.75} fill={CHANNEL_COLOR[selObj!.channel]} className="font-mono">
+                      {(20 * Math.log10(Math.max(g, 1e-4))).toFixed(1)} dB
+                    </text>
+                  )}
+                </StageItem>
+              );
+            })}
+
+            {/* audio objects */}
+            {scene.objects.map((o) => (
+              <StageItem
+                key={o.id}
+                t={{ kind: 'object', id: o.id }}
+                testid={`stage-object-${o.id}`}
+                label={`Sound object ${o.label} (${o.channel}) at ${fmtPos(o.position)}`}
+                p={o.position}
+                sel={sel}
+                canMove={canControl}
+                handlers={{ onDown, onMove, onUp, onItemKey }}
+                name={o.label}
+              >
+                <circle className="focus-ring" r={u * 0.66} fill="none" strokeWidth={u * 0.06} />
+                <circle
+                  r={u * 0.44}
+                  fill={CHANNEL_COLOR[o.channel]}
+                  fillOpacity={o.muted ? 0.08 : 0.28}
+                  stroke={CHANNEL_COLOR[o.channel]}
+                  strokeWidth={u * 0.07}
+                  strokeDasharray={o.muted ? `${u * 0.12} ${u * 0.08}` : undefined}
+                />
+                <text y={fs * 0.36} textAnchor="middle" fontSize={o.channel.length > 2 ? fs * 0.72 : fs} fontWeight={700} fill="#fff" className="font-mono">
+                  {o.channel}
+                </text>
+                {/* label above: presets park objects on speakers, whose names sit below */}
+                <text y={-u * 0.62} textAnchor="middle" fontSize={fs * 0.72} fill="var(--color-ink-300)">
+                  {o.label.length > 16 ? `${o.label.slice(0, 15)}…` : o.label}
+                </text>
+              </StageItem>
+            ))}
+          </svg>
+          <Inspector
+            sel={sel}
+            scene={scene}
+            devices={devices}
+            gains={selGains}
+            mixes={mixes}
+            canControl={canControl}
+            onDelete={deleteObject}
+            onClose={() => setSel(null)}
+          />
+          <span className="sr-only" aria-live="polite">
+            {announce}
+          </span>
+        </div>
+
+        <fieldset disabled={!canControl} className="min-w-0 space-y-3 lg:max-h-[45%] lg:shrink-0 lg:overflow-y-auto lg:px-1">
+          <legend className="sr-only">Stage controls</legend>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="min-w-0">
+              <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layouts</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESETS.map((p) => (
+                  <Button key={p.name} data-testid={`preset-${p.name}`} className="!min-h-9 rounded-full !px-3 text-xs" onClick={() => applyPreset(p.name)}>
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
             </div>
+            <AddObject
+              disabled={scene.objects.length >= 32}
+              onAdd={(o) => {
+                const taken = [base.listener, ...Object.values(base.devices), ...base.objects.map((x) => x.position)];
+                const position = clampSnap(freeSpot({ x: 0, y: -D / 4 }, taken, base.room, Math.max(0.8, 2 * u)));
+                const objects = [...base.objects, { ...o, position }];
+                sceneUpdate({ objects }, true);
+                setSel({ kind: 'object', id: o.id });
+              }}
+            />
           </div>
-          <Inspector sel={sel} scene={scene} devices={devices} gains={selGains} mixes={mixes} onDelete={deleteObject} />
-          <AddObject
-            disabled={scene.objects.length >= 32}
-            onAdd={(o) => {
-              const objects = [...base.objects, { ...o, position: clampSnap({ x: 0, y: -D / 4 }) }];
-              sceneUpdate({ objects }, true);
-              setSel({ kind: 'object', id: o.id });
-            }}
-          />
-        </div>
-        <div className="min-w-0 space-y-3">
-          <h3 className="text-xs font-medium tracking-widest text-ink-400 uppercase">Rendering</h3>
-          <Toggle
-            label="Time-align to listener"
-            description="Delay nearer speakers so sound arrives together"
-            checked={scene.propagationComp}
-            disabled={!canControl}
-            onChange={(v) => sceneUpdate({ propagationComp: v }, true)}
-          />
-          <Toggle
-            label="Stereo → surround upmix"
-            description="Spread 2-channel sources around the room"
-            checked={scene.upmix}
-            disabled={!canControl}
-            onChange={(v) => sceneUpdate({ upmix: v }, true)}
-          />
-          <RangeField
-            label="Rolloff"
-            min={0.1}
-            max={4}
-            step={0.1}
-            value={scene.rolloff}
-            format={(v) => `${v.toFixed(1)} (${(6 * v).toFixed(0)} dB/dist×2)`}
-            onLive={(v) => sceneUpdate({ rolloff: v }, false)}
-            onCommit={(v) => sceneUpdate({ rolloff: v }, true)}
-          />
-          <RangeField
-            label="Spatial blur"
-            min={0.01}
-            max={5}
-            step={0.01}
-            value={scene.blur}
-            format={(v) => `${v.toFixed(2)} m`}
-            onLive={(v) => sceneUpdate({ blur: v }, false)}
-            onCommit={(v) => sceneUpdate({ blur: v }, true)}
-          />
-          <RangeField
-            label="Bass crossover"
-            min={40}
-            max={250}
-            step={5}
-            value={scene.crossoverHz}
-            format={(v) => `${v} Hz`}
-            onCommit={(v) => sceneUpdate({ crossoverHz: v }, true)}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <RangeField label="Room width" min={2} max={30} step={0.5} value={W} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate({ room: { width: v, depth: D } }, true)} />
-            <RangeField label="Room depth" min={2} max={30} step={0.5} value={D} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate({ room: { width: W, depth: v } }, true)} />
-          </div>
-        </div>
-      </fieldset>
+          {/* secondary settings stay folded so the map keeps the height */}
+          <details className="group rounded-xl border border-ink-700">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-medium tracking-widest text-ink-400 uppercase hover:text-ink-100">
+              Rendering &amp; room size
+              <span aria-hidden className="text-base transition group-open:rotate-90">›</span>
+            </summary>
+            <div className="grid gap-3 px-3 pb-3 md:grid-cols-2">
+              <Toggle
+                label="Time-align to listener"
+                description="Delay nearer speakers so sound arrives together"
+                checked={scene.propagationComp}
+                disabled={!canControl}
+                onChange={(v) => sceneUpdate({ propagationComp: v }, true)}
+              />
+              <Toggle
+                label="Stereo → surround upmix"
+                description="Spread 2-channel sources around the room"
+                checked={scene.upmix}
+                disabled={!canControl}
+                onChange={(v) => sceneUpdate({ upmix: v }, true)}
+              />
+              <RangeField
+                label="Rolloff"
+                min={0.1}
+                max={4}
+                step={0.1}
+                value={scene.rolloff}
+                format={(v) => `${v.toFixed(1)} (${(6 * v).toFixed(0)} dB/dist×2)`}
+                onLive={(v) => sceneUpdate({ rolloff: v }, false)}
+                onCommit={(v) => sceneUpdate({ rolloff: v }, true)}
+              />
+              <RangeField
+                label="Spatial blur"
+                min={0.01}
+                max={5}
+                step={0.01}
+                value={scene.blur}
+                format={(v) => `${v.toFixed(2)} m`}
+                onLive={(v) => sceneUpdate({ blur: v }, false)}
+                onCommit={(v) => sceneUpdate({ blur: v }, true)}
+              />
+              <RangeField
+                label="Bass crossover"
+                min={40}
+                max={250}
+                step={5}
+                value={scene.crossoverHz}
+                format={(v) => `${v} Hz`}
+                onCommit={(v) => sceneUpdate({ crossoverHz: v }, true)}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <RangeField label="Room width" min={2} max={30} step={0.5} value={W} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: v, depth: D }), true)} />
+                <RangeField label="Room depth" min={2} max={30} step={0.5} value={D} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: W, depth: v }), true)} />
+              </div>
+            </div>
+          </details>
+        </fieldset>
+      </div>
     </Panel>
   );
 }
@@ -580,29 +619,38 @@ function Inspector({
   devices,
   gains,
   mixes,
+  canControl,
   onDelete,
+  onClose,
 }: {
   sel: Target | null;
   scene: Scene;
   devices: Device[];
   gains: Record<string, number> | null;
   mixes: Record<string, DeviceMix> | null;
+  canControl: boolean;
   onDelete: (id: string) => void;
+  onClose: () => void;
 }) {
-  if (!sel) return <p className="rounded-xl border border-dashed border-ink-700 p-3 text-sm text-ink-400">Select a speaker, sound object or the listener to inspect it.</p>;
+  if (!sel) return null;
   const obj: AudioObject | undefined = sel.kind === 'object' ? scene.objects.find((o) => o.id === sel.id) : undefined;
   const dev = sel.kind === 'device' ? devices.find((d) => d.id === sel.id) : undefined;
+  if (sel.kind !== 'listener' && !obj && !dev) return null; // removed by someone else
   const pos = sel.kind === 'listener' ? scene.listener : sel.kind === 'device' ? scene.devices[sel.id] : obj?.position;
   const mix = dev ? mixes?.[dev.id] : undefined;
   return (
-    <div className="rounded-xl border border-ink-700 bg-ink-850/60 p-3 text-sm">
+    // desktop: floats over the map so selecting never resizes it; phones: sits under the map
+    <div className="border-t border-ink-700 bg-ink-850/95 p-3 text-sm backdrop-blur lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto lg:rounded-xl lg:border lg:shadow-xl">
       <div className="flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate font-medium">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name ?? '—')}</p>
-        {obj && (
-          <Button variant="danger" className="!min-h-9 !px-3" onClick={() => onDelete(obj.id)}>
-            <Icon name="trash" className="size-4" /> Delete
-          </Button>
-        )}
+        <p className="min-w-0 truncate font-medium">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
+        <div className="flex shrink-0 items-center gap-1">
+          {obj && (
+            <Button variant="danger" className="!min-h-9 !px-3" disabled={!canControl} onClick={() => onDelete(obj.id)}>
+              <Icon name="trash" className="size-4" /> Delete
+            </Button>
+          )}
+          <IconButton icon="x" label="Close inspector" className="!size-9 border-transparent" onClick={onClose} />
+        </div>
       </div>
       <p className="mt-1 font-mono text-xs text-ink-400">{pos ? fmtPos(pos) : 'not placed'}</p>
       {obj && gains && (

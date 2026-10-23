@@ -152,10 +152,34 @@ export function propagationDelays(scene: Scene, deviceIds: string[]): Record<str
 export type PresetName = 'stereo' | 'surround51' | 'party' | 'frontStage';
 
 const ROOM_MARGIN = 0.3;
-const clampToRoom = (p: Vec2, room: Scene['room']): Vec2 => ({
-  x: Math.max(-room.width / 2 + ROOM_MARGIN, Math.min(room.width / 2 - ROOM_MARGIN, p.x)),
-  y: Math.max(-room.depth / 2 + ROOM_MARGIN, Math.min(room.depth / 2 - ROOM_MARGIN, p.y)),
+/** keep a point `margin` metres inside the walls */
+export const clampToRoom = (p: Vec2, room: Scene['room'], margin = ROOM_MARGIN): Vec2 => ({
+  x: Math.max(-room.width / 2 + margin, Math.min(room.width / 2 - margin, p.x)),
+  y: Math.max(-room.depth / 2 + margin, Math.min(room.depth / 2 - margin, p.y)),
 });
+
+/** First point on a golden-angle spiral around `from` that is at least `gap` m from every `taken` point. */
+export function freeSpot(from: Vec2, taken: Vec2[], room: Scene['room'], gap = 0.8): Vec2 {
+  // ponytail: fixed 64-step scan, O(64·n); ample for ≤ 32 objects plus a room of speakers
+  for (let i = 0; i < 64; i++) {
+    const r = 0.45 * Math.sqrt(i);
+    const a = i * 2.399963;
+    const p = clampToRoom({ x: from.x + r * Math.cos(a), y: from.y + r * Math.sin(a) }, room);
+    if (taken.every((t) => Math.hypot(t.x - p.x, t.y - p.y) >= gap)) return p;
+  }
+  return clampToRoom(from, room);
+}
+
+/** Scene patch for a new room size: anything left outside the new walls is pulled back onto them. */
+export function resizeRoom(scene: Scene, room: Scene['room']) {
+  const inside = (p: Vec2) => clampToRoom(p, room, 0);
+  return {
+    room,
+    listener: inside(scene.listener),
+    devices: Object.fromEntries(Object.entries(scene.devices).map(([id, p]) => [id, inside(p)])),
+    objects: scene.objects.map((o) => ({ ...o, position: inside(o.position) })),
+  };
+}
 /** azimuth in degrees: 0 = straight ahead (−y), +ve = to the listener's right (+x) */
 const polar = (c: Vec2, azDeg: number, r: number): Vec2 => {
   const a = (azDeg * Math.PI) / 180;

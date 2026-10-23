@@ -33,7 +33,7 @@ export function DeviceList() {
     (a, b) => Number(b.id === selfId) - Number(a.id === selfId) || Number(b.isHost) - Number(a.isHost) || a.joinedAt - b.joinedAt,
   );
   return (
-    <Panel title="Devices" icon="devices" actions={<Badge>{devices.filter((d) => d.connected).length} online</Badge>}>
+    <Panel title="Devices" icon="devices" className="lg:flex-1" actions={<Badge>{devices.filter((d) => d.connected).length} online</Badge>}>
       {!canControl && (
         <p className="mb-3 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
           <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> The host has locked control. You can still adjust your

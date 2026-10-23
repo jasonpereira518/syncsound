@@ -117,6 +117,18 @@ describe('Room join', () => {
     expect(devices.h).not.toEqual(devices.g1);
   });
 
+  it('auto-places inside the room even when the listener sits at a wall', () => {
+    const room = mkRoom();
+    join(room, 'ch', 'h', { hostKey: 'HOSTKEY' });
+    room.handle('ch', { type: 'SCENE_UPDATE', listener: { x: -4, y: 3 } }, 1000);
+    for (let i = 0; i < 6; i++) join(room, `c${i}`, `g${i}`);
+    const { room: r, devices } = room.state.scene;
+    for (const p of Object.values(devices)) {
+      expect(Math.abs(p.x)).toBeLessThanOrEqual(r.width / 2);
+      expect(Math.abs(p.y)).toBeLessThanOrEqual(r.depth / 2);
+    }
+  });
+
   it('enforces the password unless the hostKey matches', () => {
     const room = mkRoom({ passwordHash: passwords.hash('s3cret') });
     expect(room.state.settings.hasPassword).toBe(true);

@@ -181,16 +181,17 @@ export function Panel({
     <section
       id={id}
       aria-labelledby={hid}
-      className={`min-w-0 rounded-2xl border border-ink-700/80 bg-ink-900/80 p-4 backdrop-blur sm:p-5 ${className}`}
+      className={`flex min-w-0 flex-col rounded-2xl border border-ink-700/80 bg-ink-900/80 p-4 backdrop-blur ${className}`}
     >
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 id={hid} className="flex items-center gap-2 font-display text-lg font-semibold tracking-tight">
           {icon && <Icon name={icon} className="size-5 text-accent" />}
           {title}
         </h2>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>
-      {children}
+      {/* body scrolls when the panel is height-constrained (desktop shell); px keeps focus rings unclipped */}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1">{children}</div>
     </section>
   );
 }
@@ -281,6 +282,7 @@ export function RangeField({
   withNumber = false,
   disabled,
   hint,
+  compact = false,
 }: {
   label: string;
   value: number;
@@ -293,6 +295,8 @@ export function RangeField({
   withNumber?: boolean;
   disabled?: boolean;
   hint?: string;
+  /** single row: visually hidden label, value after the slider */
+  compact?: boolean;
 }) {
   const id = useId();
   const [draft, setDraft] = useState<number | null>(null);
@@ -308,14 +312,18 @@ export function RangeField({
     setDraft(null);
   };
   return (
-    <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="text-sm text-ink-200">
+    <div className={compact ? 'flex min-w-0 flex-1 items-center gap-2' : 'min-w-0'}>
+      <div className={compact ? 'contents' : 'flex items-baseline justify-between gap-2'}>
+        <label htmlFor={id} className={compact ? 'sr-only' : 'text-sm text-ink-200'}>
           {label}
         </label>
-        {!withNumber && <output htmlFor={id} className="font-mono text-xs text-ink-300 tabular">{format(v)}</output>}
+        {!withNumber && (
+          <output htmlFor={id} className={`font-mono text-xs text-ink-300 tabular ${compact ? 'order-last w-9 shrink-0 text-right' : ''}`}>
+            {format(v)}
+          </output>
+        )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <input
           id={id}
           type="range"
@@ -365,6 +373,7 @@ export function Tabs<T extends string>({
   onChange,
   label,
   idPrefix,
+  panelPrefix = idPrefix,
   className = '',
   tabClassName = '',
 }: {
@@ -373,6 +382,8 @@ export function Tabs<T extends string>({
   onChange: (v: T) => void;
   label: string;
   idPrefix: string;
+  /** when a second tablist controls the same panels */
+  panelPrefix?: string;
   className?: string;
   tabClassName?: string;
 }) {
@@ -402,7 +413,7 @@ export function Tabs<T extends string>({
             role="tab"
             id={`${idPrefix}-tab-${t.id}`}
             aria-selected={selected}
-            aria-controls={`${idPrefix}-panel-${t.id}`}
+            aria-controls={`${panelPrefix}-panel-${t.id}`}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(t.id)}
             onKeyDown={(e) => onKey(e, i)}
