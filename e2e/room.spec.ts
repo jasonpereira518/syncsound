@@ -39,7 +39,7 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   for (const { page } of all) await waitConverged(page);
 
   // --- queue a demo track and play ---
-  await host.page.getByRole('tab', { name: /player/i }).click({ timeout: 1500 }).catch(() => {});
+  await host.page.getByRole('tab', { name: /library/i }).click({ timeout: 1500 }).catch(() => {});
   await host.page.getByTestId('demo-asset').filter({ hasText: /click/i }).first().click();
   await expect(host.page.getByTestId('queue-item').first()).toBeVisible();
   await host.page.getByTestId('play-pause').click();

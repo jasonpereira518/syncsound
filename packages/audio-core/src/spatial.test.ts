@@ -7,9 +7,11 @@ import {
   computeDeviceMix,
   dbapGains,
   defaultObjectsFor,
+  freeSpot,
   LFE_FOLD_DB,
   presetLayout,
   propagationDelays,
+  resizeRoom,
   SPEED_OF_SOUND,
   type Speaker,
 } from './spatial';
@@ -241,6 +243,30 @@ describe('layouts and channel maps', () => {
     const st = presetLayout('stereo', ['a', 'b'], s).devices;
     expect(st.a!.x).toBeCloseTo(-st.b!.x, 12);
     expect(st.a!.y).toBeLessThan(s.listener.y);
+  });
+
+  it('freeSpot keeps clear of taken points and inside the room', () => {
+    const room = { width: 8, depth: 6 };
+    expect(freeSpot({ x: 1, y: 1 }, [], room)).toEqual({ x: 1, y: 1 });
+    const taken = [{ x: 0, y: -1.5 }, { x: 0.3, y: -1.2 }, { x: -2, y: -1.5 }];
+    const p = freeSpot({ x: 0, y: -1.5 }, taken, room);
+    for (const t of taken) expect(Math.hypot(t.x - p.x, t.y - p.y)).toBeGreaterThanOrEqual(0.8);
+    expect(Math.abs(p.x)).toBeLessThanOrEqual(4);
+    expect(Math.abs(p.y)).toBeLessThanOrEqual(3);
+  });
+
+  it('resizeRoom pulls outside items onto the new walls and leaves inside items alone', () => {
+    const s: Scene = {
+      ...defaultScene(),
+      listener: { x: -3, y: 2.5 },
+      devices: { a: { x: 3.5, y: 0 }, b: { x: 0.2, y: -0.4 } },
+    };
+    s.objects = [{ id: 'o', label: 'L', channel: 'L', gainDb: 0, muted: false, position: { x: -3.9, y: -2.9 } }];
+    const p = resizeRoom(s, { width: 4, depth: 4 });
+    expect(p.room).toEqual({ width: 4, depth: 4 });
+    expect(p.listener).toEqual({ x: -2, y: 2 });
+    expect(p.devices).toEqual({ a: { x: 2, y: 0 }, b: { x: 0.2, y: -0.4 } });
+    expect(p.objects[0]!.position).toEqual({ x: -2, y: -2 });
   });
 
   it('default objects and channel indices follow 5.1 WAV order', () => {

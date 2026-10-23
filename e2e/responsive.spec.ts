@@ -22,7 +22,7 @@ test('360 px: landing + room have no horizontal scroll; join works by keyboard',
   await expect(page.getByTestId('join-button')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('room-code').first()).toBeVisible();
-  for (const tab of [/player/i, /stage/i, /devices/i, /calibrat/i]) {
+  for (const tab of [/library/i, /stage/i, /devices/i, /calibrat/i]) {
     await page.getByRole('tab', { name: tab }).last().click();
     expect(await page.evaluate(noHorizontalScroll), `no horizontal scroll on ${tab}`).toBe(true);
   }

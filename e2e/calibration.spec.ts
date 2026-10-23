@@ -64,6 +64,9 @@ test('sync measurement tool: loopback clicks are detected and stable', async ({ 
   await joinRoom(page, code, 'Listener');
   await waitConverged(page);
   await page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  // The clock mapping keeps tightening for a moment after waitConverged; the jitter bound below assumes that
+  // settle (it used to come implicitly from the tab click above timing out on desktop, where no tab was shown).
+  await page.waitForTimeout(1500);
   await page.getByTestId('sync-measure-duration').selectOption('10');
   await page.getByTestId('sync-measure-start').click();
   await expect(page.getByTestId('sync-measure-status')).toHaveAttribute('data-step', /done|error/, { timeout: 60_000 });

@@ -307,7 +307,8 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       video: new VideoDriver(engine, nowRoom),
       history: new History<Scene>(),
       scene: mergingThrottle<ScenePatch>((p) => send({ type: 'SCENE_UPDATE', ...p }), 1000 / 30),
-      lastLocalSceneEdit: 0,
+      // not 0: performance.now() starts near 0, so 0 would drop every SCENE in the page's first 400 ms
+      lastLocalSceneEdit: -Infinity,
       autoObjectsKey: '',
       cleanup: [],
     };

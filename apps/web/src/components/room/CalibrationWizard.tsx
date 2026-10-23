@@ -48,7 +48,7 @@ export function CalibrationWizard() {
   };
 
   return (
-    <Panel title="Calibrate" icon="mic">
+    <Panel title="Calibrate" icon="mic" className="lg:min-h-0 lg:flex-1">
       <p className="text-sm text-ink-300">
         Hold <strong className="text-ink-100">this device</strong> where you&rsquo;ll sit. Every speaker plays a short chirp and sweep in turn; this
         microphone measures each one&rsquo;s delay, level and frequency response, then SyncSound aligns and EQs them.

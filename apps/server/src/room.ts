@@ -14,8 +14,8 @@ import {
   type RoomState,
   type ServerMessage,
   type ServerMessageBody,
-  type Vec2,
 } from '@syncsound/protocol';
+import { clampToRoom } from '@syncsound/audio-core';
 
 export type Target = 'all' | 'others' | string[];
 /** `msg` already carries the room-assigned seq; broadcast copies share one seq. */
@@ -65,10 +65,6 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-const clampVec = (v: Vec2): Vec2 => ({
-  x: Math.max(-50, Math.min(50, v.x)),
-  y: Math.max(-50, Math.min(50, v.y)),
-});
 
 class RoomError extends Error {
   constructor(
@@ -234,11 +230,13 @@ export class Room {
   private autoPlace(deviceId: string) {
     // golden-angle spiral on a circle so successive devices never stack
     const angle = this.placed++ * 2.399963 - Math.PI / 2;
-    const { listener } = this.state.scene;
-    this.state.scene.devices[deviceId] = clampVec({
-      x: +(listener.x + AUTO_PLACE_RADIUS_M * Math.cos(angle)).toFixed(3),
-      y: +(listener.y + AUTO_PLACE_RADIUS_M * Math.sin(angle)).toFixed(3),
-    });
+    const { listener, room } = this.state.scene;
+    // a listener near a wall would otherwise put new speakers outside the room (and off the stage map)
+    const p = clampToRoom(
+      { x: listener.x + AUTO_PLACE_RADIUS_M * Math.cos(angle), y: listener.y + AUTO_PLACE_RADIUS_M * Math.sin(angle) },
+      room,
+    );
+    this.state.scene.devices[deviceId] = { x: +p.x.toFixed(3), y: +p.y.toFixed(3) };
   }
 
   leave(connId: string, now: number): Outbound[] {
