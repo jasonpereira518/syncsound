@@ -11,7 +11,9 @@ import {
   type ClientMessage,
   type Device,
   type DevicePatch,
+  type RoomSettings,
   type RoomState,
+  type Scene,
   type ServerMessage,
   type ServerMessageBody,
 } from '@syncsound/protocol';
@@ -25,7 +27,7 @@ export interface Outbound {
 }
 
 type JoinMsg = Extract<ClientMessage, { type: 'JOIN' }>;
-type ControlCmd = Extract<ClientMessage, { type: 'CONTROL' }>['command'];
+export type ControlCmd = Extract<ClientMessage, { type: 'CONTROL' }>['command'];
 
 export const PROFILE_KEYS = [
   'name',
@@ -39,10 +41,24 @@ export const PROFILE_KEYS = [
 ] as const;
 export type Profile = Pick<Device, (typeof PROFILE_KEYS)[number]>;
 
+/** config a persistent (home) room writes back to its store on every change */
+export interface RoomConfig {
+  scene: Scene;
+  settings: RoomSettings;
+  passwordHash: string | null;
+}
+
 export interface RoomDeps {
   code: string;
-  hostKey: string;
+  /** temporary rooms: the raw host key; home rooms pass `isHostKey` (owner-key check) instead */
+  hostKey?: string;
+  isHostKey?: (key: string) => boolean;
   createdAt: number;
+  /** initial config of a stored room */
+  scene?: Scene;
+  settings?: RoomSettings;
+  /** set for persistent rooms; called with a snapshot after scene/settings change */
+  onConfig?: (cfg: RoomConfig) => void;
   /** opaque stored password hash, null = no password */
   passwordHash?: string | null;
   passwords: { hash(pw: string): string; verify(pw: string, stored: string): boolean };
@@ -77,7 +93,7 @@ class RoomError extends Error {
 
 export class Room {
   readonly state: RoomState;
-  private readonly hostKey: string;
+  private readonly isHostKey: (key: string) => boolean;
   private passwordHash: string | null;
   private readonly deps: RoomDeps;
   private readonly clock: () => number;
@@ -95,16 +111,19 @@ export class Room {
   constructor(deps: RoomDeps) {
     this.deps = deps;
     this.clock = deps.clock ?? perfClock;
-    this.hostKey = deps.hostKey;
+    const { hostKey } = deps;
+    this.isHostKey = deps.isHostKey ?? ((k) => hostKey !== undefined && safeEqual(k, hostKey));
     this.passwordHash = deps.passwordHash ?? null;
     this.emptySince = deps.createdAt;
+    const scene = deps.scene ? structuredClone(deps.scene) : defaultScene();
+    this.placed = Object.keys(scene.devices).length;
     this.state = {
       code: deps.code,
       hostId: null,
       createdAt: deps.createdAt,
-      settings: { ...defaultSettings(), hasPassword: this.passwordHash !== null },
+      settings: { ...defaultSettings(), ...deps.settings, hasPassword: this.passwordHash !== null },
       devices: [],
-      scene: defaultScene(),
+      scene,
       queue: [],
       playback: { status: 'stopped', trackId: null, startRoomTime: deps.createdAt, trackOffset: 0 },
       volume: 1,
@@ -159,7 +178,7 @@ export class Room {
         ok: false,
         out: this.error(connId, 'already_joined', 'connection already joined as another device'),
       };
-    const isHost = msg.hostKey !== undefined && safeEqual(msg.hostKey, this.hostKey);
+    const isHost = msg.hostKey !== undefined && this.isHostKey(msg.hostKey);
     if (!isHost && this.passwordHash !== null) {
       if (msg.password === undefined || !this.deps.passwords.verify(msg.password, this.passwordHash))
         return { ok: false, out: this.error(connId, 'bad_password', 'wrong or missing room password') };
@@ -204,7 +223,10 @@ export class Room {
       dev.caps = msg.caps;
       dev.connected = true;
     }
-    if (!this.state.scene.devices[dev.id]) this.autoPlace(dev.id);
+    if (!this.state.scene.devices[dev.id]) {
+      this.autoPlace(dev.id);
+      this.persist();
+    }
     if (isHost) {
       for (const d of this.state.devices) d.isHost = d.id === dev.id;
       this.state.hostId = dev.id;
@@ -263,7 +285,8 @@ export class Room {
     if (gone.length === 0) return [];
     for (const id of gone) {
       this.disconnectedAt.delete(id);
-      delete this.state.scene.devices[id];
+      // home rooms keep a returning speaker's spot (the mix ignores positions of absent devices)
+      if (!this.deps.onConfig) delete this.state.scene.devices[id];
       if (this.state.hostId === id) this.state.hostId = null;
     }
     this.state.devices = this.state.devices.filter((d) => !gone.includes(d.id));
@@ -297,12 +320,13 @@ export class Room {
         return [this.out([connId], { type: 'PONG', t0: msg.t0, ts_recv: now, ts_send: this.clock() })];
       case 'CONTROL':
         if (!this.canControl(sender)) throw new RoomError('forbidden', 'only the host may control playback');
-        return this.control(msg.command, sender, connId, now);
+        return this.control(msg.command, sender, connId, now, now + this.lead());
       case 'SCENE_UPDATE': {
         const { type: _t, devices, ...rest } = msg;
         Object.assign(this.state.scene, rest);
         for (const [id, pos] of Object.entries(devices ?? {}))
           if (this.device(id)) this.state.scene.devices[id] = pos;
+        this.persist();
         return [this.out('others', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
       }
       case 'DEVICE_UPDATE': {
@@ -323,6 +347,7 @@ export class Room {
           this.passwordHash = msg.password ? this.deps.passwords.hash(msg.password) : null;
           s.hasPassword = this.passwordHash !== null;
         }
+        this.persist();
         return [this.stateMsg('all', now)];
       }
       case 'STATS': {
@@ -388,6 +413,27 @@ export class Room {
     }
   }
 
+  private persist() {
+    this.deps.onConfig?.({
+      scene: structuredClone(this.state.scene),
+      settings: { ...this.state.settings },
+      passwordHash: this.passwordHash,
+    });
+  }
+
+  /**
+   * Home group command: apply `cmd` with a caller-chosen start time T shared by every room in the group
+   * (all rooms run on the server's perfClock, so equal T = the same instant everywhere).
+   */
+  controlAt(cmd: ControlCmd, T: number, now: number): { out: Outbound[] } | { error: string } {
+    try {
+      return { out: this.control(cmd, undefined, undefined, now, T) };
+    } catch (e) {
+      if (e instanceof RoomError) return { error: e.code };
+      throw e;
+    }
+  }
+
   private patchDevice(dev: Device, patch: DevicePatch) {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined) (dev as Record<string, unknown>)[k] = v;
     if (this.deps.profiles) {
@@ -407,9 +453,14 @@ export class Room {
     return pos;
   }
 
-  private control(cmd: ControlCmd, sender: Device, connId: string, now: number): Outbound[] {
+  private control(
+    cmd: ControlCmd,
+    sender: Device | undefined,
+    connId: string | undefined,
+    now: number,
+    T: number,
+  ): Outbound[] {
     const p = this.state.playback;
-    const T = now + this.lead();
     const schedule = (action: 'play' | 'pause' | 'seek' | 'stop') => [
       this.out('all', {
         type: 'SCHEDULE',
@@ -441,7 +492,7 @@ export class Room {
         return schedule('play');
       }
       case 'pause': {
-        if (p.status !== 'playing') return [this.stateMsg([connId], now)];
+        if (p.status !== 'playing') return connId === undefined ? [] : [this.stateMsg([connId], now)];
         startAt(p.trackId, Math.max(p.trackOffset, this.positionAt(T)), 'paused');
         return schedule('pause');
       }
@@ -467,7 +518,7 @@ export class Room {
       case 'queue': {
         if (!this.state.queue.some((t) => t.id === cmd.track.id)) {
           if (this.state.queue.length >= 200) throw new RoomError('queue_full', 'queue is full');
-          this.state.queue.push({ ...cmd.track, addedBy: sender.id });
+          this.state.queue.push({ ...cmd.track, ...(sender && { addedBy: sender.id }) });
         }
         if (p.trackId === null) startAt(cmd.track.id, 0, 'stopped');
         return [this.stateMsg('all', now)];

@@ -413,6 +413,44 @@ export const DemoAsset = z.object({
 });
 export type DemoAsset = z.infer<typeof DemoAsset>;
 
+// ---------- Home API (persistent home of rooms; no accounts) ----------
+// The home id is a capability link (anyone with it can see the rooms and join them by code). The owner key,
+// sent as the `x-owner-key` header (and as JOIN.hostKey to be host in a home room), grants changes.
+// HTTP rather than WS: a joined socket only accepts room-sequenced messages, and the home page joins no room.
+// POST   /api/homes                         → HomeCreateResponse
+// GET    /api/homes/:homeId                 → HomeView
+// POST   /api/homes/:homeId/rooms           HomeRoomRequest → HomeRoom            (owner)
+// PATCH  /api/homes/:homeId/rooms/:roomId   HomeRoomRequest → HomeRoom            (owner)
+// DELETE /api/homes/:homeId/rooms/:roomId   → 204                                 (owner)
+// POST   /api/homes/:homeId/group           HomeGroupRequest → HomeGroupResponse  (owner)
+
+export const OWNER_KEY_HEADER = 'x-owner-key';
+export const MAX_HOME_ROOMS = 16;
+
+export const HomeCreateResponse = z.object({ homeId: Id, ownerKey: z.string() });
+export type HomeCreateResponse = z.infer<typeof HomeCreateResponse>;
+export const HomeRoom = z.object({ id: RoomCode, name: Name });
+export type HomeRoom = z.infer<typeof HomeRoom>;
+export const HomeView = z.object({
+  id: Id,
+  rooms: z.array(HomeRoom.extend({ connected: z.number().int().min(0) })),
+});
+export type HomeView = z.infer<typeof HomeView>;
+export const HomeRoomRequest = z.object({ name: Name });
+export type HomeRoomRequest = z.infer<typeof HomeRoomRequest>;
+/** one transport command to several rooms: every room gets a SCHEDULE with the same startRoomTime */
+export const HomeGroupRequest = z.object({
+  roomIds: z.array(RoomCode).min(1).max(MAX_HOME_ROOMS),
+  command: ControlCommand,
+});
+export type HomeGroupRequest = z.infer<typeof HomeGroupRequest>;
+export const HomeGroupResponse = z.object({
+  startRoomTime: finite(),
+  /** room id → error code for rooms that rejected the command (e.g. unknown_track) */
+  errors: z.record(z.string(), z.string()),
+});
+export type HomeGroupResponse = z.infer<typeof HomeGroupResponse>;
+
 // ---------- defaults / constants ----------
 
 export const SERVER_PORT_DEFAULT = 8787;
