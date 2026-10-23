@@ -51,6 +51,11 @@ Record results in the table at the bottom.
     drawer on a phone: the clock RTT should drop to a few ms (LAN) within ~2 s of joining. Run the 60 s sync
     measurement from the seat. Target: wired/built-in spread p95 < 1 ms. Then repeat on a guest network with
     client isolation, where it should fall back to the server clock without errors.
+16. **Simple setup on real devices (R5).** On a phone, tap "Set up my home", open the Living room, and scan the QR
+    with 3 other devices. In step 2 the suggested layout should match the speaker count. Tap a spot to move a speaker,
+    and that device's screen should show its new spot name at once. Tune from the seat: every speaker should be listed
+    as "in sync, level matched", or as needing its volume turned up. Close everything and reopen the home link: the
+    room should open straight to Now Playing with the same layout.
 
 | # | Date | Devices / browsers | Result / numbers | Notes |
 |---|------|--------------------|------------------|-------|

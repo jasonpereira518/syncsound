@@ -27,7 +27,7 @@ export function layoutLabel(layout: LayoutId, hasSub: boolean): string {
   const base: Record<LayoutId, string> = {
     mono: 'Mono',
     stereo: 'Stereo',
-    lcr: 'Left · Centre · Right',
+    lcr: 'Left, centre, right',
     quad: 'Quad',
     surround5: '5.0 Surround',
     surround7: '7.0 Surround',

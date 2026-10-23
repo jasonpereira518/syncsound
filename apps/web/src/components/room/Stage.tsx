@@ -1,22 +1,10 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
-import {
-  autoAssign,
-  computeDeviceMix,
-  dbapGains,
-  freeSpot,
-  isRoutedLayout,
-  layoutLabel,
-  presetLayout,
-  resizeRoom,
-  slotPositions,
-  suggestLayout,
-  type DeviceMix,
-} from '@syncsound/audio-core';
+import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
-import { act, isTypingTarget, toast, errMsg, useCanControl } from './shared';
+import { act, isTypingTarget, useCanControl } from './shared';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
 type ScenePatch = Omit<SceneUpdate, 'type'>;
@@ -239,21 +227,7 @@ export function Stage() {
   const hasSub = live.some((d) => d.role === 'Sub');
   const suggested = suggestLayout(live.filter((d) => d.role !== 'Sub').length);
 
-  /** one action sets everything a layout means: each device's slot, canonical positions and scene.layout */
-  const applyLayout = (layout: LayoutId) => {
-    try {
-      const roles = autoAssign(layout, live);
-      for (const d of live) if (roles[d.id] && roles[d.id] !== d.role) roomActions.updateDevice({ role: roles[d.id] }, d.id);
-      const devices = isRoutedLayout(layout)
-        ? slotPositions(layout, roles, base)
-        : layout === 'party'
-          ? presetLayout('party', [...live].sort((a, b) => a.joinedAt - b.joinedAt).map((d) => d.id), base).devices
-          : {};
-      sceneUpdate({ layout, devices }, true);
-    } catch (e) {
-      toast(`Layout unavailable: ${errMsg(e)}`);
-    }
-  };
+  const applyLayout = (layout: LayoutId) => act(() => roomActions.setLayout(layout));
 
   // grid lines every metre
   const gridX: number[] = [];

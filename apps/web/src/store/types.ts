@@ -7,6 +7,8 @@ import type {
   ControlCommand,
   DemoAsset,
   DevicePatch,
+  DeviceRole,
+  LayoutId,
   RemoteServiceStatus,
   RoomSettings,
   RoomState,
@@ -158,6 +160,10 @@ export interface RoomActions {
   undo(): void;
   redo(): void;
   updateDevice(patch: DevicePatch, targetDeviceId?: string): void;
+  /** pick a speaker layout: auto-assigns every device's slot, places them, sets scene.layout */
+  setLayout(layout: LayoutId): void;
+  /** move one device to a slot ('Full' = unassigned) */
+  assignSlot(deviceId: string, role: DeviceRole): void;
   updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs'>> & {
     password?: string | null;
   }): void;

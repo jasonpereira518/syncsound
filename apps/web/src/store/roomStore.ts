@@ -4,7 +4,7 @@
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
 import { dueNow, setBatterySaverFlag } from '../lib/power';
-import { defaultObjectsFor, type RoomClock } from '@syncsound/audio-core';
+import { autoAssign, defaultObjectsFor, isRoutedLayout, presetLayout, slotPositions, type RoomClock } from '@syncsound/audio-core';
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
@@ -428,6 +428,31 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const target = targetDeviceId ?? useRoomStore.getState().deviceId;
     setRoom((r) => ({ ...r, devices: r.devices.map((d) => (d.id === target ? { ...d, ...p } : d)) }));
     sendOrWarn({ type: 'DEVICE_UPDATE', ...(targetDeviceId ? { targetDeviceId } : {}), patch: p });
+  },
+
+  setLayout(layout) {
+    const room = useRoomStore.getState().room;
+    if (!room) return;
+    const live = room.devices.filter((d) => d.connected);
+    const roles = autoAssign(layout, live);
+    for (const d of live) if (roles[d.id] && roles[d.id] !== d.role) roomActions.updateDevice({ role: roles[d.id] }, d.id);
+    const devices = isRoutedLayout(layout)
+      ? slotPositions(layout, roles, room.scene)
+      : layout === 'party'
+        ? presetLayout('party', [...live].sort((a, b) => a.joinedAt - b.joinedAt).map((d) => d.id), room.scene).devices
+        : {};
+    roomActions.updateScene({ layout, devices }, { commit: true });
+  },
+
+  assignSlot(deviceId, role) {
+    const room = useRoomStore.getState().room;
+    if (!room) return;
+    roomActions.updateDevice({ role }, deviceId);
+    const layout = room.scene.layout;
+    if (!isRoutedLayout(layout)) return;
+    // re-place everyone so devices sharing a slot fan out around it
+    const roles = Object.fromEntries(room.devices.filter((d) => d.connected).map((d) => [d.id, d.id === deviceId ? role : d.role]));
+    roomActions.updateScene({ devices: slotPositions(layout, roles, room.scene) }, { commit: true });
   },
 
   updateSettings(p) {

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useRoomStore, roomActions } from '@/store/roomStore';
 import { Icon, Tabs, tabPanelProps, type TabDef } from '../ui';
 import { CalibrationWizard } from './CalibrationWizard';
@@ -7,8 +7,12 @@ import { DeviceList, SpeakerCard } from './DeviceList';
 import { JoinGate } from './JoinGate';
 import { Library, Player } from './Player';
 import { RoomHeader } from './RoomHeader';
+import { SetupWizard } from './SetupWizard';
+import { NowPlaying, SpeakerScreen } from './SimpleRoom';
 import { Stage } from './Stage';
 import { act, dismissToast, useToasts } from './shared';
+
+type View = 'setup' | 'controls' | 'speaker' | 'advanced';
 
 type RoomTab = 'library' | 'stage' | 'devices' | 'calibrate';
 const TABS: TabDef<RoomTab>[] = [
@@ -22,9 +26,21 @@ const SIDE_TABS = TABS.slice(2);
 export function RoomApp({ code }: { code: string }) {
   const joined = useRoomStore((s) => s.room !== null);
   const isHost = useRoomStore((s) => s.isHost);
-  // null = default: hosts start on the library, guests on their own speaker card
-  const [picked, setPicked] = useState<RoomTab | null>(null);
-  const tab = picked ?? (isHost ? 'library' : 'devices');
+  const hasLayout = useRoomStore((s) => !!s.room?.scene.layout);
+  // null = default: a host without a layout yet gets the setup wizard, other hosts the controls, guests their speaker screen
+  const [picked, setPicked] = useState<View | null>(null);
+  useEffect(() => {
+    if (window.location.hash === '#advanced') setPicked('advanced');
+  }, []);
+  const view: View = picked ?? (isHost ? (hasLayout ? 'controls' : 'setup') : 'speaker');
+  // once the wizard opens it stays open: choosing a layout inside it would otherwise flip the default view
+  useEffect(() => {
+    if (joined && picked === null && view === 'setup') setPicked('setup');
+  }, [joined, picked, view]);
+  const go = (v: View) => {
+    setPicked(v);
+    history.replaceState(null, '', v === 'advanced' ? '#advanced' : window.location.pathname + window.location.search);
+  };
 
   useEffect(
     () => () => {
@@ -46,6 +62,47 @@ export function RoomApp({ code }: { code: string }) {
     );
   }
 
+  // everyone may open Advanced (it holds their own device's latency/EQ fine-tuning); its controls enforce permissions
+  const toggle = view !== 'setup' && (
+    <button
+      type="button"
+      data-testid={view === 'advanced' ? 'view-simple' : 'view-advanced'}
+      onClick={() => go(view === 'advanced' ? (isHost ? 'controls' : 'speaker') : 'advanced')}
+      className="min-h-11 rounded-xl px-3 text-sm text-ink-300 hover:bg-ink-800 hover:text-ink-100"
+    >
+      {view === 'advanced' ? 'Simple view' : 'Advanced'}
+    </button>
+  );
+
+  if (view !== 'advanced') {
+    return (
+      <div className="flex min-h-dvh flex-col">
+        <RoomHeader extra={toggle} />
+        <Banners />
+        <main id="main" className="flex flex-1 flex-col pt-2">
+          {view === 'setup' && <SetupWizard onDone={() => go('controls')} />}
+          {view === 'controls' && <NowPlaying onSetup={() => go('setup')} />}
+          {view === 'speaker' && <SpeakerScreen onControls={() => go('controls')} />}
+        </main>
+        {view !== 'setup' && (
+          <div className="sticky bottom-0 z-20">
+            <Player />
+          </div>
+        )}
+        <Toasts />
+      </div>
+    );
+  }
+  return <AdvancedRoom header={<RoomHeader debug extra={toggle} />} />;
+}
+
+/** The full expert shell: library | free-placement stage | devices & calibration, plus debug. */
+function AdvancedRoom({ header }: { header: ReactNode }) {
+  const isHost = useRoomStore((s) => s.isHost);
+  // null = default: hosts start on the library, guests on their own speaker card
+  const [picked, setPicked] = useState<RoomTab | null>(null);
+  const tab = picked ?? (isHost ? 'library' : 'devices');
+
   // Desktop (lg+): library | stage | devices-or-calibrate, all fitting the viewport above the player bar.
   // Mobile: one section at a time, picked from the bottom tab bar.
   const side = tab === 'calibrate' ? 'calibrate' : 'devices';
@@ -63,7 +120,7 @@ export function RoomApp({ code }: { code: string }) {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      <RoomHeader />
+      {header}
       <Banners />
       <main
         id="main"

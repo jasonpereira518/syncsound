@@ -73,3 +73,8 @@ An honest list of what is not done, what can't be verified without hardware, and
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked
   around with tsconfig `paths` for zustand) and makes Vite print a warning. Neither affects clones at normal paths.
+- **Group play across rooms** exists in the server API (`POST /api/homes/:id/group`) but has no button yet; each room
+  is controlled from its own page.
+- **YouTube** still takes two steps (load the video, then start tab capture).
+- **Home links are capabilities:** anyone with a home link can see and join its rooms; only the browser that created
+  the home (it holds the owner key) can change them. Losing that browser's storage loses ownership.

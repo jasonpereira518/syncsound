@@ -17,7 +17,7 @@
 - [x] R1 – Sub-ms sync: PI drift controller, LAN clock master over DataChannel (`ClockLink`), Bluetooth latency heuristic, <1 ms sync status
 - [x] R2 – One speaker-layout model (LayoutId + slots, channel-routed mix, 7.1, `suggestLayout`, Stage layout buttons)
 - [x] R3 – Calibration v2: auto-pause/resume, "turn this device up" hints (volumeUpDb), quick re-sync (chirps only), volume persisted
-- [ ] R4 – Persistent Home + rooms (server/protocol)
-- [ ] R5 – Simple UI (Home, Join/Speaker screen, setup wizard, Now Playing)
-- [ ] R6 – Advanced view (relocate expert surfaces)
+- [x] R4 – Persistent Home + rooms (server/protocol; built in its own session, merged)
+- [x] R5 – Simple UI: landing → Home → room; one-tap join; 3-step setup wizard with room diagram; Now Playing; speaker screen
+- [x] R6 – Advanced view (previous full shell behind "Advanced", debug only there)
 - [ ] R7 – Native shells (later)

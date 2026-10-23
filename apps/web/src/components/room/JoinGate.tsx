@@ -3,12 +3,24 @@ import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { isValidRoomCode } from '@syncsound/protocol';
 import { roomActions, useRoomStore } from '@/store/roomStore';
-import { getRoomInfo } from '@/lib/roomClient';
+import { getRoomInfo, hostKeyName } from '@/lib/roomClient';
 import { Icon, inputClass } from '../ui';
 import { errMsg } from './shared';
 
 type Info = { state: 'loading' } | { state: 'ok'; hasPassword: boolean } | { state: 'missing' } | { state: 'unreachable' };
 const NAME_KEY = 'syncsound:name';
+
+/** a friendly default speaker name from the user agent, so joining is one tap */
+export function suggestName(ua: string): string {
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/Android.*Mobile/i.test(ua)) return 'Android phone';
+  if (/Android/i.test(ua)) return 'Android tablet';
+  if (/Macintosh/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows PC';
+  if (/CrOS/i.test(ua)) return 'Chromebook';
+  return 'Speaker';
+}
 
 export function JoinGate({ code }: { code: string }) {
   const conn = useRoomStore((s) => s.conn);
@@ -18,14 +30,16 @@ export function JoinGate({ code }: { code: string }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mine, setMine] = useState(false);
 
   useEffect(() => {
     try {
-      setName(localStorage.getItem(NAME_KEY) ?? '');
+      setName(localStorage.getItem(NAME_KEY) ?? suggestName(navigator.userAgent));
+      setMine(!!localStorage.getItem(hostKeyName(code)));
     } catch {
-      /* storage blocked */
+      setName(suggestName(navigator.userAgent));
     }
-  }, []);
+  }, [code]);
 
   useEffect(() => {
     if (!validCode) return;
@@ -68,8 +82,8 @@ export function JoinGate({ code }: { code: string }) {
         <p className="font-mono text-sm tracking-[0.3em] text-ink-400">{code || '------'}</p>
         <h1 className="font-display text-4xl font-bold tracking-tight">Room not found</h1>
         <p className="text-ink-300">
-          This room doesn&rsquo;t exist or has closed. Rooms disappear when everyone leaves. Double-check the code with the
-          host or start a new one.
+          This room doesn&rsquo;t exist or has closed. Quick rooms disappear when everyone leaves; rooms saved in a home stay.
+          Double-check the code, or start again from the home screen.
         </p>
         <Link
           href="/"
@@ -94,12 +108,12 @@ export function JoinGate({ code }: { code: string }) {
       </Link>
       <p className="font-mono text-xs tracking-widest text-ink-400 uppercase">Room</p>
       <p className="font-mono text-5xl font-bold tracking-[0.18em] text-accent">{code}</p>
-      <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">Become a speaker</h1>
+      <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">{mine ? 'Your room' : 'Use this device as a speaker'}</h1>
 
       <form onSubmit={onJoin} className="mt-6 flex flex-col gap-4">
         <div>
           <label htmlFor="join-name" className="mb-1 block text-sm text-ink-200">
-            Speaker name
+            Name this speaker
           </label>
           <input
             id="join-name"
@@ -143,14 +157,14 @@ export function JoinGate({ code }: { code: string }) {
           className="mt-2 inline-flex min-h-16 items-center justify-center gap-3 rounded-2xl bg-accent px-6 font-display text-xl font-semibold text-accent-ink shadow-[0_0_48px_-8px_var(--color-accent)] transition hover:brightness-110 disabled:opacity-60"
         >
           <Icon name="volume" className="size-6" />
-          {connecting ? 'Joining…' : 'Join the speaker array'}
+          {connecting ? 'Joining…' : mine ? 'Open my room' : 'Use this device as a speaker'}
         </button>
       </form>
 
       <ul className="mt-8 space-y-3 text-sm text-ink-400">
         <li className="flex gap-3">
           <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-accent" />
-          Tapping join turns on audio. Your screen will stay awake while you&rsquo;re in the room.
+          Tapping the button turns on audio. Your screen stays awake while you&rsquo;re in the room.
         </li>
         <li className="flex gap-3">
           <Icon name="phone" className="mt-0.5 size-4 shrink-0 text-accent" />
@@ -158,7 +172,7 @@ export function JoinGate({ code }: { code: string }) {
         </li>
         <li className="flex gap-3">
           <Icon name="bluetooth" className="mt-0.5 size-4 shrink-0 text-accent" />
-          Bluetooth speakers add delay. Run the calibration once everyone has joined.
+          Bluetooth speakers add delay. Tuning the room fixes it once everyone has joined.
         </li>
       </ul>
     </main>

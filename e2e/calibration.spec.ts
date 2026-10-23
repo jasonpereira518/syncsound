@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, waitConverged } from './helpers';
+import { createRoom, joinRoom, newPage, openAdvanced, pageErrors, waitConverged } from './helpers';
 
 interface CalDevice {
   deviceId: string;
@@ -104,6 +104,7 @@ test('calibration started immediately after joining waits for the clocks and com
   await page.getByTestId('join-name').fill('Eager');
   await page.getByTestId('join-button').click();
   await expect(page.getByTestId('room-code').first()).toBeVisible();
+  await openAdvanced(page);
   await page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
   await page.getByTestId('calibrate-start').click(); // no waitConverged: the earliest a user can tap it
   await expect(page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 90_000 });
