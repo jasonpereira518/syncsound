@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { MAX_UPLOAD_BYTES, SERVER_PORT_DEFAULT, parseClientMessage } from '@syncsound/protocol';
+import { HomeStore } from './homes.ts';
 import { createHttpHandler, originAllowed } from './http.ts';
 import { ProfileStore } from './profiles.ts';
 import { perfClock, type Outbound, type Room } from './room.ts';
@@ -52,8 +53,20 @@ export async function startServer(
       .filter(Boolean);
   const clock = perfClock;
   const profiles = new ProfileStore(join(dataDir, 'profiles.json'));
-  const manager = new RoomManager({ ttlMinutes: opts.roomTtlMinutes, profiles, clock });
+  const homes = new HomeStore(join(dataDir, 'homes.json'));
+  const manager = new RoomManager({ ttlMinutes: opts.roomTtlMinutes, profiles, clock, homes });
   const storage = storageFromEnv(join(dataDir, 'uploads'));
+  const conns = new Map<string, Conn>();
+
+  const deliver = (room: Room, senderId: string | undefined, outs: Outbound[]) => {
+    for (const o of outs) {
+      const data = JSON.stringify(o.msg);
+      for (const id of room.resolve(o.to, senderId)) {
+        const c = conns.get(id);
+        if (c && c.ws.readyState === c.ws.OPEN) c.ws.send(data);
+      }
+    }
+  };
 
   const server = createServer(
     createHttpHandler({
@@ -64,10 +77,18 @@ export async function startServer(
       publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL,
       maxUploadBytes: opts.maxUploadBytes ?? MAX_UPLOAD_BYTES,
       clock,
+      homes,
+      deliver: (room, out) => deliver(room, undefined, out),
+      kick: (room) => {
+        for (const c of conns.values())
+          if (c.room === room) {
+            c.room = null; // the room is gone; don't emit a leave on close
+            c.ws.close(4001, 'room removed');
+          }
+      },
     }),
   );
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * MAX_MESSAGE_BYTES });
-  const conns = new Map<string, Conn>();
 
   server.on('upgrade', (req: IncomingMessage, socket, head) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
@@ -80,15 +101,6 @@ export async function startServer(
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
-  const deliver = (room: Room, senderId: string | undefined, outs: Outbound[]) => {
-    for (const o of outs) {
-      const data = JSON.stringify(o.msg);
-      for (const id of room.resolve(o.to, senderId)) {
-        const c = conns.get(id);
-        if (c && c.ws.readyState === c.ws.OPEN) c.ws.send(data);
-      }
-    }
-  };
   // joined connections get room-sequenced errors; pre-JOIN errors carry seq 0
   const sendError = (c: Conn, code: string, msg: string) =>
     c.room
@@ -197,6 +209,7 @@ export async function startServer(
       clearInterval(sweeper);
       for (const c of conns.values()) c.ws.close(1001, 'server shutting down');
       profiles.flush();
+      homes.flush();
       await new Promise<void>((resolve) => {
         wss.close();
         server.close(() => resolve());

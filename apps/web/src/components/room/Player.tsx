@@ -23,14 +23,14 @@ import { act, attempt, currentTrack, errMsg, roomNowMs, useCanControl } from './
 
 type Source = 'demo' | 'upload' | 'url' | 'spotify' | 'apple' | 'capture' | 'youtube' | 'video';
 const SOURCES: TabDef<Source>[] = [
-  { id: 'demo', label: 'Demo' },
-  { id: 'upload', label: 'Upload' },
-  { id: 'url', label: 'URL' },
-  { id: 'spotify', label: 'Spotify' },
-  { id: 'apple', label: 'Apple Music' },
-  { id: 'capture', label: 'Capture tab' },
+  { id: 'demo', label: 'Demo tracks' },
+  { id: 'upload', label: 'Music file' },
+  { id: 'video', label: 'Video file' },
+  { id: 'url', label: 'Web link' },
   { id: 'youtube', label: 'YouTube' },
-  { id: 'video', label: 'Local video' },
+  { id: 'capture', label: 'Browser tab' },
+  { id: 'spotify', label: 'Spotify (sync only)' },
+  { id: 'apple', label: 'Apple Music (sync only)' },
 ];
 const KIND_ICON: Record<TrackKind, IconName> = {
   demo: 'sparkle',
@@ -49,6 +49,9 @@ const control = (cmd: Parameters<typeof roomActions.control>[0]) => act(() => ro
 export function Library() {
   const canControl = useCanControl();
   const [source, setSource] = useState<Source>('demo');
+  const remote = useRoomStore((s) => s.remote);
+  // streaming services this deployment isn't set up for simply don't appear
+  const sources = SOURCES.filter((s) => (s.id !== 'spotify' && s.id !== 'apple') || remote[s.id] !== 'unconfigured');
   return (
     <Panel title="Library" icon="music" className="lg:h-full">
       {!canControl && (
@@ -71,7 +74,7 @@ export function Library() {
 
       <h3 className="mt-5 mb-1 text-xs font-medium tracking-widest text-ink-400 uppercase">Add audio</h3>
       <Tabs
-        tabs={SOURCES}
+        tabs={sources}
         value={source}
         onChange={setSource}
         label="Audio source"
@@ -181,7 +184,7 @@ export function Player() {
   );
 }
 
-function MasterVolume({ compact }: { compact?: boolean }) {
+export function MasterVolume({ compact }: { compact?: boolean }) {
   const volume = useRoomStore((s) => s.room?.volume ?? 1);
   return (
     <div className={compact ? 'flex w-40 min-w-0 items-center gap-2' : undefined}>
@@ -200,7 +203,7 @@ function MasterVolume({ compact }: { compact?: boolean }) {
   );
 }
 
-function HostOnlyToggle({ compact }: { compact?: boolean }) {
+export function HostOnlyToggle({ compact }: { compact?: boolean }) {
   const isHost = useRoomStore((s) => s.isHost);
   const hostOnly = useRoomStore((s) => !!s.room?.settings.hostOnlyControl);
   if (!isHost) return null;
@@ -208,15 +211,15 @@ function HostOnlyToggle({ compact }: { compact?: boolean }) {
   return compact ? (
     <IconButton
       icon="lock"
-      label="Host-only control: guests can only adjust their own speaker"
+      label="Only I can control: others can still adjust their own speaker"
       pressed={hostOnly}
       className={hostOnly ? '' : 'border-transparent'}
       onClick={() => set(!hostOnly)}
     />
   ) : (
     <Toggle
-      label="Host-only control"
-      description="Guests can only adjust their own speaker"
+      label="Only I can control"
+      description="Others can still adjust their own speaker"
       checked={hostOnly}
       onChange={set}
     />
@@ -837,7 +840,10 @@ function YouTubeSource() {
           e.preventDefault();
           const id = youtubeId(input);
           setErr(id ? null : 'Paste a YouTube video link.');
-          if (id) setVideoId(id);
+          if (!id) return;
+          setVideoId(id);
+          // one step: ask to share this tab's sound right away, inside the same click (the browser requires a gesture)
+          if (!capturing) act(() => roomActions.startCapture());
         }}
       >
         <label htmlFor="yt-url" className="sr-only">
@@ -851,7 +857,9 @@ function YouTubeSource() {
           onChange={(e) => setInput(e.target.value)}
           className={inputClass}
         />
-        <Button type="submit">Load</Button>
+        <Button type="submit" data-testid="youtube-play" className="shrink-0 whitespace-nowrap">
+          Play on all speakers
+        </Button>
       </form>
       {err && (
         <p role="alert" className="text-bad">
@@ -862,17 +870,18 @@ function YouTubeSource() {
         ref={hostRef}
         className={`aspect-video w-full overflow-hidden rounded-xl bg-black ${videoId ? '' : 'hidden'}`}
       />
-      {videoId && (
+      {!videoId && (
+        <p className="text-ink-300">
+          Your browser will ask which tab to share: pick <em>this</em> tab and keep &ldquo;share tab audio&rdquo; on. The picture plays
+          here; the sound goes to every speaker.
+        </p>
+      )}
+      {videoId && !capturing && (
         <div className="rounded-xl border border-accent/40 bg-accent/5 p-3">
-          <p className="text-ink-200">
-            <strong>Next:</strong> the picture plays here. To send its sound to every speaker, start tab
-            capture and pick <em>this</em> tab with audio sharing on.
-          </p>
-          {!capturing && (
-            <Button variant="primary" className="mt-2" onClick={() => act(() => roomActions.startCapture())}>
-              <Icon name="capture" className="size-4" /> Start capture tab
-            </Button>
-          )}
+          <p className="text-ink-200">The sound isn&rsquo;t shared yet, so only this device plays it.</p>
+          <Button variant="primary" className="mt-2" onClick={() => act(() => roomActions.startCapture())}>
+            <Icon name="capture" className="size-4" /> Share this tab&rsquo;s sound
+          </Button>
         </div>
       )}
       <p className="text-xs text-ink-400">

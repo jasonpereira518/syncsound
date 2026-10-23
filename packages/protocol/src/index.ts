@@ -27,8 +27,16 @@ const finite = () => z.number().finite();
 export const Vec2 = z.object({ x: finite().min(-50).max(50), y: finite().min(-50).max(50) });
 export type Vec2 = z.infer<typeof Vec2>;
 
-export const DeviceRole = z.enum(['L', 'R', 'C', 'SL', 'SR', 'Sub', 'Full']);
+/** a device's slot in the room layout; 'Full' = unassigned (custom/party layouts pan by position instead) */
+export const DeviceRole = z.enum(['L', 'R', 'C', 'SL', 'SR', 'RL', 'RR', 'Sub', 'Full']);
 export type DeviceRole = z.infer<typeof DeviceRole>;
+
+/**
+ * Speaker layout. Standard layouts route each content channel to the device(s) in its slot (device.role);
+ * 'party' and 'custom' pan every object by position (DBAP). A Sub slot can be added to any layout (→ "x.1").
+ */
+export const LayoutId = z.enum(['mono', 'stereo', 'lcr', 'quad', 'surround5', 'surround7', 'party', 'custom']);
+export type LayoutId = z.infer<typeof LayoutId>;
 
 export const DeviceClass = z.enum(['phone', 'tablet', 'laptop', 'desktop', 'bluetooth', 'unknown']);
 export type DeviceClass = z.infer<typeof DeviceClass>;
@@ -108,10 +116,12 @@ export const Device = z.object({
   stats: DeviceStats.nullable(),
   remote: z.object({ spotify: RemoteServiceStatus, apple: RemoteServiceStatus }),
   joinedAt: finite(),
+  /** last calibration: this device is this many dB too quiet; raise its own volume and re-tune (null/absent = fine) */
+  volumeUpDb: finite().min(0).max(60).nullable().optional(),
 });
 export type Device = z.infer<typeof Device>;
 
-export const ObjectChannel = z.enum(['L', 'R', 'C', 'LFE', 'SL', 'SR', 'MONO', 'AMB', 'STEM']);
+export const ObjectChannel = z.enum(['L', 'R', 'C', 'LFE', 'SL', 'SR', 'RL', 'RR', 'MONO', 'AMB', 'STEM']);
 export type ObjectChannel = z.infer<typeof ObjectChannel>;
 
 export const AudioObject = z.object({
@@ -139,6 +149,8 @@ export const Scene = z.object({
   crossoverHz: finite().min(40).max(250),
   /** stereo → surround upmix for 2-channel sources */
   upmix: z.boolean(),
+  /** absent = 'custom' (scenes saved before layouts existed) */
+  layout: LayoutId.optional(),
 });
 export type Scene = z.infer<typeof Scene>;
 
@@ -242,6 +254,9 @@ export const RtcData = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hangup') }),
 ]);
 export type RtcData = z.infer<typeof RtcData>;
+/** which peer connection a signal belongs to: capture audio (default) or the LAN clock-master DataChannel */
+export const RtcChannel = z.enum(['capture', 'clock']);
+export type RtcChannel = z.infer<typeof RtcChannel>;
 
 // ---------- client → server ----------
 
@@ -287,6 +302,7 @@ export const SceneUpdate = z.object({
   blur: Scene.shape.blur.optional(),
   crossoverHz: Scene.shape.crossoverHz.optional(),
   upmix: z.boolean().optional(),
+  layout: LayoutId.optional(),
 });
 export type SceneUpdate = z.infer<typeof SceneUpdate>;
 
@@ -299,6 +315,7 @@ export const CalibrationDeviceResult = z.object({
   bassCapable: z.boolean().optional(),
   trimDb: Device.shape.trimDb.optional(),
   levelDb: finite().optional(),
+  volumeUpDb: Device.shape.volumeUpDb,
 });
 export type CalibrationDeviceResult = z.infer<typeof CalibrationDeviceResult>;
 
@@ -338,7 +355,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id }),
   z.object({ type: z.literal('CAPTURE'), active: z.boolean() }),
-  z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData }),
+  z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData, ch: RtcChannel.optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -368,7 +385,7 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
   z.object({ type: z.literal('CALIBRATION_PLAN'), plan: CalibrationPlan }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
-  z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData }),
+  z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),
 ]);
 export type ServerMessageBody = z.infer<typeof ServerMessageBody>;
@@ -394,7 +411,8 @@ export function parseServerMessage(raw: unknown) {
 export const CreateRoomRequest = z.object({ password: z.string().max(100).optional() });
 export const CreateRoomResponse = z.object({ code: RoomCode, hostKey: z.string() });
 export type CreateRoomResponse = z.infer<typeof CreateRoomResponse>;
-export const RoomInfoResponse = z.object({ exists: z.boolean(), hasPassword: z.boolean() });
+/** name: set for rooms saved in a home (never the home id: that link is a capability, a room code isn't) */
+export const RoomInfoResponse = z.object({ exists: z.boolean(), hasPassword: z.boolean(), name: Name.optional() });
 export type RoomInfoResponse = z.infer<typeof RoomInfoResponse>;
 export const UploadResponse = z.object({
   id: Id,
@@ -414,6 +432,44 @@ export const DemoAsset = z.object({
   url: z.string().optional(),
 });
 export type DemoAsset = z.infer<typeof DemoAsset>;
+
+// ---------- Home API (persistent home of rooms; no accounts) ----------
+// The home id is a capability link (anyone with it can see the rooms and join them by code). The owner key,
+// sent as the `x-owner-key` header (and as JOIN.hostKey to be host in a home room), grants changes.
+// HTTP rather than WS: a joined socket only accepts room-sequenced messages, and the home page joins no room.
+// POST   /api/homes                         → HomeCreateResponse
+// GET    /api/homes/:homeId                 → HomeView
+// POST   /api/homes/:homeId/rooms           HomeRoomRequest → HomeRoom            (owner)
+// PATCH  /api/homes/:homeId/rooms/:roomId   HomeRoomRequest → HomeRoom            (owner)
+// DELETE /api/homes/:homeId/rooms/:roomId   → 204                                 (owner)
+// POST   /api/homes/:homeId/group           HomeGroupRequest → HomeGroupResponse  (owner)
+
+export const OWNER_KEY_HEADER = 'x-owner-key';
+export const MAX_HOME_ROOMS = 16;
+
+export const HomeCreateResponse = z.object({ homeId: Id, ownerKey: z.string() });
+export type HomeCreateResponse = z.infer<typeof HomeCreateResponse>;
+export const HomeRoom = z.object({ id: RoomCode, name: Name });
+export type HomeRoom = z.infer<typeof HomeRoom>;
+export const HomeView = z.object({
+  id: Id,
+  rooms: z.array(HomeRoom.extend({ connected: z.number().int().min(0) })),
+});
+export type HomeView = z.infer<typeof HomeView>;
+export const HomeRoomRequest = z.object({ name: Name });
+export type HomeRoomRequest = z.infer<typeof HomeRoomRequest>;
+/** one transport command to several rooms: every room gets a SCHEDULE with the same startRoomTime */
+export const HomeGroupRequest = z.object({
+  roomIds: z.array(RoomCode).min(1).max(MAX_HOME_ROOMS),
+  command: ControlCommand,
+});
+export type HomeGroupRequest = z.infer<typeof HomeGroupRequest>;
+export const HomeGroupResponse = z.object({
+  startRoomTime: finite(),
+  /** room id → error code for rooms that rejected the command (e.g. unknown_track) */
+  errors: z.record(z.string(), z.string()),
+});
+export type HomeGroupResponse = z.infer<typeof HomeGroupResponse>;
 
 // ---------- defaults / constants ----------
 

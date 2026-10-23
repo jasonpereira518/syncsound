@@ -1,22 +1,16 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
-import { computeDeviceMix, dbapGains, freeSpot, presetLayout, resizeRoom, type DeviceMix, type PresetName } from '@syncsound/audio-core';
+import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
+import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
-import { act, isTypingTarget, toast, errMsg, useCanControl } from './shared';
+import { act, isTypingTarget, useCanControl } from './shared';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
 type ScenePatch = Omit<SceneUpdate, 'type'>;
 
 const SNAP = 0.25;
 const GLYPH_PX = 34; // on-screen size of one glyph unit, so labels stay legible at any map or room size
-const PRESETS: { name: PresetName; label: string }[] = [
-  { name: 'stereo', label: 'Stereo pair' },
-  { name: 'surround51', label: '5.1 ring' },
-  { name: 'party', label: 'Party / everywhere' },
-  { name: 'frontStage', label: 'Front stage' },
-];
 const CHANNELS = ObjectChannel.options;
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -229,15 +223,11 @@ export function Stage() {
     setSel(null);
   };
 
-  const applyPreset = (name: PresetName) => {
-    const ids = [...room.devices].filter((d) => d.connected).sort((a, b) => a.joinedAt - b.joinedAt).map((d) => d.id);
-    try {
-      const { devices: dev, objects } = presetLayout(name, ids, base);
-      sceneUpdate({ devices: dev, objects }, true);
-    } catch (e) {
-      toast(`Preset unavailable: ${errMsg(e)}`);
-    }
-  };
+  const live = room.devices.filter((d) => d.connected);
+  const hasSub = live.some((d) => d.role === 'Sub');
+  const suggested = suggestLayout(live.filter((d) => d.role !== 'Sub').length);
+
+  const applyLayout = (layout: LayoutId) => act(() => roomActions.setLayout(layout));
 
   // grid lines every metre
   const gridX: number[] = [];
@@ -446,9 +436,17 @@ export function Stage() {
             <div className="min-w-0">
               <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layouts</h3>
               <div className="flex flex-wrap gap-1.5">
-                {PRESETS.map((p) => (
-                  <Button key={p.name} data-testid={`preset-${p.name}`} className="!min-h-9 rounded-full !px-3 text-xs" onClick={() => applyPreset(p.name)}>
-                    {p.label}
+                {LayoutId.options.map((l) => (
+                  <Button
+                    key={l}
+                    data-testid={`layout-${l}`}
+                    aria-pressed={(scene.layout ?? 'custom') === l}
+                    variant={(scene.layout ?? 'custom') === l ? 'primary' : undefined}
+                    className="!min-h-9 rounded-full !px-3 text-xs"
+                    onClick={() => applyLayout(l)}
+                  >
+                    {layoutLabel(l, hasSub)}
+                    {l === suggested && <span className="ml-1 text-[10px] opacity-70">suggested</span>}
                   </Button>
                 ))}
               </div>

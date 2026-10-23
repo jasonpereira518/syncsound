@@ -15,11 +15,11 @@ import {
 import type { ConnStatus } from '../store/types';
 import { serverUrl, wsUrl } from './config';
 
-const hostKeyName = (code: string) => `syncsound:hostKey:${code}`;
+export const hostKeyName = (code: string) => `syncsound:hostKey:${code}`;
 const BURST_COUNT = 25;
 const BURST_GAP_MS = 40;
 
-async function readError(res: Response): Promise<string> {
+export async function readError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { error?: string; msg?: string };
     return body.error ?? body.msg ?? `HTTP ${res.status}`;

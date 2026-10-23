@@ -1,0 +1,40 @@
+{
+  "name": "lanMaster",
+  "params": {
+    "devices": 6,
+    "wan": {
+      "baseRttMs": 44,
+      "asymmetryMs": 6,
+      "jitterMs": 5,
+      "spikeProb": 0.02,
+      "spikeMaxMs": 120,
+      "lossProb": 0.01
+    },
+    "lan": {
+      "baseRttMs": 6,
+      "jitterMs": 2,
+      "spikeProb": 0.02,
+      "spikeMaxMs": 30,
+      "lossProb": 0.01,
+      "serverProcMs": 0.2
+    },
+    "durationMs": 180000,
+    "settleMs": 10000
+  },
+  "directSpreadMs": {
+    "n": 1701,
+    "mean": 1.053,
+    "rms": 1.104,
+    "p50": 0.977,
+    "p95": 1.736,
+    "max": 3.117
+  },
+  "masterSpreadMs": {
+    "n": 1701,
+    "mean": 0.222,
+    "rms": 0.243,
+    "p50": 0.206,
+    "p95": 0.413,
+    "max": 0.927
+  }
+}

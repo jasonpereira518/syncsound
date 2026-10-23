@@ -1,6 +1,13 @@
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '@syncsound/protocol';
-import { Room, perfClock, type Outbound, type RoomDeps } from './room.ts';
+import {
+  ROOM_CODE_ALPHABET,
+  ROOM_CODE_LENGTH,
+  defaultScene,
+  defaultSettings,
+  type HomeGroupResponse,
+} from '@syncsound/protocol';
+import type { Home, HomeStore, StoredRoom } from './homes.ts';
+import { Room, perfClock, type ControlCmd, type Outbound, type RoomDeps } from './room.ts';
 
 export const DEVICE_PRUNE_MS = 10 * 60_000;
 
@@ -33,14 +40,21 @@ export class RoomManager {
       ttlMinutes?: number;
       profiles?: RoomDeps['profiles'];
       clock?: () => number;
+      homes?: HomeStore;
     } = {},
   ) {
     this.ttlMs = (opts.ttlMinutes ?? Number(process.env.ROOM_TTL_MINUTES ?? 60)) * 60_000;
   }
 
-  create(password: string | undefined, now: number): { code: string; hostKey: string } {
+  /** temporary and home rooms share one code space so JOIN-by-code reaches both */
+  private newCode() {
     let code = randomRoomCode();
-    while (this.rooms.has(code)) code = randomRoomCode();
+    while (this.rooms.has(code) || this.opts.homes?.findRoom(code)) code = randomRoomCode();
+    return code;
+  }
+
+  create(password: string | undefined, now: number): { code: string; hostKey: string } {
+    const code = this.newCode();
     const hostKey = randomBytes(16).toString('base64url');
     this.rooms.set(
       code,
@@ -57,11 +71,68 @@ export class RoomManager {
     return { code, hostKey };
   }
 
-  get(code: string) {
-    return this.rooms.get(code);
+  /** live room, or a stored home room brought up on demand */
+  get(code: string): Room | undefined {
+    const live = this.rooms.get(code);
+    if (live) return live;
+    const found = this.opts.homes?.findRoom(code);
+    return found && this.materialize(found.home, found.room);
   }
 
-  /** expire rooms empty for longer than the TTL, prune long-disconnected devices; returns broadcasts to deliver */
+  private materialize(home: Home, stored: StoredRoom): Room {
+    const homes = this.opts.homes!;
+    const room = new Room({
+      code: stored.id,
+      isHostKey: (k) => homes.isOwner(home, k),
+      createdAt: (this.opts.clock ?? perfClock)(),
+      scene: stored.scene,
+      settings: stored.settings,
+      passwordHash: stored.passwordHash ?? null,
+      onConfig: (cfg) => homes.updateRoom(stored.id, cfg),
+      passwords,
+      profiles: this.opts.profiles,
+      clock: this.opts.clock ?? perfClock,
+    });
+    this.rooms.set(stored.id, room);
+    return room;
+  }
+
+  addHomeRoom(home: Home, name: string): StoredRoom {
+    const room: StoredRoom = { id: this.newCode(), name, scene: defaultScene(), settings: defaultSettings() };
+    this.opts.homes!.addRoom(home, room);
+    return room;
+  }
+
+  /** forget a home room; returns the live instance (if any) so the transport can disconnect its devices */
+  removeHomeRoom(home: Home, code: string): { removed: boolean; live?: Room } {
+    if (!this.opts.homes!.removeRoom(home, code)) return { removed: false };
+    const live = this.rooms.get(code);
+    this.rooms.delete(code);
+    return { removed: true, live };
+  }
+
+  /**
+   * One transport command to several rooms at one shared start time T = now + the largest room lead,
+   * so every room's SCHEDULE carries the same startRoomTime.
+   */
+  groupControl(
+    codes: string[],
+    cmd: ControlCmd,
+    now: number,
+  ): HomeGroupResponse & { updates: Array<{ room: Room; out: Outbound[] }> } {
+    const rooms = [...new Set(codes)].map((c) => this.get(c)).filter((r): r is Room => r !== undefined);
+    const startRoomTime = now + Math.max(0, ...rooms.map((r) => r.lead()));
+    const updates: Array<{ room: Room; out: Outbound[] }> = [];
+    const errors: Record<string, string> = {};
+    for (const room of rooms) {
+      const r = room.controlAt(cmd, startRoomTime, now);
+      if ('error' in r) errors[room.code] = r.error;
+      else updates.push({ room, out: r.out });
+    }
+    return { startRoomTime, errors, updates };
+  }
+
+  /** expire rooms empty for longer than the TTL (home rooms are only unloaded; their config is stored), prune long-disconnected devices; returns broadcasts to deliver */
   sweep(now: number): { expired: string[]; updates: Array<{ room: Room; out: Outbound[] }> } {
     const expired: string[] = [];
     const updates: Array<{ room: Room; out: Outbound[] }> = [];

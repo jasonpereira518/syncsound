@@ -7,6 +7,8 @@ import type {
   ControlCommand,
   DemoAsset,
   DevicePatch,
+  DeviceRole,
+  LayoutId,
   RemoteServiceStatus,
   RoomSettings,
   RoomState,
@@ -160,6 +162,10 @@ export interface RoomActions {
   undo(): void;
   redo(): void;
   updateDevice(patch: DevicePatch, targetDeviceId?: string): void;
+  /** pick a speaker layout: auto-assigns every device's slot, places them, sets scene.layout */
+  setLayout(layout: LayoutId): void;
+  /** move one device to a slot ('Full' = unassigned) */
+  assignSlot(deviceId: string, role: DeviceRole): void;
   updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs'>> & {
     password?: string | null;
   }): void;
@@ -168,8 +174,8 @@ export interface RoomActions {
   queueDemo(asset: DemoAsset): void;
   uploadFile(file: File): Promise<Track>;
   queueUrl(url: string, title?: string): Promise<Track>;
-  /** Runs the acoustic calibration wizard with this device as the listener. */
-  startCalibration(): Promise<void>;
+  /** Runs the acoustic calibration wizard with this device as the listener (quick = timing-only re-sync). */
+  startCalibration(opts?: { quick?: boolean }): Promise<void>;
   cancelCalibration(): void;
   /** Sync-measurement tool with this device as the listener (mic → user gesture). Cancel with cancelCalibration. */
   startSyncMeasurement(durationSec?: number): Promise<void>;

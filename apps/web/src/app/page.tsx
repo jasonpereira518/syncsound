@@ -15,7 +15,7 @@ const STEPS: { icon: IconName; title: string; body: string }[] = [
   {
     icon: 'target',
     title: 'The room becomes surround',
-    body: 'Drag speakers and sound objects on a map of your room. Each phone renders only its own share of the mix, and an acoustic calibration measures latency, level and EQ from where you sit.',
+    body: 'Pick stereo or surround for the speakers you have and tap where each one sits. One tuning pass from your seat lines up their timing and matches their loudness, Bluetooth speakers included.',
   },
 ];
 
@@ -54,9 +54,8 @@ export default function Home() {
               Every phone is <span className="text-accent">a speaker.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg text-ink-300 text-pretty">
-              Open a room, let friends scan the QR code, and every phone, laptop and tablet plays the same audio at the
-              same instant. Then drag them around a map of the room to build a surround system out of whatever&rsquo;s
-              in people&rsquo;s pockets.
+              Turn the phones, laptops, tablets and Bluetooth speakers in your home into one stereo or surround
+              system. Scan a code on each, tap where it sits in the room, and tune once from your seat.
             </p>
             <LandingActions />
           </div>

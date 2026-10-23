@@ -2,22 +2,33 @@ import { describe, expect, it } from 'vitest';
 import { DriftController, PlaybackTracker } from './drift';
 
 describe('DriftController', () => {
-  it('deadband, proportional rate (clamped), reschedule', () => {
+  it('proportional rate (clamped), reschedule', () => {
     const d = new DriftController();
-    expect(d.update(1.5)).toEqual({ action: 'none', rate: 1, errorMs: 1.5 });
+    expect(d.update(0).action).toBe('none');
     const r = d.update(4);
     expect(r.action).toBe('rate');
-    expect(r.rate).toBeCloseTo(1 - 0.001, 9); // ahead → slower
+    expect(r.rate).toBeLessThan(1); // ahead → slower
+    expect(r.rate).toBeCloseTo(1 - 0.001, 4); // ≈ Kp·e (+ a small integral)
     expect(d.update(-20).rate).toBeCloseTo(1.002, 9); // clamped
     expect(d.update(31).action).toBe('reschedule');
   });
 
-  it('hysteresis: keeps correcting until |e| < deadband/2', () => {
+  it('learns a constant clock-rate mismatch and settles at ~0 error', () => {
     const d = new DriftController();
-    expect(d.update(2.5).action).toBe('rate');
-    expect(d.update(1.5).action).toBe('rate');
-    expect(d.update(0.9).action).toBe('none');
-    expect(d.update(1.5).action).toBe('none');
+    const ppm = 150; // we run 150 ppm fast vs the room
+    let errMs = 0;
+    let rate = 1;
+    const errs: number[] = [];
+    for (let k = 0; k < 600; k++) {
+      errMs += (rate * (1 + ppm * 1e-6) - 1) * 0.5 * 1000; // 0.5 s tick
+      rate = d.update(errMs, 0.5).rate;
+      errs.push(errMs);
+    }
+    expect(Math.abs(errs.at(-1)!)).toBeLessThan(0.01);
+    expect(Math.max(...errs.map(Math.abs))).toBeLessThan(0.5); // no deadband ride-up
+    expect(d.biasPpm).toBeCloseTo(150, -1);
+    d.forget();
+    expect(d.biasPpm).toBe(0);
   });
 });
 

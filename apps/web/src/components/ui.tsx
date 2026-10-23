@@ -86,6 +86,8 @@ export const ROLE_COLOR: Record<DeviceRole, string> = {
   C: 'var(--color-role-c)',
   SL: 'var(--color-role-sl)',
   SR: 'var(--color-role-sr)',
+  RL: 'var(--color-role-rl)',
+  RR: 'var(--color-role-rr)',
   Sub: 'var(--color-role-sub)',
   Full: 'var(--color-role-full)',
 };
@@ -96,6 +98,8 @@ export const CHANNEL_COLOR: Record<ObjectChannel, string> = {
   C: ROLE_COLOR.C,
   SL: ROLE_COLOR.SL,
   SR: ROLE_COLOR.SR,
+  RL: ROLE_COLOR.RL,
+  RR: ROLE_COLOR.RR,
   LFE: ROLE_COLOR.Sub,
   MONO: '#e6e9f0',
   AMB: '#3de8ff',

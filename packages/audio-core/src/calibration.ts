@@ -1,6 +1,6 @@
 import type { CalibrationPlan, Vec2 } from '@syncsound/protocol';
 import { commonTarget, fitEq, type EqFitResult } from './eq';
-import { loudnessTrims } from './loudness';
+import { loudnessTrims, volumeHints } from './loudness';
 import {
   bandMeanDb,
   deconvolve,
@@ -100,6 +100,8 @@ export interface CalibrationReport {
   targetDb: number[] | null;
   eq: Record<string, EqFitResult>;
   trims: Record<string, number>;
+  /** dB to raise on the device itself (only devices well below the median; see volumeHints) */
+  volumeUp: Record<string, number>;
   warnings: string[];
 }
 
@@ -205,5 +207,5 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
   }
   for (const d of heard)
     if (d.levelDb !== null && postLevels[d.deviceId] === undefined) postLevels[d.deviceId] = d.levelDb;
-  return { devices, targetDb, eq, trims: loudnessTrims(postLevels), warnings };
+  return { devices, targetDb, eq, trims: loudnessTrims(postLevels), volumeUp: volumeHints(postLevels), warnings };
 }

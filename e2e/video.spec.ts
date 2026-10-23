@@ -44,7 +44,7 @@ test('local video: muted picture tracks the room timeline', async ({ browser }) 
     return btoa(s);
   });
 
-  await page.getByRole('tab', { name: /local video/i }).click();
+  await page.getByRole('tab', { name: /video file/i }).click();
   await page.locator('input[type="file"][accept="video/*"]').setInputFiles({
     name: 'test-video.webm',
     mimeType: 'video/webm',
