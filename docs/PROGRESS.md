@@ -22,3 +22,4 @@
 - [x] R6 – Advanced view (previous full shell behind "Advanced", debug only there)
 - [ ] R7 – Native shells (later)
 - [x] Gap pass: group-play button, one-step YouTube, rejoin prompt, volume-to-max prompt, re-sync on clock steps, Bluetooth wobble during tuning, room name in title, balance / "Only I can control" renames, tests (home flow with tuning + volume, group play + rejoin, Bluetooth wobble sim)
+- [x] Tuning failure follow-up: mic check + picker, failure diagnostics, only-this-device message + Try again, Cloud Run redeploy guide

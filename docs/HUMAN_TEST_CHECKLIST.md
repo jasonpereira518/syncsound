@@ -65,6 +65,12 @@ Record results in the table at the bottom.
       appear.
     - **Group play:** in a home with two rooms, "Play here and in 1 more" should start both rooms together. Listen in
       the doorway.
+18. **Tuning with the wrong microphone.**
+    - **Wrong mic:** on a Mac with an iPhone nearby, pick "iPhone Microphone" in the mic check. The warning
+      should appear; tuning should then fail naming that mic, with the diagnostics panel open.
+    - **Built-in mic:** switch back to the built-in mic, check that the level bar moves when you talk, and tune:
+      every speaker should be heard.
+    - **Report the numbers:** if tuning still fails, copy the "What the microphone heard" numbers here.
 
 | # | Date | Devices / browsers | Result / numbers | Notes |
 |---|------|--------------------|------------------|-------|

@@ -58,15 +58,13 @@ function median(a: Float64Array): number {
 }
 
 /**
- * Find where `reference` occurs in recording[searchStart, searchEnd) (= range of candidate start indices).
- * Works on the Hilbert envelope of the cross-correlation so narrow-band references (and phase-shifting
- * speakers) don't cause carrier-cycle slips; the envelope peak is refined by parabolic interpolation.
- * Null if snrDb (envelope peak / median) < minSnrDb or the normalized peak < minPeak.
+ * Best match of `reference` in recording[searchStart, searchEnd), with no acceptance threshold (null only when
+ * the window is empty). detectArrival applies the thresholds; failures report this candidate as diagnostics.
  */
-export function detectArrival(
+export function bestArrival(
   recording: Float32Array,
   reference: Float32Array,
-  opts: { searchStart?: number; searchEnd?: number; minSnrDb?: number; minPeak?: number } = {},
+  opts: { searchStart?: number; searchEnd?: number } = {},
 ): Arrival | null {
   const m = reference.length;
   const start = Math.max(0, Math.floor(opts.searchStart ?? 0));
@@ -90,8 +88,23 @@ export function detectArrival(
   for (let i = k0; i < k0 + m; i++) segE += seg[i]! * seg[i]!;
   const peak = pk / Math.sqrt(refE * segE + 1e-30);
   const snrDb = 20 * Math.log10(pk / (median(env) + 1e-30));
-  if (snrDb < (opts.minSnrDb ?? 10) || peak < (opts.minPeak ?? 0.1)) return null;
   return { index: start + k0 + delta, peak, snrDb };
+}
+
+/**
+ * Find where `reference` occurs in recording[searchStart, searchEnd) (= range of candidate start indices).
+ * Works on the Hilbert envelope of the cross-correlation so narrow-band references (and phase-shifting
+ * speakers) don't cause carrier-cycle slips; the envelope peak is refined by parabolic interpolation.
+ * Null if snrDb (envelope peak / median) < minSnrDb or the normalized peak < minPeak.
+ */
+export function detectArrival(
+  recording: Float32Array,
+  reference: Float32Array,
+  opts: { searchStart?: number; searchEnd?: number; minSnrDb?: number; minPeak?: number } = {},
+): Arrival | null {
+  const a = bestArrival(recording, reference, opts);
+  if (!a || a.snrDb < (opts.minSnrDb ?? 10) || a.peak < (opts.minPeak ?? 0.1)) return null;
+  return a;
 }
 
 /** Linear convolution via FFT. */

@@ -277,6 +277,19 @@
       0
     ]
   },
+  "faintMic": {
+    "recordingPeakDb": -50.01,
+    "diagnosis": {
+      "kind": "none-heard",
+      "bestSnrDb": 10.003992958445862
+    },
+    "bestSnrDb": [
+      9.46,
+      10,
+      8.43,
+      9.67
+    ]
+  },
   "unplugged": {
     "heard": false,
     "warnings": [

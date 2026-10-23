@@ -5,6 +5,7 @@
  */
 import {
   analyzeCalibration,
+  diagnoseCalibration,
   analyzeSyncMeasurement,
   buildSyncMeasurementSlots,
   buildCalibrationSlots,
@@ -15,7 +16,8 @@ import {
 } from '@syncsound/audio-core';
 import type { CalibrationDeviceResult, CalibrationPlan, ClientMessage, Device, DevicePatch } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
-import type { CalibrationDeviceUi } from '../../store/types';
+import type { CalibrationDeviceUi, CalibrationDiagnostics } from '../../store/types';
+import { openMic } from '../mic';
 import type { AudioEngine } from './audioEngine';
 
 const RECORDER_CODE = `
@@ -228,6 +230,7 @@ export class CalibrationController {
     };
     patch('calibration', {
       running: true,
+      diagnostics: null,
       step: 'place',
       progress: 0,
       message: 'Hold this device at your listening position and keep the room quiet.',
@@ -246,7 +249,7 @@ export class CalibrationController {
       const include: Array<'chirp' | 'sweep' | 'noise'> = opts.quick ? ['chirp'] : ['chirp', 'sweep', 'noise'];
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS, include }), 'calibrate', MAX_LATENCY_MS,
+      const { plan, rec, micLabel } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS, include }), 'calibrate', MAX_LATENCY_MS,
         () => patch('calibration', { message: 'Syncing clocks…' }),
         () => patch('calibration', { step: 'recording', message: opts.quick ? 'Listen: each speaker will chirp in turn.' : 'Listen: each speaker will chirp and sweep in turn.' }),
         (progress) => patch('calibration', { progress }),
@@ -267,13 +270,25 @@ export class CalibrationController {
       check();
 
       const heard = report.devices.filter((d) => d.heard);
+      const diagnostics: CalibrationDiagnostics = {
+        micLabel,
+        recordingPeakDb: report.recordingPeakDb,
+        devices: report.devices.map((d) => ({ deviceId: d.deviceId, heard: d.heard, bestSnrDb: d.bestSnrDb, noiseFloorDb: d.noiseFloorDb })),
+      };
+      patch('calibration', { diagnostics });
+      const selfId = useRoomStore.getState().deviceId;
+      const dx = diagnoseCalibration(report, selfId);
+      if (dx.kind === 'silent-mic')
+        throw new Error(
+          `The microphone recorded almost nothing (using: ${micLabel}). Pick a different microphone above, check it isn't muted, and try again.`,
+        );
       if (!heard.length) {
         const floors = report.devices.map((d) => d.noiseFloorDb).filter((x): x is number => x !== null);
         const noisy = floors.length > 0 && Math.max(...floors) > -40;
         throw new Error(
           noisy
             ? 'The room is too noisy to measure. Pause the music, turn off fans/TV and try again.'
-            : "No speakers were heard. Turn every device's volume up, unmute them, and keep this device within a few meters.",
+            : `No speakers were heard through ${micLabel}. Turn every device's volume up, keep this device within a few metres of them, and try again.`,
         );
       }
 
@@ -310,7 +325,12 @@ export class CalibrationController {
       const missing = report.devices.length - heard.length;
       patch('calibration', {
         step: 'done',
-        message: missing ? `Calibrated ${heard.length} of ${report.devices.length} devices; ${missing} not heard.` : `Calibrated ${heard.length} devices.`,
+        message:
+          dx.kind === 'only-self'
+            ? `Only this device was heard. The other speakers didn't reach the microphone (${micLabel}): turn them up, bring this device closer to them, and tune again.`
+            : missing
+              ? `Calibrated ${heard.length} of ${report.devices.length} devices; ${missing} not heard.`
+              : `Calibrated ${heard.length} devices.`,
         freqs: report.devices.find((d) => d.response)?.response?.freqs ?? null,
         targetDb: report.targetDb,
         devices: ui,
@@ -354,7 +374,7 @@ export class CalibrationController {
     onWaiting: () => void,
     onRecording: () => void,
     onProgress: (p: number) => void,
-  ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number } }> {
+  ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number }; micLabel: string }> {
     const check = () => {
       if (run.cancelled) throw new Cancelled();
     };
@@ -364,9 +384,7 @@ export class CalibrationController {
     let stream: MediaStream | null = null;
     if (!lb) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-        });
+        stream = await openMic();
       } catch (e) {
         throw new Error(micError(e));
       }
@@ -422,7 +440,8 @@ export class CalibrationController {
       });
     });
     check();
-    return { plan, rec: await recorder.stop() };
+    const micLabel = stream?.getAudioTracks()[0]?.label || (lb ? 'loopback (test mode)' : 'the default microphone');
+    return { plan, rec: await recorder.stop(), micLabel };
   }
 
   /** Sync-measurement tool: every device clicks (device-unique chirp) once per second through normal compensation. */

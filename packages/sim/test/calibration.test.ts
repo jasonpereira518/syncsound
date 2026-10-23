@@ -10,6 +10,9 @@ import {
   eqToBiquads,
   estimateRolloffHz,
   smoothFractionalOctave,
+  diagnoseCalibration,
+  mulberry32,
+  SILENT_MIC_PEAK_DB,
   type CalibrationReport,
   type Response,
 } from '@syncsound/audio-core';
@@ -18,8 +21,11 @@ import { referenceSpeakers, renderListenerRecording, SIM_SR, type SimSpeaker } f
 const LISTENER: Vec2 = { x: 0, y: 1 };
 const INPUT_LATENCY_MS = 12;
 
-function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; quick?: boolean } = {}) {
-  const { quick, ...render } = extra;
+function run(
+  speakers: SimSpeaker[],
+  extra: { roomNoiseDb?: number; quick?: boolean; mic?: (rec: Float32Array) => Float32Array } = {},
+) {
+  const { quick, mic, ...render } = extra;
   const slots = buildCalibrationSlots(speakers.map((s) => s.id), quick ? { include: ['chirp'] } : {});
   const plan: CalibrationPlan = { id: 'cal1', listenerId: 'listener', startRoomTime: 1_000_000, slots };
   const recording = renderListenerRecording({
@@ -34,7 +40,7 @@ function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; quick?: bool
   });
   return analyzeCalibration({
     plan,
-    recording,
+    recording: mic ? mic(recording) : recording,
     sampleRate: SIM_SR,
     recordingStartRoomTime: plan.startRoomTime,
     devicePositions: Object.fromEntries(speakers.map((s) => [s.id, s.position])),
@@ -215,6 +221,32 @@ describe('acoustic calibration (end to end, synthetic room)', () => {
       }),
     };
     expect(noisy.warnings.some((w) => /noisy/i.test(w))).toBe(true);
+  });
+
+  it('diagnoses a dead / wrong microphone (silence) separately from unheard speakers', () => {
+    const dead = run(speakers, { mic: (r) => new Float32Array(r.length) });
+    expect(dead.devices.every((d) => !d.heard)).toBe(true);
+    expect(dead.recordingPeakDb).toBeLessThan(SILENT_MIC_PEAK_DB);
+    expect(diagnoseCalibration(dead, 'phone')).toMatchObject({ kind: 'silent-mic' });
+  });
+
+  it('a mic that records only faint sound: none heard, with the best candidate reported', () => {
+    const rnd = mulberry32(5);
+    // speakers 66 dB down, under -55 dBFS of mic hiss: sound is recorded, chirps don't clear the thresholds
+    const faint = run(speakers, { mic: (r) => r.map((x) => x * 5e-4 + (rnd() - 0.5) * 0.006) });
+    expect(faint.devices.every((d) => !d.heard)).toBe(true);
+    expect(faint.recordingPeakDb).toBeGreaterThan(SILENT_MIC_PEAK_DB);
+    for (const d of faint.devices) expect(d.bestSnrDb).not.toBeNull();
+    const dx = diagnoseCalibration(faint, 'phone');
+    expect(dx.kind).toBe('none-heard');
+    results.faintMic = { recordingPeakDb: r2(faint.recordingPeakDb), diagnosis: dx, bestSnrDb: faint.devices.map((d) => r2(d.bestSnrDb!)) };
+  });
+
+  it('only the listening device heard: diagnosed as only-self with the missing speakers named', () => {
+    const self = speakers[0]!.id;
+    const rep = run(speakers.map((s) => (s.id === self ? s : { ...s, audible: false })));
+    expect(diagnoseCalibration(rep, self)).toEqual({ kind: 'only-self', missing: speakers.slice(1).map((s) => s.id) });
+    expect(diagnoseCalibration(run(speakers), self)).toEqual({ kind: 'ok' });
   });
 
   it('reports an unplugged device as unheard', () => {

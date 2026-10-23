@@ -5,6 +5,7 @@ import type { CalibrationUi } from '@/store/types';
 import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui';
 import { act, useCanControl } from './shared';
 import { SyncMeasurePanel } from './SyncMeasure';
+import { MicCheck, TuningDiagnostics } from './MicCheck';
 
 const STEPS = ['Place this phone at the listening position', 'Allow microphone', 'Chirp ID', 'Sweep', 'EQ', 'Done'];
 
@@ -53,6 +54,11 @@ export function CalibrationWizard() {
         Hold <strong className="text-ink-100">this device</strong> where you&rsquo;ll sit. Every speaker plays a short chirp and sweep in turn; this
         microphone measures each one&rsquo;s delay, level and frequency response, then SyncSound aligns and EQs them.
       </p>
+      {selfHasMic && (
+        <div className="mt-3">
+          <MicCheck />
+        </div>
+      )}
 
       <ol data-testid="calibration-step" data-step={cal.step} className="mt-4 space-y-1.5" aria-label="Calibration steps">
         {STEPS.map((label, i) => {
@@ -117,6 +123,9 @@ export function CalibrationWizard() {
           </ul>
         </div>
       )}
+      <div className="mt-3">
+        <TuningDiagnostics />
+      </div>
       {cal.warnings.length > 0 && (
         <ul className="mt-3 space-y-1 text-sm text-warn">
           {cal.warnings.map((w) => (

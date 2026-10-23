@@ -5,6 +5,7 @@ import { CALIBRATION_SIGNAL_MS, isRoutedLayout, LAYOUT_SLOTS, layoutLabel, sugge
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon } from '../ui';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
+import { MicCheck, TuningDiagnostics } from './MicCheck';
 import { useJoinLink } from './RoomHeader';
 import { act } from './shared';
 
@@ -221,13 +222,14 @@ function Tune({ devices }: { devices: Device[] }) {
         hold this device in front of you. Keep the room quiet: each speaker chirps and sweeps in turn for about {seconds} seconds.
         SyncSound then lines them up in time and matches their loudness.
       </p>
+      <MicCheck />
       {busy ? (
         <Button variant="danger" onClick={() => act(() => roomActions.cancelCalibration())}>
           Stop
         </Button>
       ) : (
         <Button variant="primary" data-testid="wizard-tune" onClick={() => act(() => roomActions.startCalibration())}>
-          <Icon name="mic" className="size-4" /> {cal.step === 'done' ? 'Tune again' : 'Start tuning'}
+          <Icon name="mic" className="size-4" /> {cal.step === 'done' ? 'Tune again' : cal.step === 'error' ? 'Try again' : 'Start tuning'}
         </Button>
       )}
       {cal.step !== 'idle' && (
@@ -238,6 +240,9 @@ function Tune({ devices }: { devices: Device[] }) {
               <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.round(cal.progress * 100)}%` }} />
             </div>
           )}
+          <div className="mt-3">
+            <TuningDiagnostics />
+          </div>
           {cal.step === 'done' && (
             <ul className="mt-3 space-y-1.5 text-sm">
               {cal.devices.map((r) => {

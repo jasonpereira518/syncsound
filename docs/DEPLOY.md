@@ -17,6 +17,37 @@ NEXT_PUBLIC_SERVER_URL=http://192.168.1.20:8787 docker compose up --build   # fo
 docker compose --profile s3 up       # + MinIO for S3-compatible uploads
 ```
 
+## Server on Cloud Run (current production)
+
+The room server keeps every room in one process and writes `profiles.json` and `homes.json` (saved homes and
+rooms) to `DATA_DIR=/data`. On Cloud Run that means one instance, session affinity, and a persistent `/data`.
+Without a volume, a restart or scale-to-zero erases every saved home.
+
+```bash
+PROJECT=syncsound-live REGION=us-central1
+IMAGE=$REGION-docker.pkg.dev/$PROJECT/syncsound/server:latest
+
+# 1. Build the server image from the branch you are deploying (run at the repo root).
+gcloud builds submit --project $PROJECT --config cloudbuild.yaml --substitutions=_IMAGE=$IMAGE .
+
+# 2. Once only: a bucket for /data, readable/writable by the service's runtime service account.
+gcloud storage buckets create gs://$PROJECT-syncsound-data --project $PROJECT --location $REGION
+
+# 3. Deploy: one always-on instance, sticky sessions, /data on the bucket.
+gcloud run deploy syncsound-server --project $PROJECT --region $REGION --image $IMAGE \
+  --min-instances 1 --max-instances 1 --session-affinity \
+  --add-volume name=data,type=cloud-storage,bucket=$PROJECT-syncsound-data \
+  --add-volume-mount volume=data,mount-path=/data
+```
+
+Then check that the new server is live: `curl https://<service-url>/api/homes/nope` must answer
+`{"error":"no such home"}`. The old server answers `{"error":"not found"}`.
+
+- **Order:** deploy the server first, then the web app. The web app's Home screen, room names and group play
+  need the server's `/api/homes` routes. Against an older server they fail and saved layouts don't stick.
+- **Keep:** the existing `ALLOWED_ORIGINS` and `PUBLIC_URL` env vars. `gcloud run deploy` keeps env vars you
+  don't pass.
+
 ## Server on Fly.io
 
 ```bash
@@ -38,6 +69,10 @@ New project → Deploy from repo → set *Dockerfile target* `server` (`RAILWAY_
 Set `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` on the server. The bucket must allow public GET (or front it with a CDN) and CORS GET from the web origin, because every device fetches and decodes the full asset before the scheduled start.
 
 ## Frontend on Vercel
+
+Set `NEXT_PUBLIC_SERVER_URL` for **Preview** as well as Production (`vercel env add NEXT_PUBLIC_SERVER_URL
+preview`). Without it, preview builds try `https://<preview-host>:8787` and never connect. Deploy from the branch
+you mean to ship: a CLI deploy uploads the folder you run it in, whatever branch is checked out there.
 
 - Root directory: `apps/web`; framework Next.js; install command `pnpm install` (Vercel detects the pnpm workspace).
 - Env: `NEXT_PUBLIC_SERVER_URL=https://syncsound-server.fly.dev`, plus optional Spotify/Apple variables (see `.env.example`).

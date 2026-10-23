@@ -78,6 +78,15 @@ export interface CalibrationUi {
   warnings: string[];
   /** a calibration signal is currently being emitted by this device (speaker side) */
   emitting: boolean;
+  /** what the last run actually measured, for when it goes wrong */
+  diagnostics: CalibrationDiagnostics | null;
+}
+
+export interface CalibrationDiagnostics {
+  /** the microphone the browser actually recorded from */
+  micLabel: string;
+  recordingPeakDb: number;
+  devices: { deviceId: string; heard: boolean; bestSnrDb: number | null; noiseFloorDb: number | null }[];
 }
 
 export interface SyncMeasureDeviceUi {

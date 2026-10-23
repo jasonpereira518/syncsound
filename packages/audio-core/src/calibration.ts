@@ -3,6 +3,7 @@ import { commonTarget, fitEq, type EqFitResult } from './eq';
 import { loudnessTrims, volumeHints } from './loudness';
 import {
   bandMeanDb,
+  bestArrival,
   deconvolve,
   detectArrival,
   estimateRolloffHz,
@@ -92,6 +93,9 @@ export interface DeviceCalibration {
   /** pink-noise RMS at listener, dB (noise floor power-subtracted) */
   levelDb: number | null;
   noiseFloorDb: number | null;
+  /** best chirp candidate even when rejected (diagnostics: how close it came to the 10 dB / 0.1 thresholds) */
+  bestSnrDb: number | null;
+  bestPeak: number | null;
 }
 
 export interface CalibrationReport {
@@ -103,6 +107,9 @@ export interface CalibrationReport {
   /** dB to raise on the device itself (only devices well below the median; see volumeHints) */
   volumeUp: Record<string, number>;
   warnings: string[];
+  /** whole-recording peak / RMS, dBFS: a dead or wrong microphone shows up here first */
+  recordingPeakDb: number;
+  recordingRmsDb: number;
 }
 
 /** Response grid: 1/24 octave across the sweep band. */
@@ -134,6 +141,8 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
       bassCapable: null,
       levelDb: null,
       noiseFloorDb: null,
+      bestSnrDb: null,
+      bestPeak: null,
     };
     const chirpSlot = slot('chirp');
     if (!chirpSlot) return dc;
@@ -141,10 +150,11 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
     // silence just before the slot (previous slot's guard gap)
     dc.noiseFloorDb = rmsDb(rec, sched - ms(150), sched - ms(20));
     const ref = calibrationSignal('chirp', chirpSlot.deviceIndex, sr);
-    const arrival = detectArrival(rec, ref, {
-      searchStart: sched - pre,
-      searchEnd: sched + ms(maxLat) + pre,
-    });
+    const window = { searchStart: sched - pre, searchEnd: sched + ms(maxLat) + pre };
+    const best = bestArrival(rec, ref, window);
+    dc.bestSnrDb = best?.snrDb ?? null;
+    dc.bestPeak = best?.peak ?? null;
+    const arrival = detectArrival(rec, ref, window);
     if (!arrival) return dc;
     dc.heard = true;
     dc.snrDb = arrival.snrDb;
@@ -207,5 +217,48 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
   }
   for (const d of heard)
     if (d.levelDb !== null && postLevels[d.deviceId] === undefined) postLevels[d.deviceId] = d.levelDb;
-  return { devices, targetDb, eq, trims: loudnessTrims(postLevels), volumeUp: volumeHints(postLevels), warnings };
+  let peak = 0;
+  let sumSq = 0;
+  for (let i = 0; i < rec.length; i++) {
+    const a = Math.abs(rec[i]!);
+    if (a > peak) peak = a;
+    sumSq += a * a;
+  }
+  return {
+    devices,
+    targetDb,
+    eq,
+    trims: loudnessTrims(postLevels),
+    volumeUp: volumeHints(postLevels),
+    warnings,
+    recordingPeakDb: 20 * Math.log10(peak + 1e-12),
+    recordingRmsDb: 10 * Math.log10(sumSq / Math.max(1, rec.length) + 1e-24),
+  };
+}
+
+/** a recording whose peak stays below this never contained a speaker at normal volume: wrong or muted mic */
+export const SILENT_MIC_PEAK_DB = -60;
+
+export type CalibrationDiagnosis =
+  /** at least one speaker heard (other than possibly only this device) */
+  | { kind: 'ok' }
+  /** the microphone recorded (almost) nothing */
+  | { kind: 'silent-mic'; peakDb: number }
+  /** sound was recorded but no chirp matched well enough */
+  | { kind: 'none-heard'; bestSnrDb: number | null }
+  /** only the listening device's own chirp was heard: the others are too far / too quiet / not playing */
+  | { kind: 'only-self'; missing: string[] };
+
+/** What went wrong, in user terms. `selfId` = the listening device (its own chirp is the easiest to hear). */
+export function diagnoseCalibration(report: CalibrationReport, selfId: string): CalibrationDiagnosis {
+  const heard = report.devices.filter((d) => d.heard);
+  if (!heard.length) {
+    if (report.recordingPeakDb < SILENT_MIC_PEAK_DB) return { kind: 'silent-mic', peakDb: report.recordingPeakDb };
+    const snrs = report.devices.map((d) => d.bestSnrDb).filter((x): x is number => x !== null);
+    return { kind: 'none-heard', bestSnrDb: snrs.length ? Math.max(...snrs) : null };
+  }
+  const others = report.devices.filter((d) => d.deviceId !== selfId);
+  if (others.length && heard.length === 1 && heard[0]!.deviceId === selfId)
+    return { kind: 'only-self', missing: others.map((d) => d.deviceId) };
+  return { kind: 'ok' };
 }

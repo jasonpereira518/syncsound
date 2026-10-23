@@ -81,3 +81,8 @@ An honest list of what is not done, what can't be verified without hardware, and
   the true jitter (about 75 % of it with 4 speakers, per `syncMeasure.test.ts`).
 - **Home links are capabilities:** anyone with a home link can see and join its rooms; only the browser that created
   the home (it holds the owner key) can change them. Losing that browser's storage loses ownership.
+- **Persisting `/data` on Cloud Run** relies on a Cloud Storage volume (see DEPLOY). Its rename isn't atomic, so a
+  crash mid-write could leave a partial `homes.json`; a corrupt file is read as empty.
+- **The "No speakers were heard" report from a real two-phone setup is not reproduced yet.** Real-mic tuning
+  passed on the user's Mac with 1 and 2 speakers. The new diagnostics (mic used, recording level, per-speaker best
+  SNR) are there to pin it down on the next failing run.
