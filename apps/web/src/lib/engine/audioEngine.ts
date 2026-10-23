@@ -3,7 +3,7 @@
  * compensation, drift correction, spatial mix + EQ graph, click test, identify beeps.
  * Browser-only: create it from client code after a user gesture (`unlock()`).
  */
-import { dueNow } from '../power';
+import { batterySaver, dueNow } from '../power';
 import {
   AudioClockMap,
   DriftController,
@@ -11,7 +11,7 @@ import {
   clickTrack,
   computeDeviceMix,
   computeStart,
-  type ClockSync,
+  type RoomClock,
   type DeviceMix,
   type StartDecision,
 } from '@syncsound/audio-core';
@@ -42,7 +42,7 @@ interface PlayingVoice {
 }
 
 export interface EngineDeps {
-  clock: () => ClockSync | null;
+  clock: () => RoomClock | null;
   /** clock burst done since the last (re)connect */
   clockReady: () => boolean;
 }
@@ -147,7 +147,9 @@ export class AudioEngine {
 
   private onDeviceChange = () => {
     // granting mic permission during calibration can fire devicechange without a route change
-    if (!useRoomStore.getState().calibration.running) useRoomStore.setState({ routeChanged: true });
+    if (useRoomStore.getState().calibration.running) return;
+    this.drift.forget(); // a new output device may run on a different crystal
+    useRoomStore.setState({ routeChanged: true });
   };
 
   private async acquireWakeLock() {
@@ -352,7 +354,6 @@ export class AudioEngine {
       this.publish();
     };
     this.voice = pv;
-    this.drift.reset();
     const L = outputLatencyMs(this.latencyInput());
     recordSchedule({
       action,
@@ -449,13 +450,13 @@ export class AudioEngine {
       const expected = expectedPositionAtCtx(pb, now, this.ctxToRoom, this.compensationSec());
       const err = driftErrorMs(pv.tracker.positionAt(now), expected);
       this.syncErrorMs = Math.abs(err);
-      const dec = this.drift.update(err);
+      const dec = this.drift.update(err, batterySaver() ? 1.5 : 0.5);
       if (dec.action === 'reschedule') {
         this.corrections = { ...this.corrections, reschedule: this.corrections.reschedule + 1 };
         this.reconcile(true);
         return;
       }
-      const rate = dec.action === 'rate' ? dec.rate : 1;
+      const rate = dec.rate;
       if (rate !== pv.tracker.rate) {
         if (dec.action === 'rate') this.corrections = { ...this.corrections, rate: this.corrections.rate + 1 };
         pv.src.playbackRate.setTargetAtTime(rate, now, 0.02);

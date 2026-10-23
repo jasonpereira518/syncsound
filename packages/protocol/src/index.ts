@@ -240,6 +240,9 @@ export const RtcData = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hangup') }),
 ]);
 export type RtcData = z.infer<typeof RtcData>;
+/** which peer connection a signal belongs to: capture audio (default) or the LAN clock-master DataChannel */
+export const RtcChannel = z.enum(['capture', 'clock']);
+export type RtcChannel = z.infer<typeof RtcChannel>;
 
 // ---------- client → server ----------
 
@@ -336,7 +339,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id }),
   z.object({ type: z.literal('CAPTURE'), active: z.boolean() }),
-  z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData }),
+  z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData, ch: RtcChannel.optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -366,7 +369,7 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
   z.object({ type: z.literal('CALIBRATION_PLAN'), plan: CalibrationPlan }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
-  z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData }),
+  z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),
 ]);
 export type ServerMessageBody = z.infer<typeof ServerMessageBody>;

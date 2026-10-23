@@ -4,7 +4,7 @@
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
 import { dueNow, setBatterySaverFlag } from '../lib/power';
-import { defaultObjectsFor } from '@syncsound/audio-core';
+import { defaultObjectsFor, type RoomClock } from '@syncsound/audio-core';
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
@@ -27,6 +27,7 @@ import { CaptureController } from '../lib/engine/capture';
 import { VideoDriver } from '../lib/engine/videoSync';
 import { History, restoreScene } from '../lib/history';
 import { installInstrumentation } from '../lib/instrumentation';
+import { ClockLink, pickClockMaster } from '../lib/clockLink';
 import { RoomClient } from '../lib/roomClient';
 import { RemoteSyncManager } from '../lib/sources/remoteSync';
 import { loginSpotify } from '../lib/sources/spotify';
@@ -42,6 +43,8 @@ type ScenePatch = Omit<SceneUpdate, 'type'>;
 interface Session {
   code: string;
   client: RoomClient;
+  /** LAN clock master link; used instead of the server clock while ready */
+  link: ClockLink;
   engine: AudioEngine;
   calibration: CalibrationController;
   capture: CaptureController;
@@ -55,6 +58,9 @@ interface Session {
 }
 
 let session: Session | null = null;
+
+/** the clock every timing path uses: the LAN link when ready, else the server clock */
+const activeClock = (s: Session): RoomClock => (s.link.ready ? s.link : s.client.clock);
 let joining: string | null = null;
 
 const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix'] as const;
@@ -135,7 +141,8 @@ function handleMessage(msg: ServerMessage) {
       break;
     }
     case 'RTC_SIGNAL':
-      s.capture.onSignal(msg.from, msg.data);
+      if (msg.ch === 'clock') void s.link.onSignal(msg.from, msg.data);
+      else s.capture.onSignal(msg.from, msg.data);
       break;
     case 'ERROR':
       setError(FRIENDLY[msg.code] ?? msg.msg);
@@ -226,10 +233,10 @@ function fail(msg: string): never {
 
 /** current room time (ms), or null until the clock burst after (re)connect has finished */
 export function roomNowMs(): number | null {
-  const c = session?.client;
-  if (!c?.synced) return null;
+  const s = session;
+  if (!s?.client.synced) return null;
   try {
-    return c.clock.toRoomTime(performance.now());
+    return activeClock(s).toRoomTime(performance.now());
   } catch {
     return null;
   }
@@ -252,7 +259,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const deviceId = getDeviceId();
     useRoomStore.setState({ ...initialState(), deviceId, conn: 'connecting', demoAssets: useRoomStore.getState().demoAssets });
     const engine = new AudioEngine({
-      clock: () => session?.client.clock ?? null,
+      clock: () => (session ? activeClock(session) : null),
       clockReady: () => !!session?.client.synced,
     });
     try {
@@ -297,11 +304,17 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         resolveJoin();
       },
     });
+    const link = new ClockLink({
+      selfId: deviceId,
+      send: (to, data) => client.send({ type: 'RTC_SIGNAL', to, data, ch: 'clock' }),
+      serverClock: () => client.clock,
+    });
     const s: Session = {
       code: roomCode,
       client,
+      link,
       engine,
-      calibration: new CalibrationController(engine, send, () => client.clock),
+      calibration: new CalibrationController(engine, send, () => activeClock(s)),
       capture: new CaptureController(engine, send),
       remote: new RemoteSyncManager({ nowRoom, send, outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1 }),
       video: new VideoDriver(engine, nowRoom),
@@ -317,6 +330,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     s.cleanup.push(
       useRoomStore.subscribe((st, prev) => {
         if (st.room === prev.room || session !== s) return;
+        s.link.setMaster(st.room ? pickClockMaster(st.room.devices, st.room.hostId) : null);
         s.engine.onRoomChanged();
         s.capture.onRoomChanged(st.room);
         s.remote.onRoomChanged();
@@ -326,12 +340,14 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const statsTimer = setInterval(() => sendStats(s), 2000);
     const clockTimer = setInterval(() => {
       try {
-        if (s.client.clock.estimate().samples > 0) useRoomStore.setState({ clock: s.client.clock.estimate() });
+        const est = activeClock(s).estimate();
+        if (est.samples > 0) useRoomStore.setState({ clock: est });
       } catch {
         /* not ready */
       }
     }, 1000);
-    s.cleanup.push(() => clearInterval(statsTimer), () => clearInterval(clockTimer));
+    link.start();
+    s.cleanup.push(() => clearInterval(statsTimer), () => clearInterval(clockTimer), () => link.dispose());
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;
       s.engine.onVisible();

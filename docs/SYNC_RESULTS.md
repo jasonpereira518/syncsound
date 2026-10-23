@@ -33,9 +33,26 @@ controller loop runs every 500 ms.
 
 | | value |
 |---|---|
-| True playback-position error, RMS / p95 / max | **1.59 / 2.45 / 3.40 ms** |
-| Rate nudges / hard reschedules | 411 / **0** |
-| Max playbackRate deviation | 0.06 % (inaudible; the limit is 0.2 %) |
+| True playback-position error, mean / RMS / p95 / max | **0.12 / 0.55 / 1.47 / 2.00 ms** |
+| Rate updates / hard reschedules | 1192 (every tick, PI loop) / **0** |
+| Max playbackRate deviation | 0.03 % (inaudible; the limit is 0.2 %) |
+
+R1 replaced the 1–2 ms hysteresis deadband (which left a steady 1.48 ms bias: RMS / p95 / max were
+1.59 / 2.45 / 3.40 ms) with a critically damped PI loop whose integral learns the device's clock-rate mismatch.
+The remaining p95 is the WAN clock estimate (σ 5 ms jitter here), which the LAN clock master removes between
+devices (next section).
+
+## 2b. LAN clock master (`lanMaster.test.ts`)
+
+6 devices on home Wi-Fi, 180 simulated seconds, measured after a 10 s settle. The server sits behind a shared WAN
+leg (44 ms RTT, 6 ms asymmetry, σ 5 ms jitter, 2 % spikes up to 120 ms). Wi-Fi to the master is 6 ms RTT, σ 2 ms
+jitter, 2 % spikes up to 30 ms. Metric: device-to-device spread, i.e. max − min room-time error across all
+6 devices at each probe.
+
+| | p50 | p95 | max |
+|---|---|---|---|
+| Every device syncs to the server over the WAN | 0.98 ms | 1.74 ms | 3.12 ms |
+| Peers sync to an in-home master (10 Hz DataChannel pings) and share the master's mapping | **0.21 ms** | **0.41 ms** | **0.93 ms** |
 
 ## 3. Offline-render alignment, "all devices play at the same instant" (`alignment.test.ts`)
 

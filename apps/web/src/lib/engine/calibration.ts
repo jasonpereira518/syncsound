@@ -11,7 +11,7 @@ import {
   calibrationRecordingMs,
   calibrationSignal,
   classPresetEq,
-  type ClockSync,
+  type RoomClock,
 } from '@syncsound/audio-core';
 import type { CalibrationDeviceResult, CalibrationPlan, ClientMessage, Device, DevicePatch } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
@@ -150,7 +150,7 @@ export class CalibrationController {
   constructor(
     private readonly engine: AudioEngine,
     private readonly send: (m: ClientMessage) => boolean,
-    private readonly clock: () => ClockSync | null,
+    private readonly clock: () => RoomClock | null,
   ) {}
 
   /** every device receives the plan: emit my slots; the listener's waiter also picks it up */

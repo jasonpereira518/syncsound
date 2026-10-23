@@ -42,10 +42,9 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Clock drift estimate under heavy jitter:** with σ ≥ 5 ms jitter and 1 Hz pings, drift is within ±5 ppm only
   after ~300 s (at 120 s: 5.0 ppm with σ 5 ms, up to 44.5 ppm with σ 30 ms). The offset error stays < 6 ms max
   regardless. Harsh-jitter alignment is 2.5 ms vs < 2 ms for normal Wi-Fi.
-- **The drift controller deadband** leaves a steady ~1.5 ms bias (hysteresis between 1 and 2 ms). Feeding the
-  measured rate forward would centre it; not done.
-- **Clock-sync transport:** WebSocket only. The optional unreliable WebRTC DataChannel for lower-jitter pings was
-  not implemented; the simulator shows WS-level jitter already stays within target.
+- **LAN clock master (R1)** is verified in simulation (`lanMaster.test.ts`) and by unit tests, not yet on real
+  hardware. If WebRTC can't connect between two devices (e.g. client isolation on guest Wi-Fi), they silently fall
+  back to the server clock, which keeps the old ~1–2 ms device-to-device spread over a WAN.
 - **Capture transport** is a WebRTC mesh: host uplink = N × ~256 kbps Opus. Fine for ~8 devices. LiveKit (an SFU)
   is recommended beyond that but not integrated. The capture pipeline-delay estimate uses `getStats`
   (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), which is unverified on real networks.

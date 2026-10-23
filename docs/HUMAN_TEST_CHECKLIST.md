@@ -47,6 +47,10 @@ Record results in the table at the bottom.
     appear.
 14. **Install as PWA** on Android Chrome and iOS Safari (Add to Home Screen). It should launch standalone and
     join a room.
+15. **LAN clock master (R1).** Join 3+ devices on the same Wi-Fi with the host on a laptop. Open the debug
+    drawer on a phone: the clock RTT should drop to a few ms (LAN) within ~2 s of joining. Run the 60 s sync
+    measurement from the seat. Target: wired/built-in spread p95 < 1 ms. Then repeat on a guest network with
+    client isolation, where it should fall back to the server clock without errors.
 
 | # | Date | Devices / browsers | Result / numbers | Notes |
 |---|------|--------------------|------------------|-------|

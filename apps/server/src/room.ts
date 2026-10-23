@@ -383,7 +383,7 @@ export class Room {
       case 'RTC_SIGNAL': {
         const to = this.deviceConn.get(msg.to);
         if (to === undefined) throw new RoomError('unknown_target', 'target device is not connected');
-        return [this.out([to], { type: 'RTC_SIGNAL', from: sender.id, data: msg.data })];
+        return [this.out([to], { type: 'RTC_SIGNAL', from: sender.id, data: msg.data, ...(msg.ch ? { ch: msg.ch } : {}) })];
       }
     }
   }

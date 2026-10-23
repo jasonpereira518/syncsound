@@ -10,5 +10,7 @@ describe('detectDeviceClass', () => {
     expect(detectDeviceClass('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')).toBe('laptop');
     expect(detectDeviceClass('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('desktop');
     expect(detectDeviceClass('Mozilla/5.0 (Macintosh)', { outputLabel: 'AirPods Pro' })).toBe('bluetooth');
+    expect(detectDeviceClass('Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile Safari', { outputLatencyMs: 180 })).toBe('bluetooth');
+    expect(detectDeviceClass('Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile Safari', { outputLatencyMs: 45 })).toBe('phone');
   });
 });

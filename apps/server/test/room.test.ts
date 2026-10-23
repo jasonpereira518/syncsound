@@ -435,6 +435,9 @@ describe('Room devices + scene', () => {
     const rtc = one(room.handle('c1', { type: 'RTC_SIGNAL', to: 'g2', data }, 1000), 'RTC_SIGNAL');
     expect(rtc.to).toEqual(['c2']);
     expect(rtc.msg).toMatchObject({ from: 'g1', data });
+    expect(rtc.msg).not.toHaveProperty('ch');
+    const clk = one(room.handle('c1', { type: 'RTC_SIGNAL', to: 'g2', data, ch: 'clock' }, 1000), 'RTC_SIGNAL');
+    expect(clk.msg).toMatchObject({ from: 'g1', data, ch: 'clock' });
 
     const err = one(room.handle('c1', { type: 'RTC_SIGNAL', to: 'nobody', data }, 1000), 'ERROR');
     expect(err).toMatchObject({ to: ['c1'], msg: { code: 'unknown_target' } });
