@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import type { CreateRoomResponse, DemoAsset, ServerMessage, UploadResponse } from '@syncsound/protocol';
+import type {
+  CreateRoomResponse,
+  DemoAsset,
+  HomeCreateResponse,
+  HomeGroupResponse,
+  HomeRoom,
+  ServerMessage,
+  UploadResponse,
+} from '@syncsound/protocol';
 import { MAX_DROPS, RATE_BURST, startServer } from '../src/index.ts';
 import { perfClock } from '../src/room.ts';
 
@@ -129,6 +137,54 @@ describe('server integration', () => {
 
   it('health', async () => {
     expect(await (await fetch(`${base}/health`)).json()).toEqual({ ok: true });
+  });
+
+  it('home: owner-gated room CRUD, JOIN by room code, group play to two rooms at one time', async () => {
+    const api = (path: string, init: RequestInit = {}, key?: string) =>
+      fetch(`${base}/api/homes${path}`, {
+        ...init,
+        headers: { 'content-type': 'application/json', ...(key && { 'x-owner-key': key }) },
+      });
+    const { homeId, ownerKey } = (await (await api('', { method: 'POST' })).json()) as HomeCreateResponse;
+    const add = (name: string, key?: string) => api(`/${homeId}/rooms`, { method: 'POST', body: JSON.stringify({ name }) }, key);
+    expect((await add('Kitchen')).status).toBe(403);
+    expect((await add('Kitchen', 'nope')).status).toBe(403);
+    const kitchen = (await (await add('Kitchen', ownerKey)).json()) as HomeRoom;
+    const lounge = (await (await add('Lounge', ownerKey)).json()) as HomeRoom;
+    const renamed = await api(`/${homeId}/rooms/${lounge.id}`, { method: 'PATCH', body: '{"name":"Den"}' }, ownerKey);
+    expect(renamed.status).toBe(200);
+    expect(await (await api(`/${homeId}`)).json()).toEqual({
+      id: homeId,
+      rooms: [
+        { id: kitchen.id, name: 'Kitchen', connected: 0 },
+        { id: lounge.id, name: 'Den', connected: 0 },
+      ],
+    });
+    expect((await api('/nosuchhome')).status).toBe(404);
+    expect(await (await fetch(`${base}/api/rooms/${kitchen.id}`)).json()).toEqual({ exists: true, hasPassword: false });
+
+    const [a, b] = await Promise.all([Client.open(srv.port), Client.open(srv.port)]);
+    clients.push(a!, b!);
+    a!.send({ type: 'JOIN', roomCode: kitchen.id, deviceId: 'hk', name: 'K', caps, hostKey: ownerKey });
+    b!.send({ type: 'JOIN', roomCode: lounge.id, deviceId: 'hl', name: 'L', caps });
+    expect((await a!.waitFor('WELCOME')).isHost).toBe(true);
+    expect((await b!.waitFor('WELCOME')).isHost).toBe(false);
+
+    const group = (command: unknown) =>
+      api(`/${homeId}/group`, { method: 'POST', body: JSON.stringify({ roomIds: [kitchen.id, lounge.id], command }) }, ownerKey);
+    const track = { id: 'tone', title: 'Tone', kind: 'demo', sourceClass: 'rendered', url: `${base}/assets/demo/tone.wav` };
+    expect((await group({ type: 'queue', track })).status).toBe(200);
+    const res = (await (await group({ type: 'play', trackId: 'tone' })).json()) as HomeGroupResponse;
+    expect(res.errors).toEqual({});
+    const [sa, sb] = await Promise.all([a!.waitFor('SCHEDULE'), b!.waitFor('SCHEDULE')]);
+    expect(sa.startRoomTime).toBe(res.startRoomTime);
+    expect(sb.startRoomTime).toBe(res.startRoomTime);
+    expect(res.startRoomTime).toBeGreaterThan(perfClock());
+
+    expect((await api(`/${homeId}/rooms/${lounge.id}`, { method: 'DELETE' }, ownerKey)).status).toBe(204);
+    await b!.until(() => b!.closeCode ?? undefined);
+    expect(b!.closeCode).toBe(4001);
+    expect(await (await fetch(`${base}/api/rooms/${lounge.id}`)).json()).toEqual({ exists: false, hasPassword: false });
   });
 
   it('3 clients: create room, join, ping/pong, identical future SCHEDULE on play', async () => {
