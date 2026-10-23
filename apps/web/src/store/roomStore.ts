@@ -560,9 +560,9 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     return track;
   },
 
-  async startCalibration() {
+  async startCalibration(opts) {
     if (!session) return setError('Join the room first.');
-    await session.calibration.start();
+    await session.calibration.start(opts);
   },
 
   async startSyncMeasurement(durationSec = 60) {

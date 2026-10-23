@@ -36,6 +36,7 @@ export const PROFILE_KEYS = [
   'eq',
   'bassCapable',
   'rolloffHz',
+  'volume',
 ] as const;
 export type Profile = Pick<Device, (typeof PROFILE_KEYS)[number]>;
 
@@ -357,6 +358,7 @@ export class Room {
           if (r.bassCapable !== undefined) patch.bassCapable = r.bassCapable;
           if (r.trimDb !== undefined) patch.trimDb = r.trimDb;
           this.patchDevice(dev, patch);
+          if (r.volumeUpDb !== undefined) dev.volumeUpDb = r.volumeUpDb;
         }
         return [this.deviceList('all')];
       }

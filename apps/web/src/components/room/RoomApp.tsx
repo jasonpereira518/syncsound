@@ -130,8 +130,8 @@ function Banners() {
           <Icon name="warning" className="size-5 shrink-0 text-warn" />
           <p className="min-w-0 flex-1">
             <strong className="text-warn">Audio output changed.</strong> Headphones or Bluetooth add latency
-            the browser often doesn&rsquo;t report. Recalibrate (Calibrate tab) or fine-tune the latency
-            slider.
+            the browser often doesn&rsquo;t report. Run a quick re-sync (Calibrate tab, about 1 s per speaker)
+            or fine-tune the latency slider.
           </p>
           <button
             type="button"

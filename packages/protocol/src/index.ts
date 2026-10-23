@@ -114,6 +114,8 @@ export const Device = z.object({
   stats: DeviceStats.nullable(),
   remote: z.object({ spotify: RemoteServiceStatus, apple: RemoteServiceStatus }),
   joinedAt: finite(),
+  /** last calibration: this device is this many dB too quiet; raise its own volume and re-tune (null/absent = fine) */
+  volumeUpDb: finite().min(0).max(60).nullable().optional(),
 });
 export type Device = z.infer<typeof Device>;
 
@@ -311,6 +313,7 @@ export const CalibrationDeviceResult = z.object({
   bassCapable: z.boolean().optional(),
   trimDb: Device.shape.trimDb.optional(),
   levelDb: finite().optional(),
+  volumeUpDb: Device.shape.volumeUpDb,
 });
 export type CalibrationDeviceResult = z.infer<typeof CalibrationDeviceResult>;
 

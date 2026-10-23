@@ -166,8 +166,8 @@ export interface RoomActions {
   queueDemo(asset: DemoAsset): void;
   uploadFile(file: File): Promise<Track>;
   queueUrl(url: string, title?: string): Promise<Track>;
-  /** Runs the acoustic calibration wizard with this device as the listener. */
-  startCalibration(): Promise<void>;
+  /** Runs the acoustic calibration wizard with this device as the listener (quick = timing-only re-sync). */
+  startCalibration(opts?: { quick?: boolean }): Promise<void>;
   cancelCalibration(): void;
   /** Sync-measurement tool with this device as the listener (mic → user gesture). Cancel with cancelCalibration. */
   startSyncMeasurement(durationSec?: number): Promise<void>;

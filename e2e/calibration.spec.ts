@@ -50,6 +50,15 @@ test('calibration wizard completes against a loopback microphone', async ({ brow
   await expect
     .poll(() => page.evaluate(() => (window as unknown as Win).__syncsound.getState().room.devices[0]!.eq.source))
     .toBe('measured');
+
+  // quick re-sync: timing-only pass completes and leaves the measured EQ in place
+  await page.getByTestId('calibrate-quick').click();
+  await expect(page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 60_000 });
+  const quick = await page.evaluate(() => (window as unknown as Win).__syncsound.getState().calibration);
+  console.log('quick re-sync:', quick.step, '-', quick.message);
+  expect(quick.step).toBe('done');
+  expect(quick.devices[0]!.heard).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as Win).__syncsound.getState().room.devices[0]!.eq.source)).toBe('measured');
   expect(pageErrors(page)).toEqual([]);
   await ctx.close();
 });

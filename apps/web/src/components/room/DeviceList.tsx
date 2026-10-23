@@ -261,6 +261,12 @@ export function SpeakerCard() {
           </div>
         </div>
       </div>
+      {!!self.volumeUpDb && (
+        <p role="status" data-testid="volume-up-hint" className="mt-3 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+          <strong className="text-warn">This speaker is quieter than the rest.</strong> Turn this device&rsquo;s own volume up (about{' '}
+          {Math.round(self.volumeUpDb)} dB), then tune the room again so everyone can play louder.
+        </p>
+      )}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <RangeField label="My volume" min={0} max={1} step={0.01} value={self.volume} format={pct} onCommit={(v) => update({ volume: v }, self.id)} />
         <RangeField

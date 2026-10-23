@@ -64,7 +64,11 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Profiles persist** (server `profiles.json`, keyed by the device id in localStorage): name, role, trim, latency,
   calibrated latency, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to
   see curves again.
-- **Calibration does not auto-pause music.** Users are told to pause first.
+- **Calibration auto-pauses only when the calibrating device may control playback** (host, or open control). A
+  guest under host-only control is still told to ask the host to pause.
+- **Loudness matching cuts to the quietest speaker.** It never boosts (the limiter would clip), so one quiet
+  device lowers everyone. Calibration flags it (`volumeUpDb`) and asks for that device's own volume to go up
+  before re-tuning. A browser can't do that itself; the native shells (R7) will.
 - **Room creation and uploads** are rate-limited per remote address in-process. Behind a proxy, use a trusted
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked

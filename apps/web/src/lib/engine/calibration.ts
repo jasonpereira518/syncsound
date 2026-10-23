@@ -214,7 +214,12 @@ export class CalibrationController {
     this.measureTimer = setInterval(tick, 250);
   }
 
-  async start(): Promise<void> {
+  /**
+   * Calibrate with this device as the listener. quick = timing only (one chirp per device, ~1 s each): re-aligns
+   * after a Bluetooth/route change without re-measuring EQ or level. Pauses playback for the duration if this
+   * device may control it, and resumes afterwards.
+   */
+  async start(opts: { quick?: boolean } = {}): Promise<void> {
     if (this.run) return;
     const run = { cancelled: false, cleanup: [] as Array<() => void>, planWaiter: null as ((p: CalibrationPlan) => void) | null };
     this.run = run;
@@ -237,11 +242,21 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
+      const me = room.devices.find((d) => d.id === useRoomStore.getState().deviceId);
+      if (room.playback.status === 'playing' && (me?.isHost || !room.settings.hostOnlyControl)) {
+        const trackId = room.playback.trackId;
+        this.send({ type: 'CONTROL', command: { type: 'pause' } });
+        run.cleanup.push(() => {
+          const pb = useRoomStore.getState().room?.playback;
+          if (pb?.status === 'paused' && pb.trackId === trackId) this.send({ type: 'CONTROL', command: { type: 'play' } });
+        });
+      }
+      const include: Array<'chirp' | 'sweep' | 'noise'> = opts.quick ? ['chirp'] : ['chirp', 'sweep', 'noise'];
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS,
+      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS, include }), 'calibrate', MAX_LATENCY_MS,
         () => patch('calibration', { message: 'Syncing clocks…' }),
-        () => patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' }),
+        () => patch('calibration', { step: 'recording', message: opts.quick ? 'Listen: each speaker will chirp in turn.' : 'Listen: each speaker will chirp and sweep in turn.' }),
         (progress) => patch('calibration', { progress }),
       );
       patch('calibration', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
@@ -284,6 +299,8 @@ export class CalibrationController {
           ...(d.bassCapable !== null ? { bassCapable: d.bassCapable } : {}),
           ...(trim !== undefined ? { trimDb: Math.max(-24, Math.min(12, trim)) } : {}),
           ...(d.levelDb !== null ? { levelDb: d.levelDb } : {}),
+          // a full pass clears an old hint; a quick (timing-only) pass leaves level results alone
+          ...(opts.quick ? {} : { volumeUpDb: report.volumeUp[d.deviceId] ?? null }),
         };
       });
       if (!this.send({ type: 'CALIBRATION_RESULT', planId: plan.id, results })) throw new Error('Lost the connection before the results could be saved.');
