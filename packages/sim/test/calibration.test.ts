@@ -18,7 +18,7 @@ import { referenceSpeakers, renderListenerRecording, SIM_SR, type SimSpeaker } f
 const LISTENER: Vec2 = { x: 0, y: 1 };
 const INPUT_LATENCY_MS = 12;
 
-function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number } = {}) {
+function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; inputLatencyMs?: number; silence?: boolean } = {}) {
   const slots = buildCalibrationSlots(speakers.map((s) => s.id));
   const plan: CalibrationPlan = { id: 'cal1', listenerId: 'listener', startRoomTime: 1_000_000, slots };
   const recording = renderListenerRecording({
@@ -27,10 +27,9 @@ function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number } = {}) {
     listener: LISTENER,
     sampleRate: SIM_SR,
     durationMs: calibrationRecordingMs(slots),
-    inputLatencyMs: INPUT_LATENCY_MS,
-    noiseDb: -50,
-    ...extra,
+    ...{ inputLatencyMs: INPUT_LATENCY_MS, noiseDb: -50, ...extra },
   });
+  if (extra.silence) recording.fill(0);
   return analyzeCalibration({
     plan,
     recording,
@@ -221,5 +220,34 @@ describe('acoustic calibration (end to end, synthetic room)', () => {
       new URL('calibration.json', dir),
       JSON.stringify({ sampleRate: SIM_SR, inputLatencyMs: INPUT_LATENCY_MS, ...results }, null, 2) + '\n',
     );
+  });
+});
+
+describe('calibration failure diagnostics', () => {
+  const one = [referenceSpeakers().find((s) => s.id === 'desktop')!];
+
+  it.each([-300, 900])('still hears a chirp arriving %i ms from nominal (old −100/+600 ms window missed it)', (offset) => {
+    // desktop: 15 ms output latency + ~10 ms propagation = ~25 ms nominal; shift the rest via the listener's input latency
+    const r = run(one, { inputLatencyMs: offset - 25 });
+    const d = r.devices[0]!;
+    expect(d.heard).toBe(true);
+    expect(d.arrivalOffsetMs!).toBeGreaterThan(offset - 10);
+    expect(d.arrivalOffsetMs!).toBeLessThan(offset + 10);
+    expect(r.warnings.some((w) => /unusual timing/.test(w))).toBe(true);
+  });
+
+  it('digital silence from the mic is reported as such (recordingPeakDb ≈ −200) and nobody is heard', () => {
+    const r = run(one, { silence: true });
+    expect(r.devices.some((d) => d.heard)).toBe(false);
+    expect(r.recordingPeakDb).toBeLessThan(-80);
+  });
+
+  it('a too-weak speaker still exposes its best match for diagnostics', () => {
+    const quiet = [{ ...one[0]!, gain: 0.00002 }];
+    const r = run(quiet, { roomNoiseDb: -45 });
+    const d = r.devices[0]!;
+    expect(d.heard).toBe(false);
+    expect(d.bestSnrDb).not.toBeNull();
+    expect(r.recordingPeakDb).toBeGreaterThan(-80);
   });
 });
