@@ -69,7 +69,15 @@ export interface RoomDeps {
 export const perfClock = () => performance.timeOrigin + performance.now();
 export const AUTO_PLACE_RADIUS_M = 2.2;
 export const STATS_BROADCAST_INTERVAL_MS = 1000;
+/** Calibration start lead, ms (the listener has already opened its mic and settled). */
 export const CALIBRATION_MIN_LEAD_MS = 1500;
+/**
+ * …for an all-recorders tune: the other recorders open their mics when the plan arrives, and the output-latency step
+ * that can cause must settle into each device's audio-clock mapping before its slot is scheduled.
+ */
+export const CALIBRATION_ALL_LEAD_MS = 3500;
+/** an all-recorders plan must end within this, ms (32 devices × 1.55 s fit) */
+export const CALIBRATION_ALL_MAX_MS = 60_000;
 const BASS_CLASSES = new Set(['laptop', 'desktop', 'bluetooth']);
 
 /** constant-time string compare (pure JS, Worker-safe) */
@@ -101,7 +109,8 @@ export class Room {
   private readonly connDevice = new Map<string, string>();
   private readonly deviceConn = new Map<string, string>();
   private readonly disconnectedAt = new Map<string, number>();
-  private readonly planIds: string[] = [];
+  /** recent calibration plans → their listener (only it may submit results; recorders' rows go to it) */
+  private readonly plans: Array<{ id: string; listenerId: string }> = [];
   private lastStatsBroadcast = -Infinity;
   private placed = 0;
   /** room ms since which no device is connected (null while someone is connected) */
@@ -365,21 +374,40 @@ export class Room {
         return [this.deviceList('all')];
       }
       case 'CALIBRATION_START': {
+        // a run plays on every device (and a tune rewrites their latency/EQ): a playback-control action
+        if (!this.canControl(sender)) throw new RoomError('forbidden', 'only the host may calibrate');
+        if (msg.recorders === 'all') {
+          // every device opens its mic and buffers the whole run: keep it a tune — one sweep per known device, short
+          const ids = msg.slots.map((s) => s.deviceId);
+          const endMs = Math.max(...msg.slots.map((s) => s.offsetMs + s.durationMs));
+          if (msg.purpose === 'measure' || msg.slots.some((s) => s.repeat !== undefined) || new Set(ids).size !== ids.length || ids.some((id) => !this.device(id)) || endMs > CALIBRATION_ALL_MAX_MS)
+            throw new RoomError('bad_plan', 'an all-recorders plan must be one short slot per device');
+        }
         const id = crypto.randomUUID();
-        this.planIds.push(id);
-        if (this.planIds.length > 16) this.planIds.shift();
+        this.plans.push({ id, listenerId: sender.id });
+        if (this.plans.length > 16) this.plans.shift();
         const plan = {
           id,
           listenerId: sender.id,
-          startRoomTime: now + Math.max(this.lead(), CALIBRATION_MIN_LEAD_MS),
+          startRoomTime: now + Math.max(this.lead(), msg.recorders === 'all' ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS),
           slots: msg.slots,
           ...(msg.purpose ? { purpose: msg.purpose } : {}),
+          ...(msg.recorders ? { recorders: msg.recorders } : {}),
         };
         return [this.out('all', { type: 'CALIBRATION_PLAN', plan })];
       }
+      case 'CALIBRATION_ROWS': {
+        const plan = this.plans.find((p) => p.id === msg.planId);
+        if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
+        const to = this.deviceConn.get(plan.listenerId);
+        if (to === undefined) return [];
+        const { type: _t, ...rows } = msg;
+        return [this.out([to], { type: 'CALIBRATION_ROWS', recorderId: sender.id, ...rows })];
+      }
       case 'CALIBRATION_RESULT': {
-        if (!this.planIds.includes(msg.planId))
-          throw new RoomError('unknown_plan', 'no such calibration plan');
+        const plan = this.plans.find((p) => p.id === msg.planId);
+        if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
+        if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may submit its results");
         for (const r of msg.results) {
           const dev = this.device(r.deviceId);
           if (!dev) continue;

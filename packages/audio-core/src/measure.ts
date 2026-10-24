@@ -22,20 +22,35 @@ export function crossCorrelate(x: Float32Array, ref: Float32Array): Float64Array
   return xr.slice(0, x.length);
 }
 
-/** |analytic signal| (Hilbert envelope) of a real sequence. */
-export function envelope(x: Float64Array): Float64Array {
+function median(a: Float64Array): number {
+  const s = Float64Array.from(a).sort();
+  return s[s.length >> 1] ?? 0;
+}
+
+/**
+ * Hilbert envelope of `x` band-limited to [lo, hi] Hz with raised-cosine edges one octave wide (lo/2→lo,
+ * hi→min(2·hi, Nyquist)), zero-phase (one FFT pair). Smooth edges keep the band's time sidelobes far below the
+ * −12 dB first-arrival threshold, which a brick-wall band (sinc ringing at −13 dB) would not.
+ */
+export function bandEnvelope(x: Float64Array, sampleRate: number, lo: number, hi: number): Float64Array {
   const n = nextPow2(x.length);
   const re = new Float64Array(n);
   const im = new Float64Array(n);
   re.set(x);
   fft(re, im);
-  for (let k = 1; k < n / 2; k++) {
-    re[k] = re[k]! * 2;
-    im[k] = im[k]! * 2;
-  }
-  for (let k = n / 2 + 1; k < n; k++) {
-    re[k] = 0;
-    im[k] = 0;
+  const hiEnd = Math.min(2 * hi, sampleRate / 2);
+  const w = (f: number) => {
+    if (f <= lo / 2 || f >= hiEnd) return 0;
+    if (f < lo) return 0.5 - 0.5 * Math.cos(Math.PI * Math.log2(f / (lo / 2)));
+    if (f <= hi) return 1;
+    return 0.5 + 0.5 * Math.cos((Math.PI * Math.log2(f / hi)) / Math.log2(hiEnd / hi));
+  };
+  re[0] = 0;
+  im[0] = 0;
+  for (let k = 1; k < n; k++) {
+    const g = k < n / 2 ? 2 * w((k * sampleRate) / n) : 0;
+    re[k] = re[k]! * g;
+    im[k] = im[k]! * g;
   }
   fft(re, im, true);
   const out = new Float64Array(x.length);
@@ -43,65 +58,56 @@ export function envelope(x: Float64Array): Float64Array {
   return out;
 }
 
-export interface Arrival {
-  /** sample index in `recording` where `reference` starts (sub-sample, parabolic interpolation) */
-  index: number;
-  /** normalized correlation peak 0..1 */
-  peak: number;
-  /** peak-to-median ratio in dB — confidence */
-  snrDb: number;
-}
+/** Band where the direct-path arrival is located: wide (sharp, reflection-resolving peak) and played by laptops. */
+export const ARRIVAL_BAND = { lo: 1000, hi: 12000 } as const;
 
-function median(a: Float64Array): number {
-  const s = Float64Array.from(a).sort();
-  return s[s.length >> 1] ?? 0;
+export interface FirstArrival {
+  /** index in the matched-filter output (= where the reference starts in the recording), sub-sample */
+  index: number;
+  /** strongest envelope peak / median envelope in the window, dB */
+  snrDb: number;
+  /** how far after the direct path the strongest peak came (a louder reflection), ms; 0 = direct was strongest */
+  lagMs: number;
+  /** direct-path envelope height, dB (relative: same reference → comparable across arrivals at one mic) */
+  directDb: number;
 }
 
 /**
- * Best match of `reference` in recording[searchStart, searchEnd) (= range of candidate start indices), with no
- * acceptance thresholds. Works on the Hilbert envelope of the cross-correlation so narrow-band references (and
- * phase-shifting speakers) don't cause carrier-cycle slips; the envelope peak is refined by parabolic interpolation.
- * Null only if the window is empty.
+ * Direct-path arrival in a matched-filter output `y` (a correlation against the emitted signal ≈ the impulse
+ * response): band envelope (`ARRIVAL_BAND`), strongest peak P in [start, end), then the EARLIEST local envelope peak
+ * within `lookbackMs` before P that is at most `dropDb` below it, refined by parabolic interpolation. A louder
+ * reflection (side/down-firing laptop speakers, a desk) therefore never wins over the direct sound.
  */
-export function scanArrival(
-  recording: Float32Array,
-  reference: Float32Array,
-  opts: { searchStart?: number; searchEnd?: number } = {},
-): Arrival | null {
-  const m = reference.length;
-  const start = Math.max(0, Math.floor(opts.searchStart ?? 0));
-  const end = Math.min(recording.length - m + 1, Math.ceil(opts.searchEnd ?? recording.length - m + 1));
-  if (end <= start) return null;
-  const seg = recording.subarray(start, end + m - 1);
-  const env = envelope(crossCorrelate(seg, reference)).subarray(0, end - start);
-  let k0 = 0;
-  for (let k = 1; k < env.length; k++) if (env[k]! > env[k0]!) k0 = k;
-  const pk = env[k0]!;
-  let delta = 0;
-  if (k0 > 0 && k0 < env.length - 1) {
-    const a = env[k0 - 1]!;
-    const c = env[k0 + 1]!;
-    const den = a - 2 * pk + c;
-    if (den < 0) delta = (0.5 * (a - c)) / den;
+export function firstArrival(
+  y: Float64Array,
+  sampleRate: number,
+  opts: { start?: number; end?: number; lookbackMs?: number; dropDb?: number } = {},
+): FirstArrival | null {
+  const env = bandEnvelope(y, sampleRate, ARRIVAL_BAND.lo, ARRIVAL_BAND.hi);
+  const s = Math.max(1, Math.floor(opts.start ?? 0));
+  const e = Math.min(env.length - 1, Math.ceil(opts.end ?? env.length));
+  if (e - s < 3) return null;
+  let p = s;
+  for (let k = s + 1; k < e; k++) if (env[k]! > env[p]!) p = k;
+  const floor = env[p]! * Math.pow(10, -(opts.dropDb ?? 12) / 20);
+  let k0 = p;
+  for (let k = Math.max(s, p - Math.round(((opts.lookbackMs ?? 5) / 1000) * sampleRate)); k < p; k++) {
+    if (env[k]! >= floor && env[k]! >= env[k - 1]! && env[k]! >= env[k + 1]!) {
+      k0 = k;
+      break;
+    }
   }
-  let refE = 0;
-  for (let i = 0; i < m; i++) refE += reference[i]! * reference[i]!;
-  let segE = 0;
-  for (let i = k0; i < k0 + m; i++) segE += seg[i]! * seg[i]!;
-  const peak = pk / Math.sqrt(refE * segE + 1e-30);
-  const snrDb = 20 * Math.log10(pk / (median(env) + 1e-30));
-  return { index: start + k0 + delta, peak, snrDb };
-}
-
-/** `scanArrival`, or null if snrDb (envelope peak / median) < minSnrDb or the normalized peak < minPeak. */
-export function detectArrival(
-  recording: Float32Array,
-  reference: Float32Array,
-  opts: { searchStart?: number; searchEnd?: number; minSnrDb?: number; minPeak?: number } = {},
-): Arrival | null {
-  const a = scanArrival(recording, reference, opts);
-  if (!a || a.snrDb < (opts.minSnrDb ?? 10) || a.peak < (opts.minPeak ?? 0.1)) return null;
-  return a;
+  const a = env[k0 - 1]!;
+  const b = env[k0]!;
+  const c = env[k0 + 1]!;
+  const den = a - 2 * b + c;
+  const delta = den < 0 ? (0.5 * (a - c)) / den : 0;
+  return {
+    index: k0 + delta,
+    snrDb: 20 * Math.log10(env[p]! / (median(env.subarray(s, e)) + 1e-30)),
+    lagMs: ((p - k0) / sampleRate) * 1000,
+    directDb: 20 * Math.log10(b + 1e-30),
+  };
 }
 
 /** Linear convolution via FFT. */

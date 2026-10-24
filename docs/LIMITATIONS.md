@@ -29,8 +29,19 @@ An honest list of what is not done, what can't be verified without hardware, and
   only prompts to recalibrate. A device that never granted mic permission (calibrated from another listener)
   has no labels either. Calibrated latencies are relative to the fastest device *in that run*, so values from
   runs with different device sets are not strictly comparable.
-- **Calibration's search window is 500 ms**, so a speaker slower than ~500 ms beyond the fastest device is not
-  heard by calibration; use the manual slider for it.
+- **The tune's search window is −0.4…+1.0 s around each slot** (every device plays the same sweep, so windows
+  can't overlap the next slot). A speaker more than ~1 s late (AirPlay-class outputs, ~2 s) is not heard; use the
+  manual slider for it.
+- **The head is assumed 0.4 m behind the tuning laptop.** Timing is exact at that laptop's mic and aligned at the
+  assumed head position; if you sit elsewhere, drag the listener on the stage (or tune from where you sit). Aligning
+  at the mic instead would leave ~1.6 ms of error in the sim room (`tune.test.ts` control).
+- **A laptop's two speakers are ~25 cm apart**, so its arrival differs by up to ±0.4 ms depending on direction, and
+  measured distances are short by up to its half-width (≤ 15 cm in sim): the first arrival comes from the nearer
+  speaker.
+- **External speakers that aren't Bluetooth** (HDMI, USB, wired) far from their laptop are detected only by the
+  direct-level co-location test, which can miss one a few metres away; if the layout looks wrong, drag it. Their
+  timing at the listener is unaffected.
+- **Headphones can't be tuned** (no mic hears them): they keep the browser-reported latency plus the manual slider.
 - **Clock asymmetry:** NTP-style sync can't observe asymmetric network paths. The bias (asymmetry/2, e.g.
   15 ms for a 30 ms asymmetry) gets absorbed by acoustic calibration; without calibration it remains.
 
@@ -38,7 +49,8 @@ An honest list of what is not done, what can't be verified without hardware, and
 
 - **Acoustic numbers:** all inter-device sync numbers come from simulation, offline rendering or same-machine
   headless browsers. None was measured with real phones, speakers and a microphone in a room.
-- **Calibration** (chirp ID, sweep EQ, loudness) is verified with synthetic acoustics and a browser loopback
+- **Calibration** (ranging, timing, sweep EQ, loudness) is verified with synthetic acoustics (first-order wall and
+  floor reflections, stereo laptops, recorder ppm, fresh clock errors at play time) and a browser loopback
   "mic". Real microphones (AGC, non-flat response, room reflections) are untested. A phone mic's own response
   is common to every device, so relative matching still holds, but absolute EQ is shaped by it.
 - **Lip-sync** (Mode 1 buffer, nudge slider) and "no clicks while dragging" (gain smoothing with
@@ -52,8 +64,8 @@ An honest list of what is not done, what can't be verified without hardware, and
 
 ## Known gaps and simplifications
 
-- **EQ convergence below 280 Hz:** the 200 Hz–8 kHz pairwise spread drops 38 % (spec target 40 %). Over
-  280 Hz–8 kHz, where every device's EQ may act, it drops 78 %. Below 280 Hz the phone (300 Hz high-pass) may not
+- **EQ convergence below 280 Hz:** the 200 Hz–8 kHz pairwise spread drops 37 % (spec target 40 %). Over
+  280 Hz–8 kHz, where every device's EQ may act, it drops 80 %. Below 280 Hz the phone (300 Hz high-pass) may not
   be boosted by rule, so in the app that band goes through bass management to bass-capable devices instead.
 - **Clock drift estimate under heavy jitter:** with σ ≥ 5 ms jitter and 1 Hz pings, drift is within ±5 ppm only
   after ~300 s (at 120 s: 5.0 ppm with σ 5 ms, up to 44.5 ppm with σ 30 ms). The offset error stays < 6 ms max
@@ -64,8 +76,9 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Capture transport** is a WebRTC mesh: host uplink = N × ~256 kbps Opus. Fine for ~8 devices. LiveKit (an SFU)
   is recommended beyond that but not integrated. The capture pipeline-delay estimate uses `getStats`
   (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), which is unverified on real networks.
-- **Positions:** multilateration auto-layout from chirp time-of-flight (a stretch goal) is not implemented. Devices
-  are placed manually or by preset, and "Identify" helps match icons to physical speakers. A height axis is not
+- **Positions:** a full tune measures laptop-to-laptop distances (two-way ranging) and lays the room out from them,
+  fitted onto the user's rough layout. Devices that don't record (no mic or permission) or play through Bluetooth
+  keep their hand placement (flagged in the result). Multilateration of those, and a height axis, are not
   implemented.
 - **Upmix** is a simple mid/side derivation (C = mid −3 dB, surrounds = filtered and delayed side), not a
   steering decoder.

@@ -185,7 +185,7 @@ export function resizeRoom(scene: Scene, room: Scene['room']) {
   };
 }
 /** azimuth in degrees: 0 = straight ahead (−y), +ve = to the listener's right (+x) */
-const polar = (c: Vec2, azDeg: number, r: number): Vec2 => {
+export const polar = (c: Vec2, azDeg: number, r: number): Vec2 => {
   const a = (azDeg * Math.PI) / 180;
   return { x: c.x + r * Math.sin(a), y: c.y - r * Math.cos(a) };
 };
@@ -329,4 +329,89 @@ export function channelIndexFor(channel: AudioObject['channel'], channels: numbe
   if (channels <= 1) return 0;
   if (channels < 6) return channel === 'L' ? 0 : channel === 'R' ? 1 : null;
   return (channels >= 8 ? WAV71 : WAV51)[channel] ?? null;
+}
+
+/**
+ * 2-D layout from measured pairwise distances (stress majorization, one point at a time — Gansner et al. 2004):
+ * x_i ← mean over measured j of (x_j + d_ij·unit(x_i − x_j)). Starts from `init` (the user's rough layout), so the
+ * local optimum it lands in keeps that layout's shape. Ids without a measured distance are returned unchanged.
+ * Also returns normalized stress √(Σ(|x_i − x_j| − d_ij)² / Σ d_ij²): ≈ 0 when the distances embed in a plane.
+ */
+export function smacof2d(
+  init: Record<string, Vec2>,
+  d: Record<string, Record<string, number>>,
+  iterations = 300,
+): { positions: Record<string, Vec2>; stress: number } {
+  const pos: Record<string, Vec2> = Object.fromEntries(Object.entries(init).map(([id, p]) => [id, { ...p }]));
+  const ids = Object.keys(d).filter((id) => pos[id] && Object.keys(d[id]!).some((j) => pos[j]));
+  for (let it = 0; it < iterations; it++) {
+    for (const i of ids) {
+      let sx = 0;
+      let sy = 0;
+      let n = 0;
+      for (const [j, dij] of Object.entries(d[i]!)) {
+        const pj = pos[j];
+        if (!pj) continue;
+        let dx = pos[i]!.x - pj.x;
+        let dy = pos[i]!.y - pj.y;
+        let r = Math.hypot(dx, dy);
+        if (r < 1e-9) [dx, dy, r] = [1e-3, 0, 1e-3]; // coincident start: any direction
+        sx += pj.x + (dij * dx) / r;
+        sy += pj.y + (dij * dy) / r;
+        n++;
+      }
+      if (n) pos[i] = { x: sx / n, y: sy / n };
+    }
+  }
+  let num = 0;
+  let den = 0;
+  for (const i of ids)
+    for (const [j, dij] of Object.entries(d[i]!)) {
+      if (!pos[j] || j <= i) continue;
+      num += (dist(pos[i]!, pos[j]) - dij) ** 2;
+      den += dij * dij;
+    }
+  return { positions: pos, stress: den > 0 ? Math.sqrt(num / den) : 0 };
+}
+
+/**
+ * Rigid 2-D fit (rotation, optional reflection, translation; no scale) of `src` onto `dst` over their shared ids,
+ * applied to every point of `src`. Keeps a measured layout facing the way the user placed things (front, left/right).
+ * Fewer than 2 shared points: translation only.
+ */
+export function procrustes2d(src: Record<string, Vec2>, dst: Record<string, Vec2>): Record<string, Vec2> {
+  const ids = Object.keys(src).filter((id) => dst[id]);
+  if (!ids.length) return src;
+  const mean = (m: Record<string, Vec2>) => ({
+    x: ids.reduce((a, id) => a + m[id]!.x, 0) / ids.length,
+    y: ids.reduce((a, id) => a + m[id]!.y, 0) / ids.length,
+  });
+  const cs = mean(src);
+  const cd = mean(dst);
+  // best rotation of (optionally x-mirrored) centred src onto centred dst: θ = atan2(Σ cross, Σ dot)
+  const fit = (flip: number) => {
+    let a = 0;
+    let b = 0;
+    for (const id of ids) {
+      const x = flip * (src[id]!.x - cs.x);
+      const y = src[id]!.y - cs.y;
+      const u = dst[id]!.x - cd.x;
+      const v = dst[id]!.y - cd.y;
+      a += x * u + y * v;
+      b += x * v - y * u;
+    }
+    return { flip, th: ids.length < 2 ? 0 : Math.atan2(b, a), score: Math.hypot(a, b) };
+  };
+  const plain = fit(1);
+  const mirror = fit(-1);
+  const best = ids.length >= 3 && mirror.score > plain.score ? mirror : plain;
+  const c = Math.cos(best.th);
+  const s = Math.sin(best.th);
+  return Object.fromEntries(
+    Object.entries(src).map(([id, p]) => {
+      const x = best.flip * (p.x - cs.x);
+      const y = p.y - cs.y;
+      return [id, { x: cd.x + c * x - s * y, y: cd.y + s * x + c * y }];
+    }),
+  );
 }

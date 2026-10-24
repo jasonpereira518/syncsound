@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { cascadeMagnitudeDb, designBiquad, processCascade } from './biquad';
 import {
   convolve,
+  crossCorrelate,
   deconvolve,
-  detectArrival,
   estimateRolloffHz,
+  firstArrival,
   logFreqs,
   magnitudeResponse,
   rmsDb,
-  scanArrival,
   smoothFractionalOctave,
 } from './measure';
-import { chirpBand, logSweep, mulberry32, pinkNoise } from './signals';
+import { logSweep, mulberry32, pinkNoise } from './signals';
 
 const SR = 48000;
 
@@ -31,31 +31,39 @@ function chirpAt(f1: number, f2: number, dur: number, n: number, delay: number):
   return out;
 }
 
-describe('arrival detection', () => {
-  it('finds a fractional delay to sub-sample accuracy (wide and narrow band)', () => {
+describe('firstArrival', () => {
+  const ref = chirpAt(300, 20000, 0.1, 4800, 0);
+  const arrival = (rec: Float32Array) => firstArrival(crossCorrelate(rec, ref), SR)!;
+
+  it('finds a fractional delay to sub-sample accuracy', () => {
     const rnd = mulberry32(3);
-    for (const [f1, f2] of [
-      [1000, 4000],
-      [chirpBand(0).f1, chirpBand(0).f2],
-    ] as const) {
-      for (const d of [2000.37, 5123.81]) {
-        const ref = chirpAt(f1, f2, 0.4, Math.round(0.4 * SR), 0);
-        const rec = chirpAt(f1, f2, 0.4, 48000, d).map((v) => 0.3 * v + 0.003 * (rnd() - 0.5));
-        const a = detectArrival(rec, ref)!;
-        expect(Math.abs(a.index - d)).toBeLessThan(0.25);
-        expect(a.peak).toBeGreaterThan(0.9);
-        expect(a.snrDb).toBeGreaterThan(20);
-      }
+    for (const d of [2000.37, 5123.81]) {
+      const rec = chirpAt(300, 20000, 0.1, 12000, d).map((v) => 0.3 * v + 0.003 * (rnd() - 0.5));
+      const a = arrival(rec);
+      expect(Math.abs(a.index - d)).toBeLessThan(0.25);
+      expect(a.snrDb).toBeGreaterThan(30);
+      expect(a.lagMs).toBe(0);
     }
   });
 
-  it('respects the search window and rejects noise-only input', () => {
-    const ref = chirpAt(1000, 4000, 0.1, 4800, 0);
-    const rec = chirpAt(1000, 4000, 0.1, 30000, 20000);
-    expect(detectArrival(rec, ref, { searchStart: 0, searchEnd: 10000 })).toBeNull();
-    expect(detectArrival(rec, ref, { searchStart: 15000, searchEnd: 25000 })!.index).toBeCloseTo(20000, 1);
-    const noise = pinkNoise(48000, 9, 0.1);
-    expect(detectArrival(noise, chirpAt(chirpBand(5).f1, chirpBand(5).f2, 0.4, 19200, 0))).toBeNull();
+  it('takes the direct path when a reflection 1.5 ms later is 3 dB louder', () => {
+    const d = 3000.4;
+    const lag = 0.0015 * SR;
+    const direct = chirpAt(300, 20000, 0.1, 12000, d);
+    const refl = chirpAt(300, 20000, 0.1, 12000, d + lag);
+    const rec = direct.map((v, i) => 0.3 * v + 0.42 * refl[i]!);
+    const a = arrival(rec);
+    expect(Math.abs(a.index - d)).toBeLessThan(0.5);
+    expect(a.lagMs).toBeCloseTo(1.5, 1);
+  });
+
+  it('stays below the heard gate on noise only, and respects the window', () => {
+    const noise = pinkNoise(24000, 9, 0.1);
+    expect(firstArrival(crossCorrelate(noise, ref), SR)!.snrDb).toBeLessThan(20);
+    const rec = chirpAt(300, 20000, 0.1, 30000, 20000);
+    const y = crossCorrelate(rec, ref);
+    expect(firstArrival(y, SR, { start: 15000, end: 25000 })!.index).toBeCloseTo(20000, 1);
+    expect(firstArrival(y, SR, { start: 0, end: 10000 })!.snrDb).toBeLessThan(20);
   });
 });
 
@@ -98,18 +106,5 @@ describe('sweep deconvolution', () => {
   it('rmsDb of a full-scale sine is −3 dB', () => {
     const s = Float32Array.from({ length: 48000 }, (_, i) => Math.sin((2 * Math.PI * 1000 * i) / SR));
     expect(rmsDb(s)).toBeCloseTo(-3.01, 2);
-  });
-});
-
-describe('scanArrival', () => {
-  it('returns the best candidate with no thresholds; detectArrival rejects the same noise-only window', () => {
-    const rnd = mulberry32(11);
-    const noise = Float32Array.from({ length: SR }, () => (rnd() * 2 - 1) * 0.01);
-    const { f1, f2 } = chirpBand(3);
-    const ref = chirpAt(f1, f2, 0.4, Math.round(0.4 * SR), 0);
-    const scanned = scanArrival(noise, ref, {});
-    expect(scanned).not.toBeNull();
-    expect(scanned!.peak).toBeLessThan(0.1);
-    expect(detectArrival(noise, ref, {})).toBeNull();
   });
 });

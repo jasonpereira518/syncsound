@@ -68,31 +68,51 @@ true output latency) and cross-correlated pairwise.
 | Late joiner (joins 7.3 s after start) | 1.01 ms vs the others |
 | Same devices **without** latency compensation (control) | 169.8 ms |
 
-## 4. Acoustic calibration (`calibration.test.ts`)
+## 4. Acoustic calibration (`calibration.test.ts`, listener-only)
 
-Four synthetic speakers (known biquad responses plus latencies). One mono listener recording: each speaker's signals
-arriving at scheduled time + latency + propagation + a hidden 12 ms mic input latency, plus −50 dBFS noise. It goes
-through the real `buildCalibrationSlots` → `analyzeCalibration` pipeline.
+Four synthetic speakers (known biquad responses plus latencies). One mono listener recording: each speaker's 0.7 s
+sweep arriving at scheduled time + latency + propagation + a hidden 12 ms mic input latency, plus −50 dBFS noise. It
+goes through the real `buildTuneSlots` → `analyzeRecording` → `solveTune` pipeline (calibration v3).
 
 | Device | True relative latency | Measured | Error | Response error (passband) |
 |---|---|---|---|---|
-| Phone (300 Hz HP + 4 kHz peak) | 10 ms | 10.25 ms | 0.25 ms | 0.06 dB |
-| Laptop (−8 dB low shelf) | 25 ms | 25.06 ms | 0.06 ms | 0.09 dB |
-| **Bluetooth speaker** | **195 ms** | **195.01 ms** | **0.01 ms** | 0.33 dB |
-| Desktop (flat) | 0 ms | 0 ms | 0 ms | 0.59 dB |
+| Phone (300 Hz HP + 4 kHz peak) | 10 ms | 10.02 ms | 0.02 ms | 0.19 dB |
+| Laptop (−8 dB low shelf) | 25 ms | 25.01 ms | 0.01 ms | 0.30 dB |
+| **Bluetooth speaker** | **195 ms** | **195.01 ms** | **0.01 ms** | 0.53 dB |
+| Desktop (flat) | 0 ms | 0 ms | 0 ms | 0.27 dB |
+
+(v2's narrow-band chirps measured the phone 0.25 ms off in the same room.)
 
 - **EQ convergence:** after EQ toward the common target, the mean pairwise RMS difference between device responses
-  falls from 1.84 to 0.41 dB (**−78 %**) over 280 Hz–8 kHz. Over 200 Hz–8 kHz it falls from 2.22 to 1.37 dB
-  (−38 %); the gap is explained in LIMITATIONS.
-- **Safety:** the largest band boost was 3.8 dB (rail: 6 dB), there was no boost below rolloff, and overall gain
-  stayed ≤ 0 dB.
-- **Error cases:** a noisy room (SNR 1–4 dB) raises a warning, and an unplugged device is reported as not heard.
+  falls from 1.84 to 0.36 dB (**−80 %**) over 280 Hz–8 kHz. Over 200 Hz–8 kHz it falls from 2.22 to 1.40 dB
+  (−37 %); the gap is explained in LIMITATIONS.
+- **Safety:** the largest band boost was 3.6 dB (rail: 6 dB), there was no boost below rolloff (checked 20 Hz up),
+  and overall gain stayed ≤ 0 dB.
+- **Error cases:** a noisy room (broadband SNR 5–7 dB) raises a warning (timing still within 0.02 ms), and an
+  unplugged device is reported as not heard.
+
+## 4b. Tune end to end (`tune.test.ts`)
+
+6 × 5 m room with first-order wall + floor reflections; four stereo laptops (speakers ±13 cm, one side-firing so its
+floor bounce is louder than the direct sound) plus a laptop driving a Bluetooth speaker across the room (180 ms).
+Every device records its own mic (recorder clock ±50 ppm, known to ±20 ppm); clock errors ~N(0, 0.11 ms) per device,
+drawn afresh at tune time and again at play time (σ matched to §2b). 6 seeds; scored at the listener's head.
+
+| | p50 | p95 | max |
+|---|---|---|---|
+| **Arrival spread at the head, any two devices** | 0.19 ms | **0.53 ms** | 0.62 ms |
+| Control: same tune aligned at the mic (no head model) | — | 1.62 ms | 1.88 ms |
+| Laptop-to-laptop distance error | — | 13.7 cm | 14.3 cm (the stereo half-width) |
+
+The Bluetooth speaker is timed exactly at the listener and keeps its hand placement. Trying a longer LAN clock
+window (256) and a smaller best-fraction (15 %) lowered §2b's device-to-device p95 only from 0.41 to 0.37 ms, so the
+filter is unchanged (DECISIONS #54).
 
 ## 5. Sync-measurement tool (`syncMeasure.test.ts` + E2E)
 
-- **Simulated:** 4 devices click simultaneously for 60 s in distinct chirp bands, each with a known residual error
-  and 0.4 ms rms jitter. Per-click inter-device errors are recovered from one mixed recording to within **0.17 ms**
-  (240/240 clicks).
+- **Simulated:** 4 devices click for 60 s, time-staggered by 250 ms with identical wideband chirps, each with a known
+  residual error and 0.4 ms rms jitter. Per-click inter-device errors are recovered from one mixed recording to
+  within **0.02 ms** (240/240 clicks; v2's narrow-band chirps: 0.17 ms).
 - **Real browser (headless Chromium, loopback "mic"):** 10/10 clicks detected, **0.03 ms rms** click-timing jitter.
   Each click is scheduled independently through the live clock → audio-clock mapping. Before the
   `AudioClockMap` latency-step fix this measured 9.5 ms rms (see DECISIONS #13).

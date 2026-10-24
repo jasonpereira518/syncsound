@@ -59,6 +59,8 @@ interface Session {
   caps: DeviceCaps;
   /** current output label (undefined when the browser hides it) → per-output calibration memory key */
   outputLabel: string | undefined;
+  /** clock path ('lan:<master>' | 'wan') during this session's last tune; a later change means re-tune */
+  tunedClockPath: string | null;
   cleanup: Array<() => void>;
 }
 
@@ -135,6 +137,9 @@ function handleMessage(msg: ServerMessage) {
       break;
     case 'CALIBRATION_PLAN':
       s.calibration.onPlan(msg.plan);
+      break;
+    case 'CALIBRATION_ROWS':
+      s.calibration.onRows(msg);
       break;
     case 'IDENTIFY': {
       useRoomStore.setState({ identifyFlash: msg.targetDeviceId });
@@ -252,6 +257,20 @@ function watchOutputCalibration(s: Session): () => void {
       }, 1500);
     }
   });
+}
+
+/**
+ * A tune absorbs this device's clock error on the path it used (LAN master vs server clock). Switching path moves
+ * that error by up to a few ms, so prompt a quick re-tune — only against a tune from this session.
+ */
+function watchClockPath(s: Session) {
+  const st = useRoomStore.getState();
+  const path = activeClock(s) === s.link ? `lan:${st.room ? pickClockMaster(st.room.devices, st.room.hostId) : ''}` : 'wan';
+  if (st.calibration.nowPlaying !== null) s.tunedClockPath = path;
+  else if (s.tunedClockPath !== null && path !== s.tunedClockPath) {
+    s.tunedClockPath = path;
+    useRoomStore.setState({ routeChanged: true, routeRestored: null });
+  }
 }
 
 const lastStats = { t: 0 };
@@ -397,7 +416,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       client,
       link,
       engine,
-      calibration: new CalibrationController(engine, send, () => activeClock(s)),
+      calibration: new CalibrationController(engine, send, () => activeClock(s), (p) => roomActions.updateScene(p, { commit: true })),
       capture: new CaptureController(engine, send),
       remote: new RemoteSyncManager({ nowRoom, send, outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1 }),
       video: new VideoDriver(engine, nowRoom),
@@ -408,6 +427,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       autoObjectsKey: '',
       caps,
       outputLabel: caps.outputLabel,
+      tunedClockPath: null,
       cleanup: [],
     };
     session = s;
@@ -431,6 +451,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       } catch {
         /* not ready */
       }
+      watchClockPath(s);
     }, 1000);
     link.start();
     s.cleanup.push(() => clearInterval(statsTimer), () => clearInterval(clockTimer), () => link.dispose());

@@ -218,7 +218,7 @@ export type CalibrationSignal = z.infer<typeof CalibrationSignal>;
 
 export const CalibrationSlot = z.object({
   deviceId: Id,
-  /** index used to derive the device-unique chirp band */
+  /** device's index in the plan (seeds per-device signals) */
   deviceIndex: z.number().int().min(0).max(63),
   signal: CalibrationSignal,
   /** ms after plan.startRoomTime */
@@ -237,8 +237,34 @@ export const CalibrationPlan = z.object({
   slots: z.array(CalibrationSlot).max(256),
   /** calibrate = measure latency/response/level and apply; measure = sync-measurement run (full compensation, no changes) */
   purpose: z.enum(['calibrate', 'measure']).optional(),
+  /** who records: only the listener (default), or every device with a mic (ranging: distances between devices) */
+  recorders: z.enum(['listener', 'all']).optional(),
 });
 export type CalibrationPlan = z.infer<typeof CalibrationPlan>;
+
+/** One recorder's measurement of one emitter's tune sweep. */
+export const CalibrationRow = z.object({
+  emitterId: Id,
+  /** arrival (on the recorder's room clock) − scheduled emission, ms; null = not heard */
+  mMs: finite().min(-10000).max(10000).nullable(),
+  /** 300 Hz–3 kHz level of the measured response, dB (relative: includes this recorder's mic gain) */
+  levelDb: finite().min(-400).max(200).nullable(),
+  /** direct-path level (no room reverb), dB, same relative scale (co-location test) */
+  directDb: finite().min(-400).max(200).nullable(),
+  /** best match's envelope peak / median, dB, also when below the "heard" gate (diagnostics) */
+  snrDb: finite().min(-100).max(400).nullable(),
+  clipped: z.boolean(),
+});
+export type CalibrationRow = z.infer<typeof CalibrationRow>;
+/** a recorder's rows; valid = false: its clocks moved mid-run (rows unusable), reason says why */
+const CalibrationRows = {
+  planId: Id,
+  rows: z.array(CalibrationRow).max(64),
+  valid: z.boolean(),
+  reason: z.string().max(200).optional(),
+  /** the recorder plays through Bluetooth: its speaker isn't at its mic, so it is never ranged */
+  outputBluetooth: z.boolean().optional(),
+};
 
 // ---------- WebRTC signaling ----------
 
@@ -347,7 +373,10 @@ export const ClientMessage = z.discriminatedUnion('type', [
     type: z.literal('CALIBRATION_START'),
     slots: z.array(CalibrationSlot).min(1).max(256),
     purpose: CalibrationPlan.shape.purpose,
+    recorders: CalibrationPlan.shape.recorders,
   }),
+  /** every recorder of an all-recorders plan → the server forwards them to the plan's listener */
+  z.object({ type: z.literal('CALIBRATION_ROWS'), ...CalibrationRows }),
   z.object({
     type: z.literal('CALIBRATION_RESULT'),
     planId: Id,
@@ -384,6 +413,7 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('SCENE'), scene: Scene }),
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
   z.object({ type: z.literal('CALIBRATION_PLAN'), plan: CalibrationPlan }),
+  z.object({ type: z.literal('CALIBRATION_ROWS'), recorderId: Id, ...CalibrationRows }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
   z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),

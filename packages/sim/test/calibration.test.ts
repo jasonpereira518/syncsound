@@ -2,25 +2,27 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { CalibrationPlan, Vec2 } from '@syncsound/protocol';
 import {
-  analyzeCalibration,
-  buildCalibrationSlots,
+  analyzeRecording,
+  buildTuneSlots,
   CALIBRATION_FREQS,
   calibrationRecordingMs,
   cascadeMagnitudeDb,
   eqToBiquads,
   estimateRolloffHz,
   smoothFractionalOctave,
-  type CalibrationReport,
+  solveTune,
   type Response,
+  type TuneReport,
 } from '@syncsound/audio-core';
 import { referenceSpeakers, renderListenerRecording, SIM_SR, type SimSpeaker } from '../src/acoustics';
 
 const LISTENER: Vec2 = { x: 0, y: 1 };
 const INPUT_LATENCY_MS = 12;
 
-function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; quick?: boolean; inputLatencyMs?: number; silence?: boolean } = {}) {
-  const { quick, silence, ...render } = extra;
-  const slots = buildCalibrationSlots(speakers.map((s) => s.id), quick ? { include: ['chirp'] } : {});
+/** listener-only tune: one recording at LISTENER (not a device), analyzed and solved like the listener's own row */
+function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; inputLatencyMs?: number; silence?: boolean } = {}) {
+  const { silence, ...render } = extra;
+  const slots = buildTuneSlots(speakers.map((s) => s.id));
   const plan: CalibrationPlan = { id: 'cal1', listenerId: 'listener', startRoomTime: 1_000_000, slots };
   const recording = renderListenerRecording({
     plan,
@@ -33,14 +35,18 @@ function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; quick?: bool
     ...render,
   });
   if (silence) recording.fill(0);
-  return analyzeCalibration({
-    plan,
-    recording,
+  const a = analyzeRecording({ plan, recording, sampleRate: SIM_SR, toRoomMs: (i) => plan.startRoomTime + (i / SIM_SR) * 1000 });
+  const devices = { ...Object.fromEntries(speakers.map((s) => [s.id, s.position])), listener: LISTENER };
+  const report = solveTune({
+    rows: { listener: a.rows },
+    listenerId: 'listener',
+    responses: a.responses,
+    broadbandSnrDb: a.broadbandSnrDb,
     sampleRate: SIM_SR,
-    recordingStartRoomTime: plan.startRoomTime,
-    devicePositions: Object.fromEntries(speakers.map((s) => [s.id, s.position])),
-    listener: LISTENER,
+    scene: { devices, listener: LISTENER },
+    deviceIds: speakers.map((s) => s.id),
   });
+  return { ...report, rows: a.rows, recordingPeakDb: a.recordingPeakDb };
 }
 
 const trueResponse = (s: SimSpeaker): Response =>
@@ -76,7 +82,7 @@ const results: Record<string, unknown> = {};
 
 describe('acoustic calibration (end to end, synthetic room)', () => {
   const speakers = referenceSpeakers();
-  let report: CalibrationReport;
+  let report: TuneReport;
 
   it('recovers relative latency within 1 ms for every device (incl. 210 ms Bluetooth)', () => {
     report = run(speakers);
@@ -96,19 +102,6 @@ describe('acoustic calibration (end to end, synthetic room)', () => {
     results.latency = rows;
     for (const r of rows) expect(r.errorMs).toBeLessThan(1);
     expect(report.warnings).toEqual([]);
-  });
-
-  it('quick re-sync (chirps only) recovers the same latencies and leaves level/EQ alone', () => {
-    const quick = run(speakers, { quick: true });
-    const minLat = Math.min(...speakers.map((s) => s.latencyMs));
-    for (const s of speakers) {
-      const d = quick.devices.find((x) => x.deviceId === s.id)!;
-      expect(d.heard).toBe(true);
-      expect(Math.abs(d.relativeLatencyMs! - (s.latencyMs - minLat))).toBeLessThan(1);
-    }
-    expect(quick.trims).toEqual({});
-    expect(quick.volumeUp).toEqual({});
-    expect(Object.keys(quick.eq)).toEqual([]);
   });
 
   it('recovers each smoothed response within ±1.5 dB in the passband', () => {
@@ -242,13 +235,13 @@ describe('acoustic calibration (end to end, synthetic room)', () => {
 describe('calibration failure diagnostics', () => {
   const one = [referenceSpeakers().find((s) => s.id === 'desktop')!];
 
-  it.each([-300, 900])('still hears a chirp arriving %i ms from nominal (old −100/+600 ms window missed it)', (offset) => {
+  it.each([-300, 900])('still hears a sweep arriving %i ms from nominal (window −400…+1000 ms)', (offset) => {
     // desktop: 15 ms output latency + ~10 ms propagation = ~25 ms nominal; shift the rest via the listener's input latency
     const r = run(one, { inputLatencyMs: offset - 25 });
     const d = r.devices[0]!;
     expect(d.heard).toBe(true);
-    expect(d.arrivalOffsetMs!).toBeGreaterThan(offset - 10);
-    expect(d.arrivalOffsetMs!).toBeLessThan(offset + 10);
+    expect(r.rows[0]!.mMs!).toBeGreaterThan(offset - 10);
+    expect(r.rows[0]!.mMs!).toBeLessThan(offset + 10);
     expect(r.warnings.some((w) => /unusual timing/.test(w))).toBe(true);
   });
 
@@ -263,7 +256,7 @@ describe('calibration failure diagnostics', () => {
     const r = run(quiet, { roomNoiseDb: -45 });
     const d = r.devices[0]!;
     expect(d.heard).toBe(false);
-    expect(d.bestSnrDb).not.toBeNull();
+    expect(r.rows[0]!.snrDb).not.toBeNull();
     expect(r.recordingPeakDb).toBeGreaterThan(-80);
   });
 });

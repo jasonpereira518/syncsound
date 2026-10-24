@@ -191,6 +191,9 @@ function Banners() {
   const routeChanged = useRoomStore((s) => s.routeChanged);
   const routeRestored = useRoomStore((s) => s.routeRestored);
   const emitting = useRoomStore((s) => s.calibration.emitting);
+  const nowPlaying = useRoomStore((s) => s.calibration.nowPlaying);
+  const nowPlayingName = useRoomStore((s) => (nowPlaying === s.deviceId ? null : s.room?.devices.find((d) => d.id === nowPlaying)?.name));
+  const nowPlayingSelf = useRoomStore((s) => nowPlaying !== null && nowPlaying === s.deviceId);
   return (
     <>
       {routeRestored && !routeChanged && (
@@ -249,7 +252,11 @@ function Banners() {
             <span className="absolute inset-0 animate-ping rounded-full bg-accent" />
             <span className="relative size-3 rounded-full bg-accent" />
           </span>
-          Calibrating: this speaker is playing a test signal
+          {nowPlayingSelf
+            ? 'Tuning: this speaker is playing its sweep'
+            : nowPlayingName
+              ? `Tuning: ${nowPlayingName} is playing`
+              : 'Tuning the room — keep it quiet for a moment'}
         </div>
       )}
     </>

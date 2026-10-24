@@ -61,6 +61,10 @@ export interface CalibrationDeviceUi {
   snrDb: number | null;
   levelDb: number | null;
   rolloffHz: number | null;
+  /** distance to the tuning device's mic, m (null = no position) */
+  distanceM: number | null;
+  /** position measured this run (false = placed by hand) */
+  ranged: boolean;
   /** response curves for plotting (shared freq grid in CalibrationUi.freqs) */
   beforeDb: number[] | null;
   afterDb: number[] | null;
@@ -76,8 +80,10 @@ export interface CalibrationUi {
   targetDb: number[] | null;
   devices: CalibrationDeviceUi[];
   warnings: string[];
-  /** a calibration signal is currently being emitted by this device (speaker side) */
+  /** a calibration / sync-check plan is playing on this device (any role) */
   emitting: boolean;
+  /** device whose tune sweep is playing right now (every device shows it), or null */
+  nowPlaying: string | null;
 }
 
 export interface SyncMeasureDeviceUi {
