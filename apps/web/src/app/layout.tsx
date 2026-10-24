@@ -1,10 +1,22 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import { JetBrains_Mono, Space_Grotesk } from 'next/font/google';
+import { JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import { SwRegister } from '@/components/SwRegister';
 import './globals.css';
 
-const display = Space_Grotesk({ subsets: ['latin'], variable: '--font-space-grotesk', display: 'swap' });
+// Chillax (Fontshare, ITF Free Font License), self-hosted
+const chillax = localFont({
+  src: [
+    { path: './fonts/Chillax-Regular.woff2', weight: '400' },
+    { path: './fonts/Chillax-Medium.woff2', weight: '500' },
+    { path: './fonts/Chillax-Semibold.woff2', weight: '600' },
+    // the app uses font-bold; Chillax tops out at semibold here, so 700 maps to it instead of a faux bold
+    { path: './fonts/Chillax-Semibold.woff2', weight: '700' },
+  ],
+  variable: '--font-chillax',
+  display: 'swap',
+});
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono', display: 'swap' });
 
 export const metadata: Metadata = {
@@ -17,7 +29,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#06070a',
+  themeColor: '#0e0c0a',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
@@ -26,7 +38,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${mono.variable}`}>
+    <html lang="en" className={`${chillax.variable} ${mono.variable}`}>
       <body className="font-sans antialiased">
         <a
           href="#main"

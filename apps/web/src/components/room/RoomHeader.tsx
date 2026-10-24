@@ -23,7 +23,7 @@ export function useJoinLink(): { code: string; joinUrl: string; qr: string | nul
   const joinUrl = typeof window === 'undefined' || !code ? '' : `${window.location.origin}/room/${code}`;
   useEffect(() => {
     if (!joinUrl) return;
-    QRCode.toDataURL(joinUrl, { margin: 1, width: 512, errorCorrectionLevel: 'M', color: { dark: '#06070a', light: '#ffffff' } })
+    QRCode.toDataURL(joinUrl, { margin: 1, width: 512, errorCorrectionLevel: 'M', color: { dark: '#0e0c0a', light: '#ffffff' } })
       .then(setQr)
       .catch(() => setQr(null));
   }, [joinUrl]);
