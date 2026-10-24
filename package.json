@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @syncsound/server --filter @syncsound/web dev",
     "demo": "tsx scripts/demo.ts",
+    "render:speakers": "tsx scripts/render-speakers.ts",
     "test": "pnpm -r --filter=!@syncsound/sim --if-present test",
     "sim": "pnpm --filter @syncsound/sim test",
     "e2e": "playwright test",
@@ -25,6 +26,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.0.0",
     "prettier": "^3.9.10",
+    "three": "0.170.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.0",

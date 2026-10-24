@@ -15,3 +15,4 @@ apps/web/AGENTS.md
 .vercel
 .env*
 !.env.example
+.taste-skill/

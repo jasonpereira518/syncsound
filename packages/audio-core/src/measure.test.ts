@@ -8,6 +8,7 @@ import {
   logFreqs,
   magnitudeResponse,
   rmsDb,
+  scanArrival,
   smoothFractionalOctave,
 } from './measure';
 import { chirpBand, logSweep, mulberry32, pinkNoise } from './signals';
@@ -97,5 +98,18 @@ describe('sweep deconvolution', () => {
   it('rmsDb of a full-scale sine is −3 dB', () => {
     const s = Float32Array.from({ length: 48000 }, (_, i) => Math.sin((2 * Math.PI * 1000 * i) / SR));
     expect(rmsDb(s)).toBeCloseTo(-3.01, 2);
+  });
+});
+
+describe('scanArrival', () => {
+  it('returns the best candidate with no thresholds; detectArrival rejects the same noise-only window', () => {
+    const rnd = mulberry32(11);
+    const noise = Float32Array.from({ length: SR }, () => (rnd() * 2 - 1) * 0.01);
+    const { f1, f2 } = chirpBand(3);
+    const ref = chirpAt(f1, f2, 0.4, Math.round(0.4 * SR), 0);
+    const scanned = scanArrival(noise, ref, {});
+    expect(scanned).not.toBeNull();
+    expect(scanned!.peak).toBeLessThan(0.1);
+    expect(detectArrival(noise, ref, {})).toBeNull();
   });
 });

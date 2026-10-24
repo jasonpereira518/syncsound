@@ -79,3 +79,8 @@ Record results in the table at the bottom.
 | # | Date | Devices / browsers | Result / numbers | Notes |
 |---|------|--------------------|------------------|-------|
 |   |      |                    |                  |       |
+
+**Calibration on real hardware (laptop Chrome as listener + phone):** run *Calibrate*. If it fails, note the message
+(it now says silent mic / too weak / noisy, with mic peak dBFS, best SNR and offset), click *Save microphone recording
+(.wav)* and drop the file in `packages/sim` to replay through `analyzeCalibration`. Check the DevTools console for
+`[calibration] preflight` (own-speaker self-test) and the per-device table.
