@@ -25,6 +25,41 @@ export interface SimSpeaker {
   position: Vec2;
   /** false = unplugged/silent: contributes nothing to the recording */
   audible?: boolean;
+  /** where the sound comes from when it isn't the device itself (a Bluetooth speaker across the room) */
+  speakerPosition?: Vec2;
+  /** stereo laptop: two point sources ±this far apart along x, each at half amplitude, m */
+  stereoHalfWidthM?: number;
+  /** direct-path gain factor (< 1: side/down-firing speaker whose first reflection is louder than the direct sound) */
+  directGain?: number;
+}
+
+/** Speaker → own mic distance of a built-in speaker (laptop/phone), m. */
+export const SIM_SELF_DISTANCE_M = 0.1;
+
+/** First-order image sources: the 4 walls of a room centred on the origin, plus the floor (same height for all). */
+export interface SimReflections {
+  room: { width: number; depth: number };
+  /** wall reflection amplitude (1 = perfectly hard) */
+  wallGain: number;
+  /** source/mic height above the floor, m (omit: no floor bounce) */
+  heightM?: number;
+  floorGain?: number;
+}
+
+/** path lengths (m) and amplitude factors of the direct sound + first-order reflections from `src` to `mic` */
+function paths(src: Vec2, mic: Vec2, direct: number, refl?: SimReflections): Array<{ len: number; g: number }> {
+  const out = [{ len: Math.max(dist(src, mic), 0.01), g: direct }];
+  if (!refl) return out;
+  const { width: w, depth: d } = refl.room;
+  for (const img of [
+    { x: w - src.x, y: src.y },
+    { x: -w - src.x, y: src.y },
+    { x: src.x, y: d - src.y },
+    { x: src.x, y: -d - src.y },
+  ])
+    out.push({ len: dist(img, mic), g: refl.wallGain });
+  if (refl.heightM !== undefined) out.push({ len: Math.hypot(out[0]!.len, 2 * refl.heightM), g: refl.floorGain ?? 0.5 });
+  return out;
 }
 
 export const SIM_SR = 48000;
@@ -83,28 +118,40 @@ export interface RecordingSpec {
   seed?: number;
   /** extra timing error (ms) of repetition k of a repeated slot (sync-measurement jitter model) */
   clickJitterMs?: (deviceId: string, k: number) => number;
+  /** the recording device: its own built-in speaker reaches its mic from SIM_SELF_DISTANCE_M */
+  selfId?: string;
+  reflections?: SimReflections;
+  /** recorder audio clock rate vs room time, ppm: room ms t lands at index t·sr·(1 + ppm·1e-6) */
+  ppm?: number;
 }
 
-/** Listener recording starting exactly at plan.startRoomTime. */
+/**
+ * The recording at one mic (`listener`), starting exactly at plan.startRoomTime: every speaker's signals at
+ * scheduled time + output latency + path length/c + the recorder's input latency, over the direct path and the
+ * first-order reflections, with 1/r spreading. Arrivals are rounded to the sample (≤ 10 µs).
+ */
 export function renderListenerRecording(spec: RecordingSpec): Float32Array {
   const { plan, sampleRate: sr } = spec;
-  const out = new Float32Array(Math.round((spec.durationMs / 1000) * sr));
+  const rate = 1 + (spec.ppm ?? 0) * 1e-6;
+  const out = new Float32Array(Math.round((spec.durationMs / 1000) * sr * rate));
   for (const sp of spec.speakers) {
     if (sp.audible === false) continue;
-    const d = dist(sp.position, spec.listener);
-    const amp = sp.gain / Math.max(d, 0.1); // 1/r spreading re 1 m
+    const self = sp.id === spec.selfId && !sp.speakerPosition;
+    const c = sp.speakerPosition ?? sp.position;
+    const w = sp.stereoHalfWidthM ?? 0;
+    const sources = w ? [{ x: c.x - w, y: c.y }, { x: c.x + w, y: c.y }] : [c];
+    const legs = self
+      ? [{ len: SIM_SELF_DISTANCE_M, g: 1 }]
+      : sources.flatMap((s) => paths(s, spec.listener, sp.directGain ?? 1, spec.reflections).map((p) => ({ ...p, g: p.g / sources.length })));
     for (const slot of plan.slots.filter((s) => s.deviceId === sp.id)) {
       const sig = processCascade(sp.filters, calibrationSignal(slot.signal, slot.deviceIndex, sr));
       for (let k = 0; k < (slot.repeat ?? 1); k++) {
-        const atMs =
-          slot.offsetMs +
-          k * (slot.periodMs ?? 0) +
-          sp.latencyMs +
-          (spec.clickJitterMs?.(sp.id, k) ?? 0) +
-          (d / SPEED_OF_SOUND) * 1000 +
-          spec.inputLatencyMs;
-        const at = Math.round((atMs / 1000) * sr);
-        for (let i = 0; i < sig.length && at + i < out.length; i++) out[at + i] = out[at + i]! + amp * sig[i]!;
+        const t0 = slot.offsetMs + k * (slot.periodMs ?? 0) + sp.latencyMs + (spec.clickJitterMs?.(sp.id, k) ?? 0) + spec.inputLatencyMs;
+        for (const leg of legs) {
+          const at = Math.round((((t0 + (leg.len / SPEED_OF_SOUND) * 1000) / 1000) * sr) * rate);
+          const amp = (sp.gain * leg.g) / Math.max(leg.len, 0.05); // 1/r spreading re 1 m
+          for (let i = 0; i < sig.length && at + i < out.length; i++) if (at + i >= 0) out[at + i] = out[at + i]! + amp * sig[i]!;
+        }
       }
     }
   }

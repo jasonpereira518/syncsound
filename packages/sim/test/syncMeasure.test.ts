@@ -5,14 +5,24 @@ import {
   analyzeSyncMeasurement,
   buildSyncMeasurementSlots,
   calibrationRecordingMs,
+  expectedArrivalMs,
   mulberry32,
+  SYNC_SEARCH_LATE_MS,
 } from '@syncsound/audio-core';
 import { referenceSpeakers, renderListenerRecording, SIM_SR } from '../src/acoustics';
 
 const LISTENER: Vec2 = { x: 0, y: 1 };
 
-// Sync-measurement tool (spec §11.1), simulated: four devices playing compensated clicks simultaneously in
-// distinct chirp bands. Each has a known residual sync error (what calibration left over) and per-click jitter.
+// Sync check (spec §11.1), simulated: four devices playing compensated wideband clicks, time-staggered by
+// SYNC_STAGGER_MS. Each has a known residual sync error (what calibration left over) and per-click jitter.
+// Emission-aligned (propagation alignment off): the expected arrival at the mic is just the distance.
+const expect0 = (speakers: Array<{ id: string; position: Vec2 }>) =>
+  expectedArrivalMs(
+    { devices: Object.fromEntries(speakers.map((s) => [s.id, s.position])), listener: LISTENER, propagationComp: false },
+    LISTENER,
+    'l',
+    speakers.map((s) => s.id),
+  );
 describe('sync measurement tool (simulated)', () => {
   it('recovers per-device inter-device sync error from one mixed recording', () => {
     const residual: Record<string, number> = { phone: 2.0, laptop: -1.5, bt: 4.0, desktop: 0 };
@@ -29,7 +39,7 @@ describe('sync measurement tool (simulated)', () => {
       speakers,
       listener: LISTENER,
       sampleRate: SIM_SR,
-      durationMs: calibrationRecordingMs(slots, 300),
+      durationMs: calibrationRecordingMs(slots, SYNC_SEARCH_LATE_MS),
       inputLatencyMs: 12,
       noiseDb: -50,
       clickJitterMs: (id, k) => jitter[id]![k]!,
@@ -38,15 +48,15 @@ describe('sync measurement tool (simulated)', () => {
       plan,
       recording,
       sampleRate: SIM_SR,
-      recordingStartRoomTime: plan.startRoomTime,
-      devicePositions: Object.fromEntries(speakers.map((s) => [s.id, s.position])),
-      listener: LISTENER,
-      maxLatencyMs: 300,
+      toRoomMs: (i) => plan.startRoomTime + (i / SIM_SR) * 1000,
+      expectedMs: expect0(speakers),
     });
 
     // truth per click: (residual + jitter) − mean over devices
     let maxErr = 0;
-    for (let k = 0; k < 60; k++) {
+    const clicks = slots[0]!.repeat!;
+    expect(clicks).toBe(60); // 4 devices × 250 ms stagger still fit one click per second
+    for (let k = 0; k < clicks; k++) {
       const vals = speakers.map((s) => residual[s.id]! + jitter[s.id]![k]!);
       const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
       speakers.forEach((s, i) => {
@@ -89,7 +99,7 @@ describe('sync measurement tool (simulated)', () => {
       speakers,
       listener: LISTENER,
       sampleRate: SIM_SR,
-      durationMs: calibrationRecordingMs(slots, 300),
+      durationMs: calibrationRecordingMs(slots, SYNC_SEARCH_LATE_MS),
       inputLatencyMs: 12,
       noiseDb: -50,
       clickJitterMs: (id, k) => jitter[id]![k]!,
@@ -98,10 +108,8 @@ describe('sync measurement tool (simulated)', () => {
       plan,
       recording,
       sampleRate: SIM_SR,
-      recordingStartRoomTime: plan.startRoomTime,
-      devicePositions: Object.fromEntries(speakers.map((s) => [s.id, s.position])),
-      listener: LISTENER,
-      maxLatencyMs: 300,
+      toRoomMs: (i) => plan.startRoomTime + (i / SIM_SR) * 1000,
+      expectedMs: expect0(speakers),
     });
     const std = Object.fromEntries(report.devices.map((d) => [d.deviceId, d.stdMs]));
     // errors are relative to the group mean, so the readout is ~(n−1)/n of the true σ for the wobbly one

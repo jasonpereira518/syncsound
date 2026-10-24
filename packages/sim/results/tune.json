@@ -1,0 +1,18 @@
+{
+  "description": "calibration v3 end-to-end sim (see tune.test.ts header)",
+  "seeds": 6,
+  "distanceErrorM": {
+    "p95": 0.137,
+    "max": 0.143
+  },
+  "headAlignmentMs": {
+    "p50": 0.19,
+    "p95": 0.528,
+    "max": 0.619,
+    "pairs": 60
+  },
+  "controlAtMicMs": {
+    "p95": 1.623,
+    "max": 1.879
+  }
+}

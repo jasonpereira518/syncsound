@@ -138,47 +138,38 @@ export function clickTrack(bpm: number, durationSec: number, sampleRate: number)
   return out;
 }
 
-const CHIRP_F_LO = 500;
-const CHIRP_F_HI = 8000;
-const CHIRP_BANDS = 16;
-
-/**
- * Device-unique chirp band (Hz) for calibration ID: 16 adjacent quarter-octave bands spanning 500 Hz–8 kHz,
- * reused cyclically beyond 16 devices (slots also separate devices in time).
- */
-export function chirpBand(deviceIndex: number): { f1: number; f2: number } {
-  const k = ((deviceIndex % CHIRP_BANDS) + CHIRP_BANDS) % CHIRP_BANDS;
-  const ratio = CHIRP_F_HI / CHIRP_F_LO;
-  return {
-    f1: CHIRP_F_LO * Math.pow(ratio, k / CHIRP_BANDS),
-    f2: CHIRP_F_LO * Math.pow(ratio, (k + 1) / CHIRP_BANDS),
-  };
-}
-
-/** Durations (ms) of each calibration signal. */
+/** Durations (ms) of each calibration signal. chirp: the short wideband tick of the sync check. */
 export const CALIBRATION_SIGNAL_MS: Record<CalibrationSignal, number> = {
-  chirp: 400,
-  sweep: 2000,
+  chirp: 100,
+  sweep: 700,
   noise: 1000,
   click: 50,
 };
 
-/** Sweep range used for frequency-response measurement. */
-export const CALIBRATION_SWEEP = { f1: 40, f2: 16000 } as const;
+/**
+ * Tune sweep range. Starts an octave below the 40 Hz response grid so a short sweep still measures 40–80 Hz (bass
+ * capability: rolloff ≤ 80 Hz) accurately; reaches 20 kHz because the arrival estimate lives in the highs (wideband →
+ * sharp, reflection-resolving correlation peak).
+ */
+export const CALIBRATION_SWEEP = { f1: 20, f2: 20000 } as const;
+/** Upper edge of the short sync-check chirp, Hz (lower edge 300 Hz, where every laptop speaker plays). */
+const CHIRP_F2 = 20000;
+/** keep sweep/chirp tops below Nyquist on 32/44.1 kHz contexts */
+const top = (f: number, sampleRate: number) => Math.min(f, 0.45 * sampleRate);
 
 /** Peak amplitude of every calibration signal. */
-export const CALIBRATION_PEAK = 0.5;
+export const CALIBRATION_PEAK = 0.25;
 
 function calibrationSweep(sampleRate: number) {
   return logSweep({
     f1: CALIBRATION_SWEEP.f1,
-    f2: CALIBRATION_SWEEP.f2,
+    f2: top(CALIBRATION_SWEEP.f2, sampleRate),
     durationSec: CALIBRATION_SIGNAL_MS.sweep / 1000,
     sampleRate,
   });
 }
 
-/** Deterministic calibration signal; speaker and listener generate identical samples. */
+/** Deterministic calibration signal; speaker and listener generate identical samples (`deviceIndex` seeds the noise). */
 export function calibrationSignal(
   kind: CalibrationSignal,
   deviceIndex: number,
@@ -186,10 +177,8 @@ export function calibrationSignal(
 ): Float32Array {
   const n = Math.round((CALIBRATION_SIGNAL_MS[kind] / 1000) * sampleRate);
   switch (kind) {
-    case 'chirp': {
-      const { f1, f2 } = chirpBand(deviceIndex);
-      return chirp(f1, f2, n / sampleRate, sampleRate).map((v) => v * CALIBRATION_PEAK);
-    }
+    case 'chirp':
+      return chirp(300, top(CHIRP_F2, sampleRate), n / sampleRate, sampleRate).map((v) => v * CALIBRATION_PEAK);
     case 'sweep':
       return calibrationSweep(sampleRate).signal.map((v) => v * CALIBRATION_PEAK);
     case 'noise':

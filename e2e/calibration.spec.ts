@@ -63,6 +63,45 @@ test('calibration wizard completes against a loopback microphone', async ({ brow
   await ctx.close();
 });
 
+// Two devices, each with its own loopback "mic" (which hears only that device's own sweep): the guest records the
+// listener's all-recorders plan and sends its rows; the listener collects them and solves. With no cross cells there
+// is nothing to range, so positions stay as placed — the plumbing (plan → recorders → rows → solve) is what's tested.
+test('tune: every device records and sends its rows to the listener, which solves', async ({ browser }) => {
+  test.setTimeout(150_000);
+  const host = await newPage(browser);
+  const code = await createRoom(host.page);
+  const logs: string[] = [];
+  host.page.on('console', (m) => logs.push(m.text()));
+  await host.page.goto(`/room/${code}?loopbackMic=60`);
+  await joinRoom(host.page, code, 'Listener');
+  const guest = await newPage(browser);
+  guest.page.on('console', (m) => logs.push(`guest: ${m.text()}`));
+  await guest.page.goto(`/room/${code}?loopbackMic=90`);
+  await joinRoom(guest.page, code, 'Guest');
+  await waitConverged(host.page);
+  await waitConverged(guest.page);
+  type S = { deviceId: string; room: { scene: { devices: Record<string, unknown> } } };
+  const state = (p: typeof host.page) => p.evaluate(() => (window as unknown as { __syncsound: { getState(): S } }).__syncsound.getState());
+  const guestId = (await state(guest.page)).deviceId;
+  const before = (await state(host.page)).room.scene.devices;
+  await host.page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  await host.page.getByTestId('calibrate-start').click();
+  await expect(host.page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 120_000 });
+  const cal = await host.page.evaluate(() => (window as unknown as Win).__syncsound.getState().calibration);
+  console.log('two-device tune:', cal.step, '-', cal.message, cal.warnings);
+  console.log(logs.filter((l) => /calibration|error|warn/i.test(l)).join('\n'));
+  expect(cal.step).toBe('done');
+  expect(cal.devices).toHaveLength(2);
+  expect(cal.devices.find((d) => d.deviceId !== guestId)!.heard).toBe(true);
+  // the guest's own loopback heard its own sweep; its row reached the listener
+  expect(logs.some((l) => l.includes(`rows from ${guestId} 1 heard`))).toBe(true);
+  expect((await state(host.page)).room.scene.devices).toEqual(before);
+  expect(pageErrors(host.page)).toEqual([]);
+  expect(pageErrors(guest.page)).toEqual([]);
+  await host.ctx.close();
+  await guest.ctx.close();
+});
+
 // Mic path latency beyond the old −100/+600 ms chirp search window must still calibrate (flagged by a warning).
 test('calibration tolerates a loopback microphone delayed past the old search window', async ({ browser }) => {
   test.setTimeout(120_000);

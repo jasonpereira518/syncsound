@@ -148,8 +148,10 @@ export class AudioEngine {
   }
 
   private onDeviceChange = () => {
-    // granting mic permission during calibration can fire devicechange without a route change
-    if (useRoomStore.getState().calibration.running) return;
+    // granting mic permission during calibration (here or as one of a tune's recorders) can fire devicechange
+    // without a route change
+    const cal = useRoomStore.getState().calibration;
+    if (cal.running || cal.emitting || performance.now() < this.measuringUntil) return;
     this.drift.forget(); // a new output device may run on a different crystal
     if (this.deps.onRouteChange) this.deps.onRouteChange();
     else useRoomStore.setState({ routeChanged: true });
@@ -201,7 +203,7 @@ export class AudioEngine {
       // the output delay jumped (Bluetooth profile switch, device re-open…): acoustic alignment is stale.
       // Opening/closing a measurement's recorder causes such a step too, so steps during one (+5 s) don't count.
       const st = useRoomStore.getState();
-      if (st.calibration.running || st.syncMeasure.running) this.measuringUntil = performance.now() + 5000;
+      if (st.calibration.running || st.calibration.emitting || st.syncMeasure.running) this.measuringUntil = performance.now() + 5000;
       else if (this.audioClock.steps > steps && performance.now() > this.measuringUntil) useRoomStore.setState({ routeChanged: true });
       const ready = this.timingReady();
       if (ready && !this.clockWasReady) this.reconcile();
@@ -559,13 +561,16 @@ export class AudioEngine {
     return this.loopbackNode;
   }
 
-  /** calibration emission: auto-only compensation, raw to the destination (no EQ/spatial) */
-  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto'): { startCtx: number; endCtx: number } | null {
+  /**
+   * Calibration emission: auto-only compensation, raw to the destination (no EQ/spatial). `viaChain` (sync check):
+   * through the click-test input of the output chain (limiter, output delay and gain, like playback's tail; not EQ/crossover).
+   */
+  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto', viaChain = false): { startCtx: number; endCtx: number } | null {
     const ctx = this.ctx;
     if (!ctx) return null;
     const src = ctx.createBufferSource();
     src.buffer = this.toBuffer(samples);
-    src.connect(ctx.destination);
+    src.connect(viaChain && this.chain ? this.chain.fxIn : ctx.destination);
     const lb = this.loopback();
     if (lb) src.connect(lb);
     const c = comp === 'full' ? this.compensationSec() : this.autoCompensationSec();

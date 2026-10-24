@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { LayoutId, type Device, type DeviceRole } from '@syncsound/protocol';
-import { CALIBRATION_SIGNAL_MS, isRoutedLayout, LAYOUT_SLOTS, layoutLabel, suggestLayout } from '@syncsound/audio-core';
+import { isRoutedLayout, TUNE_PERIOD_MS, LAYOUT_SLOTS, layoutLabel, suggestLayout } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon } from '../ui';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
@@ -198,8 +198,8 @@ function Tune({ devices }: { devices: Device[] }) {
   const selfHasMic = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.deviceId)?.caps.hasMic ?? true);
   const busy = (cal.running && cal.step !== 'done' && cal.step !== 'error') || sm.running;
   const jitterOf = (id: string) => (sm.step === 'done' ? sm.devices.find((m) => m.deviceId === id)?.stdMs : undefined);
-  const perDevice = CALIBRATION_SIGNAL_MS.chirp + CALIBRATION_SIGNAL_MS.sweep + CALIBRATION_SIGNAL_MS.noise + 3 * 700;
-  const seconds = Math.round((devices.length * perDevice) / 1000) + 5;
+  const selfId = useRoomStore((s) => s.deviceId);
+  const seconds = Math.round((devices.length * TUNE_PERIOD_MS) / 1000) + 7;
   const byId = new Map(devices.map((d) => [d.id, d]));
 
   if (!selfHasMic) {
@@ -217,9 +217,10 @@ function Tune({ devices }: { devices: Device[] }) {
   return (
     <div className="space-y-4">
       <p className="text-ink-200">
-        Check that every speaker&rsquo;s own volume is all the way up (each one shows a reminder). Then sit where you usually listen and
-        hold this device in front of you. Keep the room quiet: each speaker chirps and sweeps in turn for about {seconds} seconds.
-        SyncSound then lines them up in time and matches their loudness.
+        Check that every speaker&rsquo;s own volume is all the way up (each one shows a reminder). Then sit where you usually listen with
+        this device in front of you and keep the room quiet. Each speaker plays a short sweep in turn, about {seconds} seconds in all, while
+        every laptop listens (each asks once for its microphone). SyncSound measures how far apart they are, lines them up in time at your
+        seat and matches their loudness.
       </p>
       {busy ? (
         <Button variant="danger" onClick={() => act(() => roomActions.cancelCalibration())}>
@@ -248,6 +249,12 @@ function Tune({ devices }: { devices: Device[] }) {
                     <span>
                       <strong className="font-medium">{d?.name ?? 'Speaker'}</strong>
                       {d && d.role !== 'Full' && <span className="text-ink-400"> ({SLOT_NAME[d.role].toLowerCase()})</span>}
+                      {r.heard && r.distanceM != null && r.deviceId !== selfId && (
+                        <span className="text-ink-400">
+                          {' '}
+                          {r.distanceM.toFixed(1)} m away{r.ranged ? '' : ' (placed by hand)'}
+                        </span>
+                      )}
                       {r.heard
                         ? d?.volumeUpDb
                           ? `: in sync, but about ${Math.round(d.volumeUpDb)} dB quieter. Turn it up and tune again.`

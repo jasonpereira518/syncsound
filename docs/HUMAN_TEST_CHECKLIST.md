@@ -84,3 +84,19 @@ Record results in the table at the bottom.
 (it now says silent mic / too weak / noisy, with mic peak dBFS, best SNR and offset), click *Save microphone recording
 (.wav)* and drop the file in `packages/sim` to replay through `analyzeCalibration`. Check the DevTools console for
 `[calibration] preflight` (own-speaker self-test) and the per-device table.
+
+18. **Calibration v3: one-tap tune (laptops).** Three or more laptops in one room on the same Wi-Fi, Chrome; one
+    of them playing through a Bluetooth speaker.
+    - On the laptop you'll sit at, press **Start tuning** (setup wizard; or Advanced → Calibrate → Start). Every laptop should ask once for its microphone and show
+      "Tuning: <name> is playing" while each one sweeps in turn (~1.5 s each).
+    - The result should list every laptop with a distance; tape-measure them: **within 10–15 cm**. The Bluetooth
+      speaker should say "placed by hand"; drag it to where it really is.
+    - Sit with your head ~40 cm behind the tuning laptop and run **Measure sync (60 s)**: **p95 < 1 ms**.
+    - Run Measure sync once more from a *muted, non-speaker* phone or laptop at your seat: still p95 < 1 ms (proves
+      that opening every laptop's mic during the tune didn't shift any output).
+    - Move the listener elsewhere and repeat Measure sync: the per-device spread should stay small (the estimator's own
+      bias doesn't cancel away from the tune spot).
+    - Turn the Bluetooth speaker off and on: the "audio delay changed" banner should appear; **Re-sync speakers** (quick tune) should
+      restore p95 < 1 ms without asking the other laptops for their microphones.
+    - Close the LAN clock master's tab (the host) mid-song: the banner should appear on the others (clock path
+      changed); a quick tune restores sync.

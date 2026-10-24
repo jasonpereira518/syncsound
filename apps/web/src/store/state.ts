@@ -40,6 +40,7 @@ export const initialState = (): RoomStoreState => ({
     devices: [],
     warnings: [],
     emitting: false,
+    nowPlaying: null,
   },
   syncMeasure: {
     running: false,

@@ -7,7 +7,7 @@ import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui
 import { act, useCanControl } from './shared';
 import { SyncMeasurePanel } from './SyncMeasure';
 
-const STEPS = ['Place this phone at the listening position', 'Allow microphone', 'Chirp ID', 'Sweep', 'EQ', 'Done'];
+const STEPS = ['Sit where you listen with this device', 'Allow microphone', 'Tune: each speaker sweeps in turn', 'Done'];
 
 function stepIndex(c: CalibrationUi): number {
   switch (c.step) {
@@ -16,11 +16,10 @@ function stepIndex(c: CalibrationUi): number {
     case 'mic':
       return 1;
     case 'recording':
-      return c.progress < 0.45 ? 2 : 3;
     case 'analyzing':
-      return 4;
+      return 2;
     case 'done':
-      return 5;
+      return 3;
     default:
       return -1;
   }
@@ -51,8 +50,9 @@ export function CalibrationWizard() {
   return (
     <Panel title="Calibrate" icon="mic" className="lg:min-h-0 lg:flex-1">
       <p className="text-sm text-ink-300">
-        Hold <strong className="text-ink-100">this device</strong> where you&rsquo;ll sit. Every speaker plays a short chirp and sweep in turn; this
-        microphone measures each one&rsquo;s delay, level and frequency response, then SyncSound aligns and EQs them.
+        Sit where you listen with <strong className="text-ink-100">this device</strong>. Every speaker plays a short sweep in turn while every
+        laptop listens: SyncSound measures how far apart they are, each one&rsquo;s delay, level and frequency response, then lines them up at
+        your seat and EQs them.
       </p>
 
       <ol data-testid="calibration-step" data-step={cal.step} className="mt-4 space-y-1.5" aria-label="Calibration steps">
@@ -143,6 +143,7 @@ export function CalibrationWizard() {
                   <th scope="col" className="px-3 py-2 font-medium">Speaker</th>
                   <th scope="col" className="px-2 py-2 font-medium">Heard</th>
                   <th scope="col" className="px-2 py-2 font-medium">Latency</th>
+                  <th scope="col" className="px-2 py-2 font-medium">Distance</th>
                   <th scope="col" className="px-2 py-2 font-medium">Level</th>
                   <th scope="col" className="px-2 py-2 font-medium">Trim</th>
                   <th scope="col" className="px-2 py-2 font-medium">Rolloff</th>
@@ -160,6 +161,9 @@ export function CalibrationWizard() {
                         {r.heard ? <span className="text-ok">✓<span className="sr-only"> heard</span></span> : <span className="text-bad">✗<span className="sr-only"> not heard</span></span>}
                       </td>
                       <td className="px-2 py-2">{r.relativeLatencyMs != null ? `${fmtSigned(r.relativeLatencyMs, 1)} ms` : '—'}</td>
+                      <td className="px-2 py-2" title={r.ranged ? 'measured' : 'from where it is placed on the stage'}>
+                        {r.deviceId === selfId || r.distanceM == null ? '—' : `${r.distanceM.toFixed(2)} m${r.ranged ? '' : '*'}`}
+                      </td>
                       <td className="px-2 py-2">{r.levelDb != null ? `${r.levelDb.toFixed(1)} dB` : '—'}</td>
                       <td className="px-2 py-2">{dev ? `${fmtSigned(dev.trimDb, 1)} dB` : '—'}</td>
                       <td className="px-2 py-2">{r.rolloffHz != null ? `${Math.round(r.rolloffHz)} Hz` : '—'}</td>

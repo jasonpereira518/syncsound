@@ -1,37 +1,72 @@
-import type { CalibrationPlan } from '@syncsound/protocol';
-import { CALIBRATION_LEAD_MS, type CalibrationInput } from './calibration';
-import { detectArrival } from './measure';
+import type { CalibrationPlan, Scene, Vec2 } from '@syncsound/protocol';
+import { CALIBRATION_LEAD_MS, indexMap, normalizedPeak, SELF_OFFSET_M, type RecordingInput } from './calibration';
+import { crossCorrelate, firstArrival } from './measure';
 import { CALIBRATION_SIGNAL_MS, calibrationSignal } from './signals';
 import { SPEED_OF_SOUND } from './spatial';
 
+/** Devices click one after another, this far apart (identical wideband chirps are told apart by time), ms. */
+export const SYNC_STAGGER_MS = 250;
+/** Arrival search window around each click's expected arrival, ms: well inside ±stagger. */
+const SYNC_SEARCH_EARLY_MS = 100;
+export const SYNC_SEARCH_LATE_MS = 200;
+const MIN_SNR_DB = 20;
+const MIN_PEAK = 0.1;
+
 /**
- * Sync measurement (spec §11.1): every device emits its device-unique chirp at the SAME room times
- * (one per period) through the normal playback compensation; the listener separates devices by matched filter
- * (distinct chirp bands) and reports, per click, each device's arrival relative to the mean of all devices.
- * Listener input latency and the listener's own clock error are common-mode and cancel.
+ * Sync check: every device plays a short wideband chirp through its normal playback compensation, once per
+ * period, device i at `i·SYNC_STAGGER_MS` (the stagger is exact on the room timeline, so it is subtracted). The
+ * listener reports each click's arrival relative to the mean over devices; listener latency and clock error are
+ * common-mode and cancel.
  */
 export function buildSyncMeasurementSlots(
   deviceIds: string[],
   opts: { durationSec?: number; periodMs?: number } = {},
 ): CalibrationPlan['slots'] {
-  const periodMs = opts.periodMs ?? 1000;
+  const periodMs = Math.max(opts.periodMs ?? 1000, deviceIds.length * SYNC_STAGGER_MS);
   const repeat = Math.max(1, Math.min(600, Math.floor(((opts.durationSec ?? 60) * 1000) / periodMs)));
   return deviceIds.map((deviceId, i) => ({
     deviceId,
     deviceIndex: i % 64,
     signal: 'chirp' as const,
-    offsetMs: CALIBRATION_LEAD_MS,
+    offsetMs: CALIBRATION_LEAD_MS + i * SYNC_STAGGER_MS,
     durationMs: CALIBRATION_SIGNAL_MS.chirp,
     repeat,
     periodMs,
   }));
 }
 
+/**
+ * Where each device's click should land at the listener mic relative to the others, ms. Playback aligns at the head
+ * (propagation alignment on) or at emission (off), so the mic legitimately sees these offsets; the check scores the
+ * rest. `mic` = the measuring device's position.
+ */
+export function expectedArrivalMs(
+  scene: Pick<Scene, 'devices' | 'listener' | 'propagationComp'>,
+  mic: Vec2,
+  micId: string,
+  ids: string[],
+): Record<string, number> {
+  const d = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
+  return Object.fromEntries(
+    ids.map((id) => {
+      const p = scene.devices[id];
+      if (!p) return [id, 0];
+      const toMic = id === micId ? SELF_OFFSET_M : d(p, mic);
+      return [id, ((scene.propagationComp ? toMic - d(p, scene.listener) : toMic) / SPEED_OF_SOUND) * 1000];
+    }),
+  );
+}
+
+export interface SyncInput extends RecordingInput {
+  /** per device: expected arrival offset at this mic (`expectedArrivalMs`), ms */
+  expectedMs: Record<string, number>;
+}
+
 export interface SyncDeviceResult {
   deviceId: string;
   detected: number;
   total: number;
-  /** per click: arrival − scheduled − propagation, ms (NaN = missed). Includes common-mode listener latency. */
+  /** per click: arrival − scheduled − expected, ms (NaN = missed). Includes common-mode listener latency. */
   rawMs: number[];
   /** per click: raw − mean(raw over devices detected on that click), ms (NaN = missed or < 2 devices) */
   errorsMs: number[];
@@ -57,29 +92,30 @@ const quantile = (xs: number[], q: number) => {
 };
 
 export function analyzeSyncMeasurement(
-  input: CalibrationInput,
+  input: SyncInput,
   opts: { binMs?: number; rangeMs?: number } = {},
 ): SyncMeasurementReport {
-  const { plan, recording: rec, sampleRate: sr, recordingStartRoomTime: recStart } = input;
-  const maxLat = input.maxLatencyMs ?? 300;
+  const { plan, recording: rec, sampleRate: sr } = input;
   const ms = (x: number) => Math.round((x / 1000) * sr);
-  const toIdx = (roomMs: number) => Math.round(((roomMs - recStart) / 1000) * sr);
+  const toIdx = indexMap(input.toRoomMs, rec.length);
   const warnings: string[] = [];
 
   const raw: Record<string, number[]> = {};
   const totals: Record<string, number> = {};
   for (const slot of plan.slots) {
     const ref = calibrationSignal(slot.signal, slot.deviceIndex, sr);
-    const pos = input.devicePositions[slot.deviceId];
-    const propMs = pos ? (Math.hypot(pos.x - input.listener.x, pos.y - input.listener.y) / SPEED_OF_SOUND) * 1000 : 0;
+    const expected = input.expectedMs[slot.deviceId] ?? 0;
     const n = slot.repeat ?? 1;
-    const period = slot.periodMs ?? 0;
     const out: number[] = [];
     for (let k = 0; k < n; k++) {
-      const schedRoom = plan.startRoomTime + slot.offsetMs + k * period;
-      const sched = toIdx(schedRoom);
-      const a = detectArrival(rec, ref, { searchStart: sched - ms(100), searchEnd: sched + ms(maxLat) });
-      out.push(a ? recStart + (a.index / sr) * 1000 - schedRoom - propMs : NaN);
+      const schedRoom = plan.startRoomTime + slot.offsetMs + k * (slot.periodMs ?? 0);
+      const at = Math.round(toIdx(schedRoom + expected));
+      const w0 = Math.max(0, at - ms(SYNC_SEARCH_EARLY_MS));
+      const w1 = Math.min(rec.length - ref.length, at + ms(SYNC_SEARCH_LATE_MS));
+      const y = w1 > w0 ? crossCorrelate(rec.subarray(w0, w1 + ref.length), ref) : null;
+      const fa = y ? firstArrival(y, sr, { start: 0, end: w1 - w0 + 1 }) : null;
+      const ok = fa && y && fa.snrDb >= MIN_SNR_DB && normalizedPeak(rec, y, w0, fa.index, ref) >= MIN_PEAK;
+      out.push(ok ? input.toRoomMs(w0 + fa!.index) - schedRoom - expected : NaN);
     }
     raw[slot.deviceId] = out;
     totals[slot.deviceId] = n;
@@ -121,8 +157,8 @@ export function analyzeSyncMeasurement(
   });
 
   const all = devices.flatMap((d) => d.errorsMs.filter(Number.isFinite));
-  const binMs = opts.binMs ?? 1;
-  const range = opts.rangeMs ?? 30;
+  const binMs = opts.binMs ?? 0.25;
+  const range = opts.rangeMs ?? 10;
   const edgesMs: number[] = [];
   for (let x = -range; x <= range + 1e-9; x += binMs) edgesMs.push(+x.toFixed(6));
   const counts = new Array(edgesMs.length - 1).fill(0) as number[];

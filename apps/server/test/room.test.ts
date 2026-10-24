@@ -446,6 +446,43 @@ describe('Room devices + scene', () => {
     expect(one(bad, 'ERROR').msg.code).toBe('unknown_plan');
   });
 
+  it("calibration: recorders' rows go to the listener only; only the listener may submit results", () => {
+    const room = setup();
+    const slots = [{ deviceId: 'g1', deviceIndex: 0, signal: 'sweep' as const, offsetMs: 500, durationMs: 700 }];
+    const plan = one(room.handle('c2', { type: 'CALIBRATION_START', slots, recorders: 'all' }, 1000), 'CALIBRATION_PLAN');
+    expect(plan.msg.plan.recorders).toBe('all');
+    expect(plan.msg.plan.startRoomTime).toBe(4500); // remote mics open on arrival: longer lead
+    const id = plan.msg.plan.id;
+    const row = { emitterId: 'g1', mMs: 12.5, levelDb: -30, directDb: -20, snrDb: 50, clipped: false };
+    const fwd = one(room.handle('c1', { type: 'CALIBRATION_ROWS', planId: id, rows: [row], valid: true }, 2000), 'CALIBRATION_ROWS');
+    expect(fwd.to).toEqual(['c2']);
+    expect(fwd.msg).toMatchObject({ recorderId: 'g1', planId: id, rows: [row], valid: true });
+    const forged = room.handle('c1', { type: 'CALIBRATION_RESULT', planId: id, results: [{ deviceId: 'h', heard: true, calibratedLatencyMs: 999, volumeUpDb: null }] }, 3000);
+    expect(one(forged, 'ERROR').msg.code).toBe('forbidden');
+    expect(room.device('h')!.calibratedLatencyMs).toBeNull();
+  });
+
+  it('calibration: an all-recorders plan must be one short slot per known device', () => {
+    const room = setup();
+    const ok = { deviceId: 'g1', deviceIndex: 0, signal: 'sweep' as const, offsetMs: 500, durationMs: 700 };
+    for (const slots of [
+      [{ ...ok, offsetMs: 600000 }],
+      [{ ...ok, repeat: 600, periodMs: 10000 }],
+      [ok, { ...ok, offsetMs: 2000 }],
+      [{ ...ok, deviceId: 'ghost' }],
+    ])
+      expect(one(room.handle('c1', { type: 'CALIBRATION_START', slots, recorders: 'all' }, 1000), 'ERROR').msg.code).toBe('bad_plan');
+    one(room.handle('c1', { type: 'CALIBRATION_START', slots: [ok], recorders: 'all' }, 1000), 'CALIBRATION_PLAN');
+  });
+
+  it('calibration: a guest in a host-only room may not start a run', () => {
+    const room = setup();
+    room.handle('ch', { type: 'SETTINGS_UPDATE', hostOnlyControl: true }, 900);
+    const slots = [{ deviceId: 'g1', deviceIndex: 0, signal: 'sweep' as const, offsetMs: 500, durationMs: 700 }];
+    expect(one(room.handle('c1', { type: 'CALIBRATION_START', slots }, 1000), 'ERROR').msg.code).toBe('forbidden');
+    one(room.handle('ch', { type: 'CALIBRATION_START', slots }, 1000), 'CALIBRATION_PLAN');
+  });
+
   it('IDENTIFY broadcasts with a lead; RTC_SIGNAL relays to the target only', () => {
     const room = setup();
     const id = one(room.handle('c1', { type: 'IDENTIFY', targetDeviceId: 'g2' }, 1000), 'IDENTIFY');
