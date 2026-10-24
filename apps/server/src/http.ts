@@ -54,8 +54,16 @@ const EXT_MIME: Record<string, string> = {
 };
 const MIME_EXT = Object.fromEntries(Object.entries(EXT_MIME).map(([e, m]) => [m, e]));
 
+/** An allowed entry is an exact origin, or a pattern where `*` matches one DNS label fragment (`[a-z0-9-]+`, no dots). */
+const wildcardMatch = (origin: string, pattern: string) =>
+  new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[a-z0-9-]+')}$`, 'i').test(origin);
+
 export function originAllowed(origin: string | undefined, allowed: string[]) {
-  return allowed.length === 0 || origin === undefined || allowed.includes(origin);
+  return (
+    allowed.length === 0 ||
+    origin === undefined ||
+    allowed.some((a) => (a.includes('*') ? wildcardMatch(origin, a) : a === origin))
+  );
 }
 
 class HttpError extends Error {
