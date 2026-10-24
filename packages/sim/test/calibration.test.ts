@@ -18,8 +18,9 @@ import { referenceSpeakers, renderListenerRecording, SIM_SR, type SimSpeaker } f
 const LISTENER: Vec2 = { x: 0, y: 1 };
 const INPUT_LATENCY_MS = 12;
 
-function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; inputLatencyMs?: number; silence?: boolean } = {}) {
-  const slots = buildCalibrationSlots(speakers.map((s) => s.id));
+function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; quick?: boolean; inputLatencyMs?: number; silence?: boolean } = {}) {
+  const { quick, silence, ...render } = extra;
+  const slots = buildCalibrationSlots(speakers.map((s) => s.id), quick ? { include: ['chirp'] } : {});
   const plan: CalibrationPlan = { id: 'cal1', listenerId: 'listener', startRoomTime: 1_000_000, slots };
   const recording = renderListenerRecording({
     plan,
@@ -27,9 +28,11 @@ function run(speakers: SimSpeaker[], extra: { roomNoiseDb?: number; inputLatency
     listener: LISTENER,
     sampleRate: SIM_SR,
     durationMs: calibrationRecordingMs(slots),
-    ...{ inputLatencyMs: INPUT_LATENCY_MS, noiseDb: -50, ...extra },
+    inputLatencyMs: INPUT_LATENCY_MS,
+    noiseDb: -50,
+    ...render,
   });
-  if (extra.silence) recording.fill(0);
+  if (silence) recording.fill(0);
   return analyzeCalibration({
     plan,
     recording,
@@ -93,6 +96,19 @@ describe('acoustic calibration (end to end, synthetic room)', () => {
     results.latency = rows;
     for (const r of rows) expect(r.errorMs).toBeLessThan(1);
     expect(report.warnings).toEqual([]);
+  });
+
+  it('quick re-sync (chirps only) recovers the same latencies and leaves level/EQ alone', () => {
+    const quick = run(speakers, { quick: true });
+    const minLat = Math.min(...speakers.map((s) => s.latencyMs));
+    for (const s of speakers) {
+      const d = quick.devices.find((x) => x.deviceId === s.id)!;
+      expect(d.heard).toBe(true);
+      expect(Math.abs(d.relativeLatencyMs! - (s.latencyMs - minLat))).toBeLessThan(1);
+    }
+    expect(quick.trims).toEqual({});
+    expect(quick.volumeUp).toEqual({});
+    expect(Object.keys(quick.eq)).toEqual([]);
   });
 
   it('recovers each smoothed response within ±1.5 dB in the passband', () => {

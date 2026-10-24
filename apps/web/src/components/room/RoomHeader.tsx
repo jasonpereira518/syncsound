@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import { roomActions, useRoomStore } from '@/store/roomStore';
@@ -16,24 +16,30 @@ const CONN: Record<ConnStatus, { label: string; tone: 'ok' | 'warn' | 'bad' | 'n
   error: { label: 'Connection error', tone: 'bad' },
 };
 
-export function RoomHeader() {
-  const router = useRouter();
+/** this room's join link and its QR code (data URL, null until rendered) */
+export function useJoinLink(): { code: string; joinUrl: string; qr: string | null } {
   const code = useRoomStore((s) => s.room?.code ?? '');
-  const conn = useRoomStore((s) => s.conn);
-  const isHost = useRoomStore((s) => s.isHost);
-  const deviceCount = useRoomStore((s) => s.room?.devices.filter((d) => d.connected).length ?? 0);
   const [qr, setQr] = useState<string | null>(null);
-  const [bigQr, setBigQr] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const joinUrl = typeof window === 'undefined' ? '' : `${window.location.origin}/room/${code}`;
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-
+  const joinUrl = typeof window === 'undefined' || !code ? '' : `${window.location.origin}/room/${code}`;
   useEffect(() => {
     if (!joinUrl) return;
     QRCode.toDataURL(joinUrl, { margin: 1, width: 512, errorCorrectionLevel: 'M', color: { dark: '#06070a', light: '#ffffff' } })
       .then(setQr)
       .catch(() => setQr(null));
   }, [joinUrl]);
+  return { code, joinUrl, qr };
+}
+
+/** debug: show the debug drawer toggle (Advanced only); extra: buttons placed before Leave */
+export function RoomHeader({ name, debug = false, extra }: { name?: string; debug?: boolean; extra?: ReactNode }) {
+  const router = useRouter();
+  const conn = useRoomStore((s) => s.conn);
+  const isHost = useRoomStore((s) => s.isHost);
+  const deviceCount = useRoomStore((s) => s.room?.devices.filter((d) => d.connected).length ?? 0);
+  const { code, joinUrl, qr } = useJoinLink();
+  const [bigQr, setBigQr] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   const copy = async () => {
     try {
@@ -73,6 +79,7 @@ export function RoomHeader() {
       </button>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
         <p className="leading-none">
+          {name && <span className="mr-3 font-display text-xl font-semibold text-ink-100">{name}</span>}
           <span className="sr-only">Room code </span>
           <span data-testid="room-code" className="font-mono text-2xl font-bold tracking-[0.16em] text-accent">
             {code}
@@ -105,7 +112,8 @@ export function RoomHeader() {
           className={`border-transparent ${canShare ? 'max-sm:hidden' : ''}`}
         />
         {canShare && <IconButton icon="share" label="Share join link" onClick={share} className="border-transparent sm:hidden" />}
-        <DebugDrawer />
+        {debug && <DebugDrawer />}
+        {extra}
         <button type="button" onClick={leave} className="min-h-11 rounded-xl px-3 text-sm text-ink-400 hover:bg-ink-800 hover:text-ink-100">
           Leave
         </button>

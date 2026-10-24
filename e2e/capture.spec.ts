@@ -6,7 +6,7 @@ const cap = (p: Page) =>
   p.evaluate(() => (window as unknown as { __syncsound: { getState(): { capture: Cap } } }).__syncsound.getState().capture);
 
 async function startCapture(page: Page) {
-  await page.getByRole('tab', { name: /capture tab/i }).click();
+  await page.getByRole('tab', { name: /browser tab/i }).click();
   await page.getByRole('button', { name: /start capture/i }).click();
 }
 

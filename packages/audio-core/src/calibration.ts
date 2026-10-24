@@ -1,6 +1,6 @@
 import type { CalibrationPlan, Vec2 } from '@syncsound/protocol';
 import { commonTarget, fitEq, type EqFitResult } from './eq';
-import { loudnessTrims } from './loudness';
+import { loudnessTrims, volumeHints } from './loudness';
 import {
   bandMeanDb,
   deconvolve,
@@ -117,6 +117,8 @@ export interface CalibrationReport {
   targetDb: number[] | null;
   eq: Record<string, EqFitResult>;
   trims: Record<string, number>;
+  /** dB to raise on the device itself (only devices well below the median; see volumeHints) */
+  volumeUp: Record<string, number>;
   warnings: string[];
   /** whole-recording level, dBFS: ≈ −200 means the microphone delivered digital silence */
   recordingPeakDb: number;
@@ -242,6 +244,7 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
     targetDb,
     eq,
     trims: loudnessTrims(postLevels),
+    volumeUp: volumeHints(postLevels),
     warnings,
     recordingPeakDb: 20 * Math.log10(peak + 1e-10),
     recordingRmsDb: rmsDb(rec),

@@ -1,4 +1,5 @@
 import type { AudioObject, Device, Scene, Vec2 } from '@syncsound/protocol';
+import { isRoutedLayout, routedGains } from './layout';
 import { dbToGain } from './loudness';
 
 export const SPEED_OF_SOUND = 343;
@@ -72,6 +73,8 @@ export function participatingDevices(input: MixInput): Device[] {
  * - Participants: connected, positioned (scene.devices), unmuted devices; when any participant is solo, ONLY the
  *   solo devices participate (they also are the only ones panned across). Non-participants get outputGain 0.
  * - Panning: DBAP over participants except role 'Sub' (a Sub plays the bass bus only: objectGains all 0).
+ *   Standard layouts (scene.layout routed) instead route each object's channel to the devices in its slot
+ *   (routedGains, with fold-down); unassigned ('Full') devices don't participate there.
  * - Bass managed (≥ 1 bass-capable participant; role 'Sub' counts as bass-capable): bass-capable devices get
  *   bassGain 1/√nBass and play full range (only their protective HP); others are high-passed at
  *   max(crossoverHz, rolloffHz, eq.highpassHz) and their lost lows go to the bass bus via bassObjectGains.
@@ -80,7 +83,8 @@ export function participatingDevices(input: MixInput): Device[] {
  */
 export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
   const { scene } = input;
-  const parts = participatingDevices(input);
+  const routed = isRoutedLayout(scene.layout);
+  const parts = participatingDevices(input).filter((d) => !routed || d.role !== 'Full');
   const dev = parts.find((d) => d.id === deviceId);
   const objectGains: Record<string, number> = {};
   const bassObjectGains: Record<string, number> = {};
@@ -112,7 +116,7 @@ export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
       bassObjectGains[o.id] = g;
       continue;
     }
-    const gains = dbapGains(o.position, speakers, { rolloff: scene.rolloff, blur: scene.blur });
+    const gains = routed ? routedGains(o.channel, panners) : dbapGains(o.position, speakers, { rolloff: scene.rolloff, blur: scene.blur });
     objectGains[o.id] = (gains[deviceId] ?? 0) * g;
     bassObjectGains[o.id] = g * Math.sqrt(smallIds.reduce((s, id) => s + (gains[id] ?? 0) ** 2, 0));
   }
@@ -192,6 +196,8 @@ const ITU_AZ: Partial<Record<AudioObject['channel'], number>> = {
   MONO: 0,
   SL: -110,
   SR: 110,
+  RL: -150,
+  RR: 150,
 };
 const spread = (from: number, to: number, n: number) =>
   Array.from({ length: n }, (_, k) => from + ((to - from) * (k + 0.5)) / n);
@@ -268,7 +274,8 @@ const objAt = (
 const itu = (az: number) => polar(DEFAULT_LISTENER, az, 2.5);
 
 /**
- * Default objects for a source with N channels (1 mono, 2 stereo, 6 = 5.1 in WAV order L R C LFE SL SR),
+ * Default objects for a source with N channels (1 mono, 2 stereo, 6 = 5.1 in WAV order L R C LFE SL SR,
+ * 8 = 7.1 in WAV order L R C LFE RL RR SL SR, sides at ±90°),
  * at ITU azimuths 2.5 m from the default listener (0, 1), clamped inside the default 8×6 m room.
  * Stereo + upmix adds C (mid, −3 dB), SL/SR (side, −6 dB) and AMB (decorrelated ambience behind, −9 dB); the
  * engine derives those from L/R (channelIndexFor returns null for them). 3–5 channels: first two as L/R.
@@ -277,6 +284,18 @@ export function defaultObjectsFor(channels: number, upmix: boolean): AudioObject
   if (channels <= 1) return [objAt('obj-M', 'Mono', 'MONO', itu(0))];
   const L = objAt('obj-L', 'Left', 'L', itu(-30));
   const R = objAt('obj-R', 'Right', 'R', itu(30));
+  if (channels >= 8) {
+    return [
+      L,
+      R,
+      objAt('obj-C', 'Center', 'C', itu(0)),
+      objAt('obj-LFE', 'LFE', 'LFE', { x: -DEFAULT_ROOM.width / 2, y: -DEFAULT_ROOM.depth / 2 }),
+      objAt('obj-SL', 'Side L', 'SL', itu(-90)),
+      objAt('obj-SR', 'Side R', 'SR', itu(90)),
+      objAt('obj-RL', 'Rear L', 'RL', itu(-150)),
+      objAt('obj-RR', 'Rear R', 'RR', itu(150)),
+    ];
+  }
   if (channels >= 6) {
     return [
       L,
@@ -299,13 +318,15 @@ export function defaultObjectsFor(channels: number, upmix: boolean): AudioObject
 }
 
 const WAV51: Partial<Record<AudioObject['channel'], number>> = { L: 0, R: 1, C: 2, LFE: 3, SL: 4, SR: 5 };
+const WAV71: Partial<Record<AudioObject['channel'], number>> = { L: 0, R: 1, C: 2, LFE: 3, RL: 4, RR: 5, SL: 6, SR: 7 };
 
 /**
- * Object channel → source channel index (WAV/WebAudio 5.1 order L0 R1 C2 LFE3 SL4 SR5; stereo L0 R1; mono 0).
+ * Object channel → source channel index (WAV/WebAudio 5.1 order L0 R1 C2 LFE3 SL4 SR5; 7.1 L0 R1 C2 LFE3 RL4 RR5
+ * SL6 SR7; stereo L0 R1; mono 0).
  * null = not a direct source channel (e.g. upmix-derived C/SL/SR/AMB on a stereo source).
  */
 export function channelIndexFor(channel: AudioObject['channel'], channels: number): number | null {
   if (channels <= 1) return 0;
   if (channels < 6) return channel === 'L' ? 0 : channel === 'R' ? 1 : null;
-  return WAV51[channel] ?? null;
+  return (channels >= 8 ? WAV71 : WAV51)[channel] ?? null;
 }

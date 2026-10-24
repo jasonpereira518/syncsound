@@ -1,53 +1,67 @@
 export interface DriftOptions {
-  /** |error| below this → do nothing (default 2 ms) */
+  /** |error| below this → no proportional nudge, only the learned base rate (default 0: a deadband turns the integral into an undamped limit cycle) */
   deadbandMs?: number;
   /** max |playbackRate − 1| (default 0.002 = 0.2 %) */
   maxRateDeviation?: number;
   /** |error| above this → hard reschedule (default 30 ms) */
   rescheduleMs?: number;
-  /** seconds over which a rate nudge should cancel the error (default 4) */
+  /** seconds over which the proportional nudge should cancel the error (default 4) */
   correctionWindowSec?: number;
 }
 
 export interface DriftDecision {
   action: 'none' | 'rate' | 'reschedule';
-  /** playbackRate to apply (1 when action !== 'rate') */
+  /** playbackRate to apply (1 on reschedule; the learned base rate when action === 'none') */
   rate: number;
   errorMs: number;
 }
 
 /**
- * errorMs = actualPosition − expectedPosition (ms; +ve = we're ahead → slow down).
- * Called every ~500 ms. Hysteresis: correction starts at |e| ≥ deadband and continues until |e| < deadband/2.
+ * PI loop on errorMs = actualPosition − expectedPosition (ms; +ve = we're ahead → slow down).
+ * The integral learns the steady clock-rate mismatch (device crystal vs room clock, typically 10–200 ppm), so a
+ * constant drift settles at ~0 error instead of riding the edge of a deadband. Gains are critically damped
+ * (Ki = Kp²/4). The integral outlives tracks (it's a property of this device's clocks); call forget() when the clock path changes.
  */
 export class DriftController {
   private readonly deadband: number;
   private readonly maxDev: number;
   private readonly reschedule: number;
-  private readonly windowSec: number;
-  private correcting = false;
+  private readonly kp: number;
+  private readonly ki: number;
+  /** learned rate deviation (s/s); +ve = we run fast → play slower */
+  private bias = 0;
 
   constructor(opts: DriftOptions = {}) {
-    this.deadband = opts.deadbandMs ?? 2;
+    this.deadband = opts.deadbandMs ?? 0;
     this.maxDev = opts.maxRateDeviation ?? 0.002;
     this.reschedule = opts.rescheduleMs ?? 30;
-    this.windowSec = opts.correctionWindowSec ?? 4;
+    this.kp = 1 / (opts.correctionWindowSec ?? 4);
+    this.ki = (this.kp * this.kp) / 4;
   }
 
-  update(errorMs: number): DriftDecision {
+  /** @param dtSec seconds since the previous update (default 0.5) */
+  update(errorMs: number, dtSec = 0.5): DriftDecision {
     const abs = Math.abs(errorMs);
-    if (abs > this.reschedule) {
-      this.correcting = false;
-      return { action: 'reschedule', rate: 1, errorMs };
-    }
-    this.correcting = this.correcting ? abs >= this.deadband / 2 : abs >= this.deadband;
-    if (!this.correcting) return { action: 'none', rate: 1, errorMs };
-    const dev = Math.min(this.maxDev, Math.max(-this.maxDev, errorMs / 1000 / this.windowSec));
-    return { action: 'rate', rate: 1 - dev, errorMs };
+    if (abs > this.reschedule) return { action: 'reschedule', rate: 1, errorMs };
+    const e = errorMs / 1000;
+    this.bias = this.clamp(this.bias + this.ki * e * dtSec);
+    const p = abs <= this.deadband ? 0 : this.kp * e;
+    const dev = this.clamp(this.bias + p);
+    return { action: p === 0 ? 'none' : 'rate', rate: 1 - dev, errorMs };
   }
 
-  reset(): void {
-    this.correcting = false;
+  /** learned steady rate deviation, ppm */
+  get biasPpm(): number {
+    return this.bias * 1e6;
+  }
+
+  /** clock path changed (new output route / clock re-sync): forget the learned bias too */
+  forget(): void {
+    this.bias = 0;
+  }
+
+  private clamp(x: number): number {
+    return Math.min(this.maxDev, Math.max(-this.maxDev, x));
   }
 }
 
