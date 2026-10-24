@@ -7,28 +7,28 @@
       "truthMs": 10,
       "measuredMs": 10.25,
       "errorMs": 0.25,
-      "snrDb": 67.47
+      "snrDb": 66.54
     },
     {
       "id": "laptop",
       "truthMs": 25,
       "measuredMs": 25.06,
       "errorMs": 0.06,
-      "snrDb": 66.3
+      "snrDb": 65.92
     },
     {
       "id": "bt",
       "truthMs": 195,
       "measuredMs": 195.01,
       "errorMs": 0.01,
-      "snrDb": 64.54
+      "snrDb": 65.01
     },
     {
       "id": "desktop",
       "truthMs": 0,
       "measuredMs": 0,
       "errorMs": 0,
-      "snrDb": 68.21
+      "snrDb": 67.75
     }
   ],
   "response": [
@@ -271,9 +271,9 @@
       "The room is noisy (signal-to-noise: phone 4 dB, laptop 3 dB, bt 4 dB, desktop 1 dB) — results may be less accurate; try a quieter moment."
     ],
     "latencyErrorsMs": [
-      0.16,
-      0.05,
-      0.07,
+      0.17,
+      0.06,
+      0.08,
       0
     ]
   },

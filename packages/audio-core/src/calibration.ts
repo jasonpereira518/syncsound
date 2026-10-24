@@ -4,11 +4,11 @@ import { loudnessTrims, volumeHints } from './loudness';
 import {
   bandMeanDb,
   deconvolve,
-  detectArrival,
   estimateRolloffHz,
   logFreqs,
   magnitudeResponse,
   rmsDb,
+  scanArrival,
   smoothFractionalOctave,
   type Response,
 } from './measure';
@@ -24,10 +24,22 @@ import { SPEED_OF_SOUND } from './spatial';
 export const CALIBRATION_LEAD_MS = 500;
 /** Extra silence after each slot on top of maxLatencyMs, ms. */
 export const CALIBRATION_GUARD_MS = 200;
+/**
+ * Chirp search window around the scheduled start: the real arrival = output latency the browser didn't report +
+ * mic input latency/FIFO + clock-map error, which can be several hundred ms either way. The next slot (a different
+ * waveform after >= 700 ms of silence) is far enough away that widening doesn't cross-detect.
+ */
+export const SEARCH_EARLY_MS = 400;
+export const SEARCH_LATE_MS = 1500;
+/** Arrival earlier/later than this vs. schedule (+ maxLatencyMs) still counts as heard, but is flagged. */
+const NOMINAL_EARLY_MS = -100;
 /** IR window used for response measurement, samples at 48 kHz (scaled with sample rate). */
 const IR_SEC = 16384 / 48000;
 /** A device whose measured rolloff is at or below this is treated as bass-capable. */
 export const BASS_CAPABLE_ROLLOFF_HZ = 80;
+/** Acceptance gates for a chirp match: envelope peak/median (dB) and normalized correlation peak. */
+const MIN_SNR_DB = 10;
+const MIN_PEAK = 0.1;
 /** Noise-burst SNR below this raises the noisy-room warning, dB. */
 export const NOISY_ROOM_SNR_DB = 15;
 
@@ -92,6 +104,11 @@ export interface DeviceCalibration {
   /** pink-noise RMS at listener, dB (noise floor power-subtracted) */
   levelDb: number | null;
   noiseFloorDb: number | null;
+  /** best chirp match in the search window, even when below the acceptance gates (diagnostics) */
+  bestPeak: number | null;
+  bestSnrDb: number | null;
+  /** best match position vs. the scheduled chirp start, ms (includes latency + propagation + input latency) */
+  arrivalOffsetMs: number | null;
 }
 
 export interface CalibrationReport {
@@ -103,6 +120,9 @@ export interface CalibrationReport {
   /** dB to raise on the device itself (only devices well below the median; see volumeHints) */
   volumeUp: Record<string, number>;
   warnings: string[];
+  /** whole-recording level, dBFS: ≈ −200 means the microphone delivered digital silence */
+  recordingPeakDb: number;
+  recordingRmsDb: number;
 }
 
 /** Response grid: 1/24 octave across the sweep band. */
@@ -114,7 +134,6 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
   const maxLat = input.maxLatencyMs ?? 500;
   const toIdx = (roomMs: number) => Math.round(((roomMs - recStart) / 1000) * sr);
   const ms = (x: number) => Math.round((x / 1000) * sr);
-  const pre = ms(100);
   const inverse = calibrationSweepInverse(sr);
   const irLength = Math.round(IR_SEC * sr);
   const warnings: string[] = [];
@@ -134,6 +153,9 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
       bassCapable: null,
       levelDb: null,
       noiseFloorDb: null,
+      bestPeak: null,
+      bestSnrDb: null,
+      arrivalOffsetMs: null,
     };
     const chirpSlot = slot('chirp');
     if (!chirpSlot) return dc;
@@ -141,11 +163,16 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
     // silence just before the slot (previous slot's guard gap)
     dc.noiseFloorDb = rmsDb(rec, sched - ms(150), sched - ms(20));
     const ref = calibrationSignal('chirp', chirpSlot.deviceIndex, sr);
-    const arrival = detectArrival(rec, ref, {
-      searchStart: sched - pre,
-      searchEnd: sched + ms(maxLat) + pre,
+    const arrival = scanArrival(rec, ref, {
+      searchStart: sched - ms(SEARCH_EARLY_MS),
+      searchEnd: sched + ms(maxLat) + ms(SEARCH_LATE_MS),
     });
-    if (!arrival) return dc;
+    if (arrival) {
+      dc.bestPeak = arrival.peak;
+      dc.bestSnrDb = arrival.snrDb;
+      dc.arrivalOffsetMs = ((arrival.index - sched) / sr) * 1000;
+    }
+    if (!arrival || arrival.snrDb < MIN_SNR_DB || arrival.peak < MIN_PEAK) return dc;
     dc.heard = true;
     dc.snrDb = arrival.snrDb;
     const pos = input.devicePositions[deviceId];
@@ -184,6 +211,9 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
   const minRaw = Math.min(...heard.map((d) => d.rawLatencyMs!));
   for (const d of heard) d.relativeLatencyMs = d.rawLatencyMs! - minRaw;
   for (const d of devices) if (!d.heard) warnings.push(`Couldn't hear ${d.deviceId} — is its volume up?`);
+  for (const d of heard)
+    if (d.arrivalOffsetMs! < NOMINAL_EARLY_MS || d.arrivalOffsetMs! > maxLat)
+      warnings.push(`${d.deviceId} arrived ${Math.round(d.arrivalOffsetMs!)} ms from its slot — unusual timing, results may be off.`);
   if (noisy.length) {
     warnings.push(
       `The room is noisy (signal-to-noise: ${noisy.join(', ')}) — results may be less accurate; try a quieter moment.`,
@@ -207,5 +237,16 @@ export function analyzeCalibration(input: CalibrationInput): CalibrationReport {
   }
   for (const d of heard)
     if (d.levelDb !== null && postLevels[d.deviceId] === undefined) postLevels[d.deviceId] = d.levelDb;
-  return { devices, targetDb, eq, trims: loudnessTrims(postLevels), volumeUp: volumeHints(postLevels), warnings };
+  let peak = 0;
+  for (const v of rec) peak = Math.max(peak, Math.abs(v));
+  return {
+    devices,
+    targetDb,
+    eq,
+    trims: loudnessTrims(postLevels),
+    volumeUp: volumeHints(postLevels),
+    warnings,
+    recordingPeakDb: 20 * Math.log10(peak + 1e-10),
+    recordingRmsDb: rmsDb(rec),
+  };
 }
