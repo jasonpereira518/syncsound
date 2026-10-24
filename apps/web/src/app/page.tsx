@@ -1,125 +1,302 @@
+import type { CSSProperties } from 'react';
+import Image from 'next/image';
 import { LandingActions } from '@/components/LandingActions';
-import { Icon, type IconName } from '@/components/ui';
+import { CloseCta } from '@/components/landing/CloseCta';
+import { LayoutDemo } from '@/components/landing/LayoutDemo';
+import { Ritual } from '@/components/landing/Ritual';
+import { Reveal } from '@/components/landing/Reveal';
+import { Speaker } from '@/components/landing/Speaker';
+import './landing.css';
 
-const STEPS: { icon: IconName; title: string; body: string }[] = [
+/** headless-simulator results from docs/SYNC_RESULTS.md (sections 1 and 2); labelled as simulated on the page */
+const FIGURES = [
   {
-    icon: 'globe',
-    title: 'Clocks agree',
-    body: 'Every device pings the room server dozens of times, keeps the fastest round trips and locks onto a shared room clock to well under a millisecond, tracking drift as it goes.',
+    value: '0.69 ms',
+    caption: 'How far device clocks stray from the room clock, 95th percentile, on simulated Wi-Fi with jitter and 1% packet loss.',
+  },
+  { value: '3.4 ms', caption: 'Largest playback-position error over ten simulated minutes of clock drift.' },
+  { value: '0', caption: 'Hard restarts in that run. Drift is trimmed with rate nudges of at most 0.06%, too small to hear.' },
+];
+
+const FAQ = [
+  {
+    tab: 'Your files',
+    q: 'Can I play my own music?',
+    a: 'Yes, and it gets the full treatment: surround placement, per-speaker EQ and level matching. Audio is loaded onto every device before it starts, never streamed live.',
   },
   {
-    icon: 'music',
-    title: 'Playback is scheduled',
-    body: 'Play, pause and seek are timestamps in the near future. Each device pre-loads the audio and starts its Web Audio graph at exactly that instant, nudging its playback rate to stay locked.',
+    tab: 'YouTube',
+    q: 'Does YouTube work?',
+    a: 'Yes. The video plays in YouTube’s official player and its sound is shared from the browser tab. Nothing is downloaded or extracted.',
   },
   {
-    icon: 'target',
-    title: 'The room becomes surround',
-    body: 'Drag speakers and sound objects on a map of your room. Each phone renders only its own share of the mix, and an acoustic calibration measures latency, level and EQ from where you sit.',
+    tab: 'Spotify',
+    q: 'What about Spotify and Apple Music?',
+    a: 'They run in Sync-only mode (no spatial/EQ). Their audio is DRM-protected, so each device plays through the official player under its own Premium or subscription account. SyncSound keeps them in time.',
+  },
+  {
+    tab: 'Netflix',
+    q: 'Can I share Netflix or Disney+?',
+    a: 'No. DRM video gives silence to tab capture. SyncSound notices and tells you instead of failing quietly; use a local video file or a non-DRM source.',
+  },
+  {
+    tab: 'Wi-Fi',
+    q: 'Do the devices need to be on the same Wi-Fi?',
+    a: 'It works best that way: short round trips keep the clocks tight. Bluetooth speakers pair with a phone or laptop as usual and get their delay measured.',
+  },
+  {
+    tab: 'iPhone',
+    q: 'Anything to know about iPhones?',
+    a: 'Keep the page open in front: iOS pauses background audio. Each device also needs one tap on “Use this device as a speaker” before the browser allows sound.',
   },
 ];
 
-// Decorative speaker dots for the hero: [x%, y%, delay s]
-const DOTS: [number, number, number][] = [
-  [18, 30, 0],
-  [78, 22, 0.6],
-  [50, 58, 1.2],
-  [26, 78, 1.8],
-  [84, 72, 2.4],
-];
+/** the cone, seen from the front: concentric filled rings with even gaps (the page's one shape) */
+function ConeMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 100 100" className={className} aria-hidden>
+      <circle cx="50" cy="50" r="50" fill="var(--color-accent)" />
+      <circle cx="50" cy="50" r="39" fill="var(--mark-gap, var(--color-ink-950))" />
+      <circle cx="50" cy="50" r="34" fill="var(--color-accent)" />
+      <circle cx="50" cy="50" r="23" fill="var(--mark-gap, var(--color-ink-950))" />
+      <circle cx="50" cy="50" r="18" fill="var(--color-accent)" />
+    </svg>
+  );
+}
+
+function Rings() {
+  return (
+    <span className="rings" aria-hidden>
+      <span />
+      <span />
+      <span />
+    </span>
+  );
+}
 
 export default function Home() {
   return (
-    <>
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 pt-5 sm:px-6">
-        <span className="flex items-center gap-2 font-display text-lg font-bold tracking-tight">
-          <span aria-hidden className="grid size-8 place-items-center rounded-lg bg-accent text-accent-ink">
-            <Icon name="wave" className="size-5" />
-          </span>
+    <div className="lp">
+      <nav className="lp-nav" aria-label="Main">
+        <a href="#main" className="lp-brand">
+          <ConeMark className="lp-brand-mark" />
           SyncSound
-        </span>
-        <a href="#how" className="rounded-lg px-3 py-2 text-sm text-ink-300 hover:text-ink-100">
-          How it works
+        </a>
+        <ul className="lp-links">
+          <li>
+            <a href="#layouts">Layouts</a>
+          </li>
+          <li>
+            <a href="#how">How it works</a>
+          </li>
+          <li>
+            <a href="#precision">Timing</a>
+          </li>
+          <li>
+            <a href="#sources">What it plays</a>
+          </li>
+        </ul>
+        <a href="#start" className="btn btn-small">
+          Set up my home
         </a>
       </nav>
 
       <main id="main">
-        <section className="relative mx-auto grid max-w-6xl gap-10 px-4 pt-12 pb-16 sm:px-6 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:pt-20">
-          <div className="min-w-0">
-            <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-ink-700 bg-ink-900/70 px-3 py-1 font-mono text-xs text-ink-300">
-              <span className="size-1.5 rounded-full bg-ok" aria-hidden /> sample-accurate · no app install
-            </p>
-            <h1 className="font-display text-[clamp(2.5rem,9vw,5.25rem)] leading-[0.95] font-bold tracking-tight text-balance">
-              <span className="sr-only">SyncSound: </span>
-              Every phone is <span className="text-accent">a speaker.</span>
+        <section className="hero" aria-labelledby="hero-h">
+          <div className="hero-copy">
+            <h1 id="hero-h" className="hero-h">
+              <span className="sr-only">SyncSound: </span>Your home is one speaker.
             </h1>
-            <p className="mt-5 max-w-xl text-lg text-ink-300 text-pretty">
-              Open a room, let friends scan the QR code, and every phone, laptop and tablet plays the same audio at the
-              same instant. Then drag them around a map of the room to build a surround system out of whatever&rsquo;s
-              in people&rsquo;s pockets.
+            <p className="hero-sub">
+              SyncSound turns the phones, laptops, tablets and Bluetooth speakers you already own into one stereo or
+              surround system, right in the browser. Scan a code on each, tap where it sits, tune once from your seat.
             </p>
             <LandingActions />
           </div>
-
-          <div aria-hidden className="relative mx-auto aspect-square w-full max-w-md overflow-hidden rounded-[2rem] border border-ink-700/70 bg-ink-900/60">
-            <div className="absolute inset-0 bg-[linear-gradient(var(--color-ink-800)_1px,transparent_1px),linear-gradient(90deg,var(--color-ink-800)_1px,transparent_1px)] bg-[size:12.5%_12.5%] opacity-60" />
-            {DOTS.map(([x, y, d]) => (
-              <span key={`${x}-${y}`} className="absolute" style={{ left: `${x}%`, top: `${y}%` }}>
-                <span
-                  className="absolute -top-10 -left-10 size-20 animate-ring rounded-full border border-accent/60"
-                  style={{ animationDelay: `${d}s` }}
-                />
-                <span className="absolute -top-2.5 -left-1.5 h-5 w-3 rounded-[3px] border border-accent bg-ink-950 shadow-[0_0_14px_var(--color-accent)]" />
-              </span>
-            ))}
-            <span className="absolute bottom-4 left-4 font-mono text-[11px] tracking-widest text-ink-400 uppercase">
-              5 devices · Δt 0.4 ms
-            </span>
+          <div className="hero-stage">
+            <span className="hero-disc" aria-hidden />
+            <div className="hero-drift">
+              <div className="hero-shot">
+                <Speaker view="three-quarter" className="hero-spk-2" sizes="(min-width: 1024px) 22vw, 40vw" priority>
+                  <Rings />
+                </Speaker>
+                <Speaker
+                  className="hero-spk"
+                  sizes="(min-width: 1024px) 32vw, 56vw"
+                  priority
+                  alt="A walnut bookshelf speaker beside a second one, both woofers moving on the same beat"
+                >
+                  <Rings />
+                </Speaker>
+              </div>
+            </div>
           </div>
         </section>
 
-        <section id="how" aria-labelledby="how-h" className="mx-auto max-w-6xl scroll-mt-6 px-4 pb-16 sm:px-6">
-          <h2 id="how-h" className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
-            How it works
-          </h2>
-          <ol className="mt-6 grid gap-4 md:grid-cols-3">
-            {STEPS.map((s, i) => (
-              <li key={s.title} className="relative rounded-2xl border border-ink-700/80 bg-ink-900/70 p-5">
-                <span className="font-mono text-xs text-accent">0{i + 1}</span>
-                <h3 className="mt-2 flex items-center gap-2 font-display text-lg font-semibold">
-                  <Icon name={s.icon} className="size-5 text-accent" />
-                  {s.title}
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-300">{s.body}</p>
-              </li>
-            ))}
-          </ol>
+        <section id="layouts" className="sec-demo" aria-labelledby="layouts-h">
+          <LayoutDemo />
         </section>
 
-        <section aria-labelledby="honest-h" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
-          <div className="rounded-2xl border border-warn/30 bg-warn/[0.04] p-5">
-            <h2 id="honest-h" className="flex items-center gap-2 font-display text-lg font-semibold text-warn">
-              <Icon name="warning" className="size-5" /> The honest bit about streaming services
+        <section id="how" className="sec-ritual" aria-labelledby="how-h">
+          <Ritual />
+        </section>
+
+        <section id="precision" className="figs" aria-labelledby="precision-h">
+          <div className="figs-head rise">
+            <h2 id="precision-h" className="sec-h">
+              Timing is the whole trick.
             </h2>
-            <ul className="mt-3 grid gap-2 text-sm text-ink-300 md:grid-cols-2">
-              <li>
-                <strong className="text-ink-100">Spotify and Apple Music are sync-only.</strong> Their audio is DRM-protected,
-                so each device plays through the official player under its own Premium / subscription account. We keep
-                them in time, but spatial mixing and EQ aren&rsquo;t possible there.
-              </li>
-              <li>
-                <strong className="text-ink-100">DRM video can&rsquo;t be captured.</strong> Netflix, Disney+ and similar sites
-                deliver silence to tab capture. Use a local video file or a non-DRM source instead. YouTube is shown
-                through its official player and is never downloaded.
-              </li>
-            </ul>
+            <p>
+              Every device locks to one room clock and starts at a scheduled instant, so you hear one sound, not an
+              echo. These numbers come from SyncSound&rsquo;s headless network simulator; real-room tests are next.
+            </p>
           </div>
+          {FIGURES.map((f, i) => (
+            <div key={f.value} className={`fig fig-${i} rise`}>
+              <p className="fig-value tabular">{f.value}</p>
+              <p className="fig-caption">{f.caption}</p>
+            </div>
+          ))}
+        </section>
+
+        <figure className="band">
+          <Image
+            src="/landing/room.webp"
+            alt="Two walnut speakers on a low sideboard in a dim living room, records stacked between them"
+            width={2400}
+            height={1350}
+            sizes="100vw"
+            className="band-img"
+          />
+          <figcaption>Two speakers on the sideboard, playing as one.</figcaption>
+        </figure>
+
+        <section id="devices" className="board" aria-labelledby="devices-h">
+          <div className="tile tile-h">
+            <h2 id="devices-h" className="sec-h">
+              Works with what you own.
+            </h2>
+          </div>
+          <div className="tile tile-delay" data-ui>
+            <span className="tile-big tabular">+184 ms</span>
+            <p className="tile-name">Delay found</p>
+            <p className="tile-line">Measured per speaker, not guessed.</p>
+          </div>
+          <div className="tile tile-level" data-ui>
+            <span className="tile-big tabular">−2.5 dB</span>
+            <p className="tile-name">Levels matched</p>
+            <p className="tile-line">Every speaker as loud as the next.</p>
+          </div>
+          <div className="tile tile-cone">
+            <Image
+              src="/landing/macro-cone.webp"
+              alt="Close-up of a woofer cone and its rubber surround"
+              width={1400}
+              height={1400}
+              sizes="(min-width: 1024px) 50vw, 100vw"
+            />
+            <p className="tile-name">Bluetooth speakers too</p>
+            <p className="tile-line">Their 100 to 300 ms of hidden delay is measured with a microphone and taken out.</p>
+          </div>
+          <div className="tile tile-tweeter">
+            <Image
+              src="/landing/macro-tweeter.webp"
+              alt="Close-up of a silk-dome tweeter in its metal ring"
+              width={1400}
+              height={1000}
+              sizes="(min-width: 1024px) 25vw, 50vw"
+            />
+            <p className="tile-name">Tone evened out</p>
+            <p className="tile-line">Each speaker is measured from your seat and EQ&rsquo;d to match.</p>
+          </div>
+          <div className="tile tile-corner">
+            <Image
+              src="/landing/macro-corner.webp"
+              alt="The walnut corner of a speaker cabinet with its amber power light"
+              width={1400}
+              height={1000}
+              sizes="(min-width: 1024px) 25vw, 50vw"
+            />
+            <p className="tile-name">Rooms that remember</p>
+            <p className="tile-line">Your home keeps each room&rsquo;s layout and tuning.</p>
+          </div>
+          <div className="tile tile-chips" data-ui>
+            <span className="chips" aria-hidden>
+              <span>Phone</span>
+              <span>Laptop</span>
+              <span>Tablet</span>
+              <span>Speaker</span>
+            </span>
+            <p className="tile-name">Any browser joins</p>
+            <p className="tile-line">No app to install. Open the link or scan the code.</p>
+          </div>
+          <div className="tile tile-group" data-ui>
+            <span className="toggle" aria-hidden>
+              <span />
+            </span>
+            <p className="tile-name">Every room at once</p>
+            <p className="tile-line">Group play starts the same song in the kitchen and the living room.</p>
+          </div>
+          <div className="tile tile-adv" data-ui>
+            <span className="tile-big">Advanced</span>
+            <p className="tile-name">Every control is still there</p>
+            <p className="tile-line">Place sound objects, set the crossover, read the sync numbers.</p>
+          </div>
+        </section>
+
+        <section id="sources" className="faq" aria-labelledby="sources-h">
+          <h2 id="sources-h" className="sec-h rise">
+            What can it play?
+          </h2>
+          <div className="cards">
+            {FAQ.map((f, i) => (
+              <details key={f.tab} name="faq" className="card" open={i === 0} style={{ '--i': i } as CSSProperties}>
+                <summary>
+                  <span className="card-tab">{f.tab}</span>
+                  <span className="card-q">{f.q}</span>
+                </summary>
+                <p className="card-a">{f.a}</p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        <section className="close" aria-labelledby="close-h">
+          <CloseCta />
         </section>
       </main>
 
-      <footer className="border-t border-ink-800 py-6 text-center text-xs text-ink-500">
-        SyncSound · works best with every device on the same Wi-Fi
+      <footer className="foot">
+        <p className="foot-word" aria-label="SyncSound">
+          <ConeMark className="foot-mark" />
+          <span aria-hidden>SyncSound</span>
+        </p>
+        <div className="foot-cols">
+          <ul>
+            <li>
+              <a href="#layouts">Layouts</a>
+            </li>
+            <li>
+              <a href="#how">How it works</a>
+            </li>
+            <li>
+              <a href="#precision">Timing</a>
+            </li>
+            <li>
+              <a href="#sources">What it plays</a>
+            </li>
+          </ul>
+          <p>Works best with every device on the same Wi-Fi.</p>
+          <p>Speaker pictures on this page are 3D renders.</p>
+        </div>
+        <div className="foot-last">
+          <p>© 2026 SyncSound</p>
+          <a href="#main" className="btn btn-small">
+            Back to top
+          </a>
+        </div>
       </footer>
-    </>
+      <Reveal />
+    </div>
   );
 }

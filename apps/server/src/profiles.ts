@@ -1,10 +1,10 @@
-/** Device profiles keyed by deviceId, kept in memory and flushed (debounced) to `${dataDir}/profiles.json`. */
+/** id → value maps kept in memory and flushed (debounced, atomic rename) to a JSON file under dataDir. */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Profile } from './room.ts';
 
-export class ProfileStore {
-  private readonly map = new Map<string, Profile>();
+export class JsonStore<V> {
+  protected readonly map = new Map<string, V>();
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -12,19 +12,24 @@ export class ProfileStore {
     private readonly debounceMs = 1000,
   ) {
     try {
-      const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, Profile>;
-      for (const [id, p] of Object.entries(raw)) this.map.set(id, p);
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, V>;
+      for (const [id, v] of Object.entries(raw)) this.map.set(id, v);
     } catch {
       // missing or corrupt file → start empty
     }
   }
 
-  get(deviceId: string): Profile | undefined {
-    return this.map.get(deviceId);
+  get(id: string): V | undefined {
+    return this.map.get(id);
   }
 
-  set(deviceId: string, p: Profile) {
-    this.map.set(deviceId, p);
+  set(id: string, v: V) {
+    this.map.set(id, v);
+    this.touch();
+  }
+
+  /** schedule a flush after mutating a stored value in place */
+  touch() {
     this.timer ??= setTimeout(() => this.flush(), this.debounceMs).unref();
   }
 
@@ -37,3 +42,6 @@ export class ProfileStore {
     renameSync(tmp, this.file);
   }
 }
+
+/** Device profiles keyed by deviceId (`${dataDir}/profiles.json`). */
+export class ProfileStore extends JsonStore<Profile> {}

@@ -1,28 +1,28 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-chillax), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-chillax), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-ink-950: #06070a;
-  --color-ink-900: #0b0d12;
-  --color-ink-850: #10131a;
-  --color-ink-800: #161a23;
-  --color-ink-700: #212634;
-  --color-ink-600: #2e3446;
-  --color-ink-500: #4a5268;
-  --color-ink-400: #8b94aa;
-  --color-ink-300: #aeb6c9;
-  --color-ink-200: #d6dbe6;
-  --color-ink-100: #eef1f6;
+  --color-ink-950: #0e0c0a;
+  --color-ink-900: #141210;
+  --color-ink-850: #1a1714;
+  --color-ink-800: #211d19;
+  --color-ink-700: #2e2924;
+  --color-ink-600: #3d3630;
+  --color-ink-500: #5e554c;
+  --color-ink-400: #9c9184;
+  --color-ink-300: #bdb3a5;
+  --color-ink-200: #dcd4c7;
+  --color-ink-100: #eeeae3;
 
-  --color-accent: #3de8ff;
-  --color-accent-dim: #1a8fa0;
-  --color-accent-ink: #00161a;
+  --color-accent: #ffb23e;
+  --color-accent-dim: #b8781f;
+  --color-accent-ink: #1a0f00;
 
   --color-ok: #4ade80;
-  --color-warn: #facc15;
+  --color-warn: #e9d96a;
   --color-bad: #f87171;
 
   --color-role-l: #5b9cff;
@@ -30,6 +30,8 @@
   --color-role-c: #ffc457;
   --color-role-sl: #9d84ff;
   --color-role-sr: #ff9548;
+  --color-role-rl: #c58bff;
+  --color-role-rr: #ffb37a;
   --color-role-sub: #2ee6a6;
   --color-role-full: #a3acc0;
 
@@ -67,10 +69,7 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 85% -10%, rgb(61 232 255 / 0.07), transparent 60%),
-    radial-gradient(900px 500px at -10% 10%, rgb(157 132 255 / 0.05), transparent 60%),
-    var(--color-ink-950);
+  background: var(--color-ink-950);
   color: var(--color-ink-100);
   min-height: 100dvh;
   overflow-x: hidden;

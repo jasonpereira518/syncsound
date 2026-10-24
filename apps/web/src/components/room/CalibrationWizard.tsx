@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { downloadFailedRecording, hasFailedRecording } from '@/lib/engine/calibration';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { CalibrationUi } from '@/store/types';
 import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui';
@@ -91,6 +92,11 @@ export function CalibrationWizard() {
             <Icon name="mic" className="size-4" /> {cal.step === 'done' ? 'Recalibrate' : 'Start calibration'}
           </Button>
         )}
+        {!busy && (
+          <Button data-testid="calibrate-quick" disabled={!selfHasMic} onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
+            Quick re-sync
+          </Button>
+        )}
         <Button onClick={presetAll}>
           <Icon name="eq" className="size-4" /> Use device-class presets
         </Button>
@@ -110,6 +116,11 @@ export function CalibrationWizard() {
             <li>Nothing heard? Turn every speaker up, keep the room quiet and hold this phone in the open (not in a pocket).</li>
             <li>Make sure every device&rsquo;s tab is in the foreground with the screen on.</li>
           </ul>
+          {hasFailedRecording() && (
+            <Button className="mt-3" onClick={downloadFailedRecording}>
+              Save microphone recording (.wav)
+            </Button>
+          )}
         </div>
       )}
       {cal.warnings.length > 0 && (

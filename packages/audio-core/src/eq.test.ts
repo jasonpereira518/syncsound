@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cascadeMagnitudeDb, designBiquad, type BiquadCoeffs } from './biquad';
 import { classPresetEq, commonTarget, eqToBiquads, fitEq, houseCurve } from './eq';
-import { loudnessTrims } from './loudness';
+import { loudnessTrims, volumeHints } from './loudness';
 import { estimateRolloffHz, logFreqs, smoothFractionalOctave, type Response } from './measure';
 
 const SR = 48000;
@@ -81,5 +81,12 @@ describe('fitEq', () => {
   it('loudness trims match the quietest device', () => {
     expect(loudnessTrims({ a: -20, b: -26, c: -23 })).toEqual({ a: -6, b: 0, c: -3 });
     expect(loudnessTrims({})).toEqual({});
+  });
+
+  it('volume hints flag only devices well below the median', () => {
+    // median −22: b is 4 dB under → raise it; c (1 dB under) is fine
+    expect(volumeHints({ a: -20, b: -26, c: -23, d: -21 })).toEqual({ b: 4 });
+    expect(volumeHints({ a: -20, b: -40 })).toEqual({ b: 10 });
+    expect(volumeHints({ a: -20 })).toEqual({});
   });
 });

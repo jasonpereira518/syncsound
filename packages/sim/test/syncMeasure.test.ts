@@ -74,4 +74,39 @@ describe('sync measurement tool (simulated)', () => {
       ),
     );
   }, 60_000);
+
+  it('Bluetooth wobble readout: a speaker with ±3 ms jitter stands out, the steady ones stay under 1 ms', () => {
+    const speakers = referenceSpeakers().map((s) => ({ ...s, latencyMs: 0 }));
+    const rnd = mulberry32(23);
+    const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+    const sigma: Record<string, number> = { phone: 0.2, laptop: 0.2, bt: 3, desktop: 0.2 };
+    const jitter = Object.fromEntries(speakers.map((s) => [s.id, Array.from({ length: 10 }, () => sigma[s.id]! * gauss())]));
+    // the 10 s run the tuning flow does when a Bluetooth speaker is present
+    const slots = buildSyncMeasurementSlots(speakers.map((s) => s.id), { durationSec: 10 });
+    const plan: CalibrationPlan = { id: 'm2', listenerId: 'l', startRoomTime: 5_000_000, slots, purpose: 'measure' };
+    const recording = renderListenerRecording({
+      plan,
+      speakers,
+      listener: LISTENER,
+      sampleRate: SIM_SR,
+      durationMs: calibrationRecordingMs(slots, 300),
+      inputLatencyMs: 12,
+      noiseDb: -50,
+      clickJitterMs: (id, k) => jitter[id]![k]!,
+    });
+    const report = analyzeSyncMeasurement({
+      plan,
+      recording,
+      sampleRate: SIM_SR,
+      recordingStartRoomTime: plan.startRoomTime,
+      devicePositions: Object.fromEntries(speakers.map((s) => [s.id, s.position])),
+      listener: LISTENER,
+      maxLatencyMs: 300,
+    });
+    const std = Object.fromEntries(report.devices.map((d) => [d.deviceId, d.stdMs]));
+    // errors are relative to the group mean, so the readout is ~(n−1)/n of the true σ for the wobbly one
+    expect(std.bt).toBeGreaterThan(1.5);
+    expect(std.bt).toBeLessThan(4);
+    for (const id of ['phone', 'laptop', 'desktop']) expect(std[id]).toBeLessThan(1);
+  }, 60_000);
 });

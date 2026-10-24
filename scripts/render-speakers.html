@@ -1,0 +1,403 @@
+<!doctype html>
+<!--
+  Speaker render scene for `pnpm render:speakers` (scripts/render-speakers.ts loads this in headless Chromium).
+  ?shot=<id> picks a shot from SHOTS below; window.__done holds metadata once the frame is drawn.
+  Units are metres. The model is built in code: walnut cabinet, felt baffle, woofer, tweeter, power LED.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+      const params = new URLSearchParams(location.search);
+      const shotId = params.get('shot');
+
+      // ---- the speaker ---------------------------------------------------------------------------------------
+      const W = 0.22, H = 0.36, D = 0.26; // cabinet
+      const FRONT = D / 2;
+      const WOOFER = { y: -0.055, r: 0.074 };
+      const TWEETER = { y: 0.105, r: 0.024 };
+      const LED = { y: -0.158 };
+
+      /** procedural walnut: warm brown ground, wavy darker grain lines, a few cathedral arches */
+      function walnutTexture(seed, horizontal = false) {
+        const c = document.createElement('canvas');
+        c.width = 1024;
+        c.height = 2048;
+        const g = c.getContext('2d');
+        let s = seed;
+        const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+        g.fillStyle = '#5b3a24';
+        g.fillRect(0, 0, c.width, c.height);
+        // broad flitch bands: lighter heartwood and darker streaks running the length of the panel
+        for (let i = 0; i < 40; i++) {
+          const x = rnd() * c.width, w = 20 + rnd() * 120;
+          g.fillStyle = rnd() > 0.5 ? `rgba(120,80,48,${0.08 + rnd() * 0.12})` : `rgba(40,24,14,${0.08 + rnd() * 0.14})`;
+          g.fillRect(x, 0, w, c.height);
+        }
+        for (let i = 0; i < 420; i++) {
+          const x0 = rnd() * c.width;
+          const amp = 6 + rnd() * 28;
+          const freq = 0.002 + rnd() * 0.004;
+          const phase = rnd() * 6.28;
+          const dark = rnd();
+          g.strokeStyle = dark > 0.55 ? `rgba(38,22,12,${0.08 + rnd() * 0.2})` : `rgba(140,96,60,${0.05 + rnd() * 0.1})`;
+          g.lineWidth = 0.5 + rnd() * (dark > 0.92 ? 3 : 1.4);
+          g.beginPath();
+          for (let y = 0; y <= c.height; y += 8) {
+            const x = x0 + amp * Math.sin(y * freq + phase) + 10 * Math.sin(y * freq * 3.7 + phase * 2);
+            y === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+          }
+          g.stroke();
+        }
+        for (let k = 0; k < 26; k++) {
+          g.strokeStyle = `rgba(36,20,10,${0.06 + rnd() * 0.12})`;
+          g.lineWidth = 0.8 + rnd() * 1.6;
+          g.beginPath();
+          const cx = c.width * (0.45 + rnd() * 0.1), cy = c.height * 0.62, w = 40 + k * 16, h = 260 + k * 46;
+          g.ellipse(cx, cy, w, h, 0, Math.PI, 2 * Math.PI);
+          g.stroke();
+        }
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 8;
+        if (horizontal) {
+          t.center.set(0.5, 0.5);
+          t.rotation = Math.PI / 2;
+        }
+        return t;
+      }
+
+      /** fine radial rings for the cone (the page's motif, and how a real pressed cone catches light) */
+      function coneTexture() {
+        const c = document.createElement('canvas');
+        c.width = 16;
+        c.height = 1024;
+        const g = c.getContext('2d');
+        g.fillStyle = '#3b3631';
+        g.fillRect(0, 0, 16, 1024);
+        for (let y = 0; y < 1024; y += 6) {
+          g.fillStyle = y % 18 === 0 ? 'rgba(130,118,104,0.35)' : 'rgba(16,14,12,0.3)';
+          g.fillRect(0, y, 16, 2);
+        }
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+
+      function feltTexture() {
+        const c = document.createElement('canvas');
+        c.width = c.height = 512;
+        const g = c.getContext('2d');
+        const img = g.createImageData(512, 512);
+        let s = 3;
+        const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+        for (let i = 0; i < img.data.length; i += 4) {
+          const v = 18 + rnd() * 14;
+          img.data[i] = v + 3;
+          img.data[i + 1] = v;
+          img.data[i + 2] = v - 2;
+          img.data[i + 3] = 255;
+        }
+        g.putImageData(img, 0, 0);
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(3, 5);
+        return t;
+      }
+
+      const mats = {
+        walnut: (seed, horizontal) =>
+          new THREE.MeshPhysicalMaterial({ map: walnutTexture(seed, horizontal), roughness: 0.42, clearcoat: 0.55, clearcoatRoughness: 0.3 }),
+        felt: new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 1, metalness: 0 }),
+        rubber: new THREE.MeshPhysicalMaterial({ color: 0x16130f, roughness: 0.55, clearcoat: 0.25, side: THREE.DoubleSide }),
+        cone: new THREE.MeshPhysicalMaterial({ map: coneTexture(), metalness: 0.55, roughness: 0.38, clearcoat: 0.4, side: THREE.DoubleSide }),
+        cap: new THREE.MeshPhysicalMaterial({ color: 0x24201c, metalness: 0.4, roughness: 0.22, clearcoat: 1, side: THREE.DoubleSide }),
+        trim: new THREE.MeshStandardMaterial({ color: 0xc9c1b4, metalness: 1, roughness: 0.32 }),
+        silk: new THREE.MeshStandardMaterial({ color: 0x2e2a26, roughness: 0.72, side: THREE.DoubleSide }),
+        hole: new THREE.MeshBasicMaterial({ color: 0x050403 }),
+        led: new THREE.MeshStandardMaterial({ color: 0xffb23e, emissive: 0xffa21e, emissiveIntensity: 3.2 }),
+      };
+
+      function roundedRect(w, h, r) {
+        const s = new THREE.Shape();
+        s.moveTo(-w / 2 + r, -h / 2);
+        s.lineTo(w / 2 - r, -h / 2);
+        s.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+        s.lineTo(w / 2, h / 2 - r);
+        s.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+        s.lineTo(-w / 2 + r, h / 2);
+        s.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
+        s.lineTo(-w / 2, -h / 2 + r);
+        s.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+        return s;
+      }
+      const circle = (x, y, r) => {
+        const p = new THREE.Path();
+        p.absarc(x, y, r, 0, Math.PI * 2, true);
+        return p;
+      };
+
+      /** one speaker: `cone` holds every part that moves (cone, surround, dust cap) */
+      function makeSpeaker(seed = 7) {
+        const group = new THREE.Group();
+        const cone = new THREE.Group();
+
+        const BAY = 0.08; // depth of the front section that holds the drivers
+        const walnut = mats.walnut(seed);
+        const box = new THREE.Mesh(new RoundedBoxGeometry(W, H, D - BAY + 0.024, 6, 0.012), walnut);
+        box.position.z = -BAY / 2 + 0.012;
+        group.add(box);
+        // walnut frame round the baffle, edges rounded by the bevel; extrude UVs are metres, so tile the grain
+        const frameWalnut = walnut.clone();
+        frameWalnut.map = walnut.map.clone();
+        frameWalnut.map.wrapS = frameWalnut.map.wrapT = THREE.RepeatWrapping;
+        frameWalnut.map.repeat.set(3, 2.5);
+        const B = 0.004;
+        const frameShape = roundedRect(W - 2 * B, H - 2 * B, 0.01);
+        const inner = roundedRect(W - 0.018, H - 0.018, 0.008);
+        frameShape.holes.push(new THREE.Path(inner.getPoints(48).reverse()));
+        const frame = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(frameShape, { depth: BAY - 2 * B, bevelEnabled: true, bevelSize: B, bevelThickness: B, bevelSegments: 4, curveSegments: 24 }),
+          frameWalnut,
+        );
+        frame.position.z = FRONT - BAY + B;
+        group.add(frame);
+
+        // felt baffle with two real cut-outs, slightly recessed in the frame
+        const shape = roundedRect(W - 0.018, H - 0.018, 0.008);
+        shape.holes.push(circle(0, WOOFER.y, WOOFER.r + 0.006), circle(0, TWEETER.y, TWEETER.r + 0.008));
+        const baffle = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: BAY - 0.004, bevelEnabled: false, curveSegments: 96 }), mats.felt);
+        baffle.position.z = FRONT - BAY;
+        group.add(baffle);
+
+        // dark cavities behind the cut-outs (what shows when the cone layer is hidden)
+        for (const [y, r] of [
+          [WOOFER.y, WOOFER.r + 0.006],
+          [TWEETER.y, TWEETER.r + 0.008],
+        ]) {
+          const hole = new THREE.Mesh(new THREE.CircleGeometry(r, 64), mats.hole);
+          hole.position.set(0, y, FRONT - 0.054); // just in front of the box face inside the bay
+          group.add(hole);
+        }
+
+        const trimW = new THREE.Mesh(new THREE.TorusGeometry(WOOFER.r + 0.006, 0.0032, 24, 128), mats.trim);
+        trimW.position.set(0, WOOFER.y, FRONT + 0.004);
+        group.add(trimW);
+
+        const surround = new THREE.Mesh(new THREE.TorusGeometry(WOOFER.r - 0.006, 0.0075, 32, 128), mats.rubber);
+        surround.position.set(0, WOOFER.y, FRONT - 0.004);
+        cone.add(surround);
+        const prof = [];
+        for (let i = 0; i <= 24; i++) {
+          const t = i / 24;
+          prof.push(new THREE.Vector2(0.024 + (WOOFER.r - 0.013 - 0.024) * t, -0.03 * Math.pow(1 - t, 1.3)));
+        }
+        const coneMesh = new THREE.Mesh(new THREE.LatheGeometry(prof, 128), mats.cone);
+        coneMesh.rotation.x = Math.PI / 2;
+        coneMesh.position.set(0, WOOFER.y, FRONT - 0.004);
+        cone.add(coneMesh);
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.04, 64, 32, 0, Math.PI * 2, 0, 0.62), mats.cap);
+        cap.rotation.x = Math.PI / 2;
+        cap.position.set(0, WOOFER.y, FRONT - 0.0666);
+        cone.add(cap);
+        group.add(cone);
+
+        const trimT = new THREE.Mesh(new THREE.TorusGeometry(TWEETER.r + 0.008, 0.0024, 24, 96), mats.trim);
+        trimT.position.set(0, TWEETER.y, FRONT + 0.003);
+        group.add(trimT);
+        const guideProf = [];
+        for (let i = 0; i <= 16; i++) {
+          const t = i / 16;
+          guideProf.push(new THREE.Vector2(0.012 + (TWEETER.r + 0.006 - 0.012) * t, -0.008 * (1 - t * t)));
+        }
+        const guide = new THREE.Mesh(new THREE.LatheGeometry(guideProf, 96), mats.rubber);
+        guide.rotation.x = Math.PI / 2;
+        guide.position.set(0, TWEETER.y, FRONT);
+        group.add(guide);
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(0.013, 48, 24, 0, Math.PI * 2, 0, 1.2), mats.silk);
+        dome.rotation.x = Math.PI / 2;
+        dome.position.set(0, TWEETER.y, FRONT - 0.012);
+        group.add(dome);
+
+        const led = new THREE.Mesh(new THREE.SphereGeometry(0.0022, 16, 12), mats.led);
+        led.position.set(0, LED.y, FRONT + 0.003);
+        group.add(led);
+
+        return { group, cone };
+      }
+
+      // ---- shots ----------------------------------------------------------------------------------------------
+      // w/h are output pixels; layer 'cabinet' hides the moving parts, 'cone' shows only them, 'all' shows both
+      const SHOTS = {
+        'front-cabinet': { w: 1100, h: 1700, view: 'front', layer: 'cabinet' },
+        'front-cone': { w: 1100, h: 1700, view: 'front', layer: 'cone' },
+        'three-quarter-cabinet': { w: 1300, h: 1600, view: 'threeQuarter', layer: 'cabinet' },
+        'three-quarter-cone': { w: 1300, h: 1600, view: 'threeQuarter', layer: 'cone' },
+        'macro-cone': { w: 1400, h: 1400, view: 'macroCone', layer: 'all', opaque: true },
+        'macro-tweeter': { w: 1400, h: 1000, view: 'macroTweeter', layer: 'all', opaque: true },
+        'macro-corner': { w: 1400, h: 1000, view: 'macroCorner', layer: 'all', opaque: true },
+        room: { w: 2400, h: 1350, view: 'room', layer: 'all', opaque: true },
+      };
+      const shot = SHOTS[shotId];
+      if (!shot) throw new Error(`unknown shot ${shotId}`);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: !shot.opaque, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(1);
+      renderer.setSize(shot.w, shot.h);
+      renderer.toneMapping = THREE.AgXToneMapping;
+      renderer.toneMappingExposure = 1.15;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      scene.environmentIntensity = 0.32;
+      if (shot.opaque) scene.background = new THREE.Color(0x0e0c0a);
+
+      // warm key from upper left, amber rim from behind right, low neutral fill
+      const key = new THREE.DirectionalLight(0xffe4c4, 2.6);
+      key.position.set(-1.2, 1.4, 1.6);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.camera.left = key.shadow.camera.bottom = -1.5;
+      key.shadow.camera.right = key.shadow.camera.top = 1.5;
+      key.shadow.radius = 6;
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0xffb23e, 3.4);
+      rim.position.set(1.4, 0.6, -1.2);
+      scene.add(rim);
+      const fill = new THREE.DirectionalLight(0xd8d2ca, 0.35);
+      fill.position.set(1, -0.2, 2);
+      scene.add(fill);
+
+      const cam = new THREE.PerspectiveCamera(18, shot.w / shot.h, 0.01, 50);
+      const speakers = [];
+
+      if (shot.view === 'room') {
+        // a low walnut sideboard against a dark plaster wall, two speakers on it, a lamp's amber pool on the wall
+        const wall = new THREE.Mesh(new THREE.PlaneGeometry(12, 6), new THREE.MeshStandardMaterial({ color: 0x2a231e, roughness: 0.95 }));
+        wall.position.set(0, 1.5, -0.45);
+        wall.receiveShadow = true;
+        scene.add(wall);
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), new THREE.MeshStandardMaterial({ color: 0x15110e, roughness: 0.8 }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+        const board = new THREE.Mesh(new RoundedBoxGeometry(2.4, 0.5, 0.48, 4, 0.01), mats.walnut(31, true));
+        board.position.set(0, 0.33, -0.2);
+        board.castShadow = board.receiveShadow = true;
+        scene.add(board);
+        for (const x of [-0.9, 0.9]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.4), mats.rubber);
+          leg.position.set(x, 0.04, -0.2);
+          scene.add(leg);
+        }
+        for (const [x, seed] of [
+          [-0.72, 11],
+          [0.72, 23],
+        ]) {
+          const s = makeSpeaker(seed);
+          s.group.position.set(x, 0.58 + H / 2, -0.18);
+          s.group.rotation.y = x < 0 ? 0.18 : -0.18;
+          scene.add(s.group);
+          speakers.push(s);
+        }
+        // a stack of records between them
+        for (let i = 0; i < 5; i++) {
+          const rec = new THREE.Mesh(
+            new THREE.BoxGeometry(0.315, 0.006, 0.315),
+            new THREE.MeshStandardMaterial({ color: [0x1b1815, 0x6b2f1d, 0x1b1815, 0xc9b79a, 0x24303a][i], roughness: 0.6 }),
+          );
+          rec.position.set(0.05 + (i % 2) * 0.01, 0.585 + i * 0.007, -0.15);
+          rec.rotation.y = 0.08 * (i - 2);
+          scene.add(rec);
+        }
+        const lamp = new THREE.PointLight(0xffa24a, 6, 4, 1.6);
+        lamp.position.set(-1.6, 1.6, 0.1);
+        scene.add(lamp);
+        key.intensity = 1.6;
+        cam.fov = 22;
+        cam.position.set(0.35, 1.0, 3.2);
+        cam.lookAt(0, 0.7, -0.2);
+      } else {
+        const s = makeSpeaker(7);
+        scene.add(s.group);
+        speakers.push(s);
+        const views = {
+          front: () => {
+            cam.position.set(0, 0.02, 1.6);
+            cam.lookAt(0, 0, 0);
+          },
+          threeQuarter: () => {
+            s.group.rotation.y = -0.62;
+            cam.position.set(0.12, 0.18, 1.7);
+            cam.lookAt(0, -0.005, 0);
+          },
+          macroCone: () => {
+            cam.fov = 24;
+            cam.position.set(0.05, WOOFER.y + 0.06, FRONT + 0.32);
+            cam.lookAt(0, WOOFER.y, FRONT);
+          },
+          macroTweeter: () => {
+            cam.fov = 20;
+            cam.position.set(-0.08, TWEETER.y + 0.05, FRONT + 0.26);
+            cam.lookAt(0, TWEETER.y - 0.004, FRONT);
+          },
+          macroCorner: () => {
+            s.group.rotation.y = -0.85;
+            cam.fov = 22;
+            cam.position.set(0.18, -0.12, 0.62);
+            cam.lookAt(0.02, -0.15, 0.06);
+          },
+        };
+        views[shot.view]();
+      }
+      scene.traverse((o) => o.isMesh && (o.castShadow = o.receiveShadow = true));
+      cam.updateProjectionMatrix();
+
+      for (const s of speakers) {
+        if (shot.layer === 'cabinet') s.cone.visible = false;
+        if (shot.layer === 'cone') {
+          s.group.traverse((o) => o.isMesh && (o.visible = false));
+          s.cone.traverse((o) => (o.visible = true));
+        }
+      }
+
+      renderer.render(scene, cam);
+
+      // where the woofer sits in the frame, for the CSS cone pump (fractions of width / height)
+      const meta = {};
+      if (speakers.length === 1) {
+        const g = speakers[0].group;
+        g.updateMatrixWorld(true);
+        const c = new THREE.Vector3(0, WOOFER.y, FRONT).applyMatrix4(g.matrixWorld).project(cam);
+        const e = new THREE.Vector3(0, WOOFER.y + WOOFER.r, FRONT).applyMatrix4(g.matrixWorld).project(cam);
+        meta.cx = (c.x + 1) / 2;
+        meta.cy = (1 - c.y) / 2;
+        meta.r = Math.abs(e.y - c.y) / 2;
+      }
+      window.__done = { w: shot.w, h: shot.h, ...meta };
+    </script>
+  </body>
+</html>

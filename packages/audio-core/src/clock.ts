@@ -20,6 +20,13 @@ export interface ClockEstimate {
   converged: boolean;
 }
 
+/** what the engine needs from a clock: ClockSync itself, or the LAN ClockLink composed on top of one */
+export interface RoomClock {
+  toRoomTime(localMs: number): number;
+  toLocalTime(roomMs: number): number;
+  estimate(): ClockEstimate;
+}
+
 export interface ClockSyncOptions {
   /** sliding window size (default 64) */
   windowSize?: number;
@@ -108,12 +115,53 @@ interface Pt {
  * Before t0 the drift slope s2 is extrapolated backwards (never the slew: a late joiner evaluates room times
  * seconds in the past, and extrapolating a 1 ms/s slew back would add ms of error).
  */
-interface Applied {
+export interface ClockMappingData {
   t0: number;
   a0: number;
   s1: number;
   tEnd: number;
   s2: number;
+}
+type Applied = ClockMappingData;
+
+function offsetAt(a: Applied, t: number): number {
+  if (t < a.t0) return a.a0 + a.s2 * (t - a.t0);
+  if (t <= a.tEnd) return a.a0 + a.s1 * (t - a.t0);
+  return a.a0 + a.s1 * (a.tEnd - a.t0) + a.s2 * (t - a.tEnd);
+}
+
+function inverse(a: Applied, roomMs: number): number {
+  if (roomMs < a.t0 + a.a0) return (roomMs - a.a0 + a.s2 * a.t0) / (1 + a.s2);
+  const l1 = (roomMs - a.a0 + a.s1 * a.t0) / (1 + a.s1);
+  if (l1 <= a.tEnd) return l1;
+  const aEnd = a.a0 + a.s1 * (a.tEnd - a.t0);
+  return (roomMs - aEnd + a.s2 * a.tEnd) / (1 + a.s2);
+}
+
+/** LAN clock-master link (DataChannel): ping every 100 ms, 128-sample window (~13 s). Tuned in sim/lanMaster. */
+export const LAN_PING_MS = 100;
+export const LAN_SYNC_OPTS: ClockSyncOptions = { windowSize: 128 };
+
+/**
+ * A frozen copy of a ClockSync's local → room mapping. The LAN clock master shares its mapping so every device
+ * applies the *same* WAN estimate on top of its (much tighter) LAN estimate of the master's clock.
+ */
+export class ClockMapping {
+  constructor(readonly data: ClockMappingData) {}
+
+  /** snapshot of `sync`'s current mapping, or null before its first sample */
+  static of(sync: ClockSync): ClockMapping | null {
+    const d = sync.mapping();
+    return d ? new ClockMapping(d) : null;
+  }
+
+  toRoomTime(localMs: number): number {
+    return localMs + offsetAt(this.data, localMs);
+  }
+
+  toLocalTime(roomMs: number): number {
+    return inverse(this.data, roomMs);
+  }
 }
 
 // Drift is fitted over a much longer history than the offset window (long baseline → low ppm noise), as an
@@ -137,7 +185,7 @@ const DRIFT_MIN_SPAN_MS = 2_000;
  * at which `converged` first becomes true; afterwards changes are slewed at ≤ maxSlewMsPerSec (on top of the
  * drift slope) unless |target − applied| > stepThresholdMs. Call `reset()` after a reconnect.
  */
-export class ClockSync {
+export class ClockSync implements RoomClock {
   private readonly windowSize: number;
   private readonly bestFraction: number;
   private readonly slewPerMs: number;
@@ -244,11 +292,12 @@ export class ClockSync {
   }
 
   private appliedAt(t: number): number {
-    const a = this.applied;
-    if (!a) return 0;
-    if (t < a.t0) return a.a0 + a.s2 * (t - a.t0);
-    if (t <= a.tEnd) return a.a0 + a.s1 * (t - a.t0);
-    return a.a0 + a.s1 * (a.tEnd - a.t0) + a.s2 * (t - a.tEnd);
+    return this.applied ? offsetAt(this.applied, t) : 0;
+  }
+
+  /** copy of the current local → room mapping (null before the first sample) */
+  mapping(): ClockMappingData | null {
+    return this.applied ? { ...this.applied } : null;
   }
 
   /** local client ms → room (server) ms */
@@ -258,13 +307,7 @@ export class ClockSync {
 
   /** room (server) ms → local client ms (exact inverse of toRoomTime for the current state) */
   toLocalTime(roomMs: number): number {
-    const a = this.applied;
-    if (!a) return roomMs;
-    if (roomMs < a.t0 + a.a0) return (roomMs - a.a0 + a.s2 * a.t0) / (1 + a.s2);
-    const l1 = (roomMs - a.a0 + a.s1 * a.t0) / (1 + a.s1);
-    if (l1 <= a.tEnd) return l1;
-    const aEnd = a.a0 + a.s1 * (a.tEnd - a.t0);
-    return (roomMs - aEnd + a.s2 * a.tEnd) / (1 + a.s2);
+    return this.applied ? inverse(this.applied, roomMs) : roomMs;
   }
 
   estimate(): ClockEstimate {

@@ -6,7 +6,7 @@ import { Badge, CLASS_ICON, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Sta
 import { act, currentTrack, syncStatusOf, useCanControl } from './shared';
 
 const ROLES = DeviceRole.options;
-const ROLE_LABEL: Record<DeviceRole, string> = { L: 'Left', R: 'Right', C: 'Centre', SL: 'Surround L', SR: 'Surround R', Sub: 'Sub', Full: 'Full range' };
+const ROLE_LABEL: Record<DeviceRole, string> = { L: 'Left', R: 'Right', C: 'Centre', SL: 'Surround L', SR: 'Surround R', RL: 'Rear L', RR: 'Rear R', Sub: 'Sub', Full: 'Full range' };
 
 const update = (patch: DevicePatch, id: string) => act(() => roomActions.updateDevice(patch, id));
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -157,7 +157,7 @@ function DeviceRow({ d }: { d: Device }) {
         </div>
         <fieldset disabled={!editable} className="mt-3 grid gap-3 sm:grid-cols-2">
           <legend className="sr-only">Settings for {d.name}</legend>
-          <RangeField label="Volume" min={0} max={1} step={0.01} value={d.volume} format={pct} onCommit={(v) => update({ volume: v }, d.id)} />
+          <RangeField label="Balance (this speaker only)" min={0} max={1} step={0.01} value={d.volume} format={pct} onCommit={(v) => update({ volume: v }, d.id)} />
           <RangeField label="Trim" min={-24} max={12} step={0.5} value={d.trimDb} format={db} onCommit={(v) => update({ trimDb: v }, d.id)} />
           <div className="sm:col-span-2">
             <RangeField
@@ -261,8 +261,14 @@ export function SpeakerCard() {
           </div>
         </div>
       </div>
+      {!!self.volumeUpDb && (
+        <p role="status" data-testid="volume-up-hint" className="mt-3 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+          <strong className="text-warn">This speaker is quieter than the rest.</strong> Turn this device&rsquo;s own volume up (about{' '}
+          {Math.round(self.volumeUpDb)} dB), then tune the room again so everyone can play louder.
+        </p>
+      )}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <RangeField label="My volume" min={0} max={1} step={0.01} value={self.volume} format={pct} onCommit={(v) => update({ volume: v }, self.id)} />
+        <RangeField label="My balance" min={0} max={1} step={0.01} value={self.volume} format={pct} onCommit={(v) => update({ volume: v }, self.id)} />
         <RangeField
           label="My latency trim (ms)"
           min={-500}

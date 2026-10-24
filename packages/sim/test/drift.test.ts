@@ -9,7 +9,7 @@ const PROBE_MS = 100;
 const DURATION_MS = 10 * 60_000;
 
 describe('drift control loop (10 simulated minutes)', () => {
-  it('keeps playback within < 2 ms RMS / < 5 ms max of the room timeline, ~no reschedules', { timeout: 30_000 }, () => {
+  it('keeps playback within < 0.5 ms mean bias / < 1 ms RMS / < 5 ms max of the room timeline, no reschedules', { timeout: 30_000 }, () => {
     const rng = makeRng(42);
     const net: NetParams = { baseRttMs: 40, jitterMs: 5, spikeProb: 0.01, spikeMaxMs: 200, lossProb: 0.01 };
     const params = { perfDriftPpm: -50, audioVsPerfPpm: 80, offsetMs: 3300, net };
@@ -85,7 +85,8 @@ describe('drift control loop (10 simulated minutes)', () => {
       clockDriftPpm: +client.sync.estimate().driftPpm.toFixed(2),
     };
     writeResult('drift', result);
-    expect(after.rms).toBeLessThan(2);
+    expect(Math.abs(after.mean)).toBeLessThan(0.5);
+    expect(after.rms).toBeLessThan(1);
     expect(after.max).toBeLessThan(5);
     expect(reschedules).toBe(0);
   });

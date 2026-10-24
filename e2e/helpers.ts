@@ -39,11 +39,20 @@ export async function createRoom(page: Page): Promise<string> {
   return code;
 }
 
-export async function joinRoom(page: Page, code: string, name: string): Promise<void> {
+/** join as a speaker; by default then switch to the Advanced view (the full shell most specs drive) */
+export async function joinRoom(page: Page, code: string, name: string, opts: { advanced?: boolean } = {}): Promise<void> {
   if (!page.url().includes(`/room/${code}`)) await page.goto(`/room/${code}`);
   await page.getByTestId('join-name').fill(name);
   await page.getByTestId('join-button').click();
   await expect(page.getByTestId('room-code').first()).toContainText(code);
+  if (opts.advanced !== false) await openAdvanced(page);
+}
+
+/** from any simple view (a host's first visit opens the setup wizard: skip it) to the Advanced view */
+export async function openAdvanced(page: Page): Promise<void> {
+  const later = page.getByTestId('wizard-later');
+  if (await later.isVisible()) await later.click();
+  await page.getByTestId('view-advanced').click();
 }
 
 export async function waitConverged(page: Page): Promise<void> {

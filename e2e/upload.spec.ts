@@ -24,7 +24,7 @@ test('upload a 5.1 file: channel-aware objects + synchronized playback', async (
   await waitConverged(host.page);
   await waitConverged(guest.page);
 
-  await host.page.getByRole('tab', { name: /^upload$/i }).click();
+  await host.page.getByRole('tab', { name: /^music file$/i }).click();
   const file = resolve(import.meta.dirname, '../apps/server/data/demo/surround-51-test.wav');
   await host.page.locator('input[type="file"]').first().setInputFiles(file);
   for (const p of [host.page, guest.page]) {

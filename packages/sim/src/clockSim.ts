@@ -12,6 +12,11 @@ export interface SimClientParams {
   burstCount?: number;
   burstIntervalMs?: number;
   pingIntervalMs?: number;
+  /**
+   * The clock that answers PINGs: true time → the room time it stamps. Default: the server (identity).
+   * A LAN clock master passes its own room-time estimate (master.sync.toRoomTime(master.clock.local(T))).
+   */
+  reference?: (T: number) => number;
 }
 
 /**
@@ -63,10 +68,11 @@ export class SimClient {
       this.lost++;
       return;
     }
-    const tsRecv = Ts + up;
-    const tsSend = tsRecv + (this.p.net.serverProcMs ?? 0.5);
-    const T3 = tsSend + down;
-    this.pending.push({ T3, s: { t0: this.clock.local(Ts), tsRecv, tsSend, t3: this.clock.local(T3) } });
+    const ref = this.p.reference ?? ((T: number) => T);
+    const recvT = Ts + up;
+    const sendT = recvT + (this.p.net.serverProcMs ?? 0.5);
+    const T3 = sendT + down;
+    this.pending.push({ T3, s: { t0: this.clock.local(Ts), tsRecv: ref(recvT), tsSend: ref(sendT), t3: this.clock.local(T3) } });
   }
 
   /** estimated room time − true room time at true time T, ms */

@@ -11,7 +11,12 @@ import {
   calibrationRecordingMs,
   calibrationSignal,
   classPresetEq,
-  type ClockSync,
+  encodeWav,
+  SEARCH_EARLY_MS,
+  SEARCH_LATE_MS,
+  scanArrival,
+  type CalibrationReport,
+  type RoomClock,
 } from '@syncsound/audio-core';
 import type { CalibrationDeviceResult, CalibrationPlan, ClientMessage, Device, DevicePatch } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
@@ -50,6 +55,9 @@ class SyncSoundRecorder extends AudioWorkletProcessor {
 registerProcessor('syncsound-recorder', SyncSoundRecorder);
 `;
 
+/** chirp band for the preflight self-test: ~2–2.4 kHz, which every phone/laptop speaker reproduces */
+const PREFLIGHT_BAND = 8;
+
 /** same value for slot building and analysis (guard gaps + search windows) */
 const MAX_LATENCY_MS = 500;
 /** how long calibration waits for clocks to converge before giving up, ms */
@@ -60,6 +68,8 @@ const SYNC_MAX_LATENCY_MS = 300;
 const registered = new WeakSet<BaseAudioContext>();
 
 interface Recorder {
+  /** everything captured so far (flushed every ~170 ms), without stopping */
+  snapshot(): { samples: Float32Array; startCtx: number } | null;
   stop(): Promise<{ samples: Float32Array; startCtx: number }>;
   abort(): void;
 }
@@ -100,7 +110,17 @@ async function startRecorder(ctx: AudioContext, input: MediaStream | AudioNode):
     node.disconnect();
     sink.disconnect();
   };
+  const join = () => {
+    const samples = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+    let o = 0;
+    for (const c of chunks) {
+      samples.set(c, o);
+      o += c.length;
+    }
+    return samples;
+  };
   return {
+    snapshot: () => (startCtx === null ? null : { samples: join(), startCtx }),
     async stop() {
       await new Promise<void>((resolve) => {
         done = resolve;
@@ -109,14 +129,7 @@ async function startRecorder(ctx: AudioContext, input: MediaStream | AudioNode):
       });
       teardown();
       if (startCtx === null) throw new Error('The microphone produced no audio.');
-      const total = chunks.reduce((n, c) => n + c.length, 0);
-      const samples = new Float32Array(total);
-      let o = 0;
-      for (const c of chunks) {
-        samples.set(c, o);
-        o += c.length;
-      }
-      return { samples, startCtx };
+      return { samples: join(), startCtx };
     },
     abort() {
       node.port.postMessage('stop');
@@ -137,6 +150,35 @@ function micError(e: unknown): string {
 
 class Cancelled extends Error {}
 
+/** the mic recording of the last failed calibration, so it can be saved and replayed offline */
+let failedRecording: { samples: Float32Array; sampleRate: number } | null = null;
+export const hasFailedRecording = () => failedRecording !== null;
+export function downloadFailedRecording(): void {
+  if (!failedRecording) return;
+  const wav = encodeWav([failedRecording.samples], failedRecording.sampleRate);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([wav as BlobPart], { type: 'audio/wav' }));
+  a.download = `syncsound-calibration-${Date.now()}.wav`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/** why nobody was heard, from the recording level and the best (sub-threshold) chirp matches */
+function explainNotHeard(report: CalibrationReport, preflightNote: string | null): string {
+  const mic = `mic peak ${report.recordingPeakDb.toFixed(0)} dBFS`;
+  if (report.recordingPeakDb < -80)
+    return `The microphone recorded silence (${mic}). Check the browser's microphone permission, that the mic isn't muted, and the selected input device.`;
+  const floors = report.devices.map((d) => d.noiseFloorDb).filter((x): x is number => x !== null);
+  if (floors.length > 0 && Math.max(...floors) > -40)
+    return 'The room is too noisy to measure. Pause the music, turn off fans/TV and try again.';
+  const best = report.devices.reduce<(typeof report.devices)[number] | null>((b, d) => ((d.bestSnrDb ?? -Infinity) > (b?.bestSnrDb ?? -Infinity) ? d : b), null);
+  const detail =
+    best?.bestSnrDb != null
+      ? `${mic}; best match SNR ${best.bestSnrDb.toFixed(0)} dB at ${Math.round(best.arrivalOffsetMs ?? 0)} ms`
+      : mic;
+  return `No speakers were heard (${detail}). Turn every device's volume up, unmute them, and keep this device within a few meters.${preflightNote ? ` ${preflightNote}` : ''}`;
+}
+
 /** class preset (no-mic fallback) for a device */
 export function presetPatch(device: Device): DevicePatch {
   const p = classPresetEq(device.caps.deviceClass);
@@ -146,11 +188,12 @@ export function presetPatch(device: Device): DevicePatch {
 export class CalibrationController {
   private run: { cancelled: boolean; cleanup: Array<() => void>; planWaiter: ((p: CalibrationPlan) => void) | null } | null = null;
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
+  private preflightNote: string | null = null;
 
   constructor(
     private readonly engine: AudioEngine,
     private readonly send: (m: ClientMessage) => boolean,
-    private readonly clock: () => ClockSync | null,
+    private readonly clock: () => RoomClock | null,
   ) {}
 
   /** every device receives the plan: emit my slots; the listener's waiter also picks it up */
@@ -158,7 +201,8 @@ export class CalibrationController {
     const myId = useRoomStore.getState().deviceId;
     if (plan.listenerId === myId && this.run?.planWaiter) this.run.planWaiter(plan);
     const ctx = this.engine.ctx;
-    if (!ctx) return;
+    // Not synced/running → emitAt would play "now" (~1.5 s before the slot) and the listener could never match it.
+    if (!ctx || ctx.state !== 'running' || !this.engine.timingReady()) return;
     if (plan.purpose === 'measure') {
       this.emitRepeated(plan, myId);
       return;
@@ -214,7 +258,12 @@ export class CalibrationController {
     this.measureTimer = setInterval(tick, 250);
   }
 
-  async start(): Promise<void> {
+  /**
+   * Calibrate with this device as the listener. quick = timing only (one chirp per device, ~1 s each): re-aligns
+   * after a Bluetooth/route change without re-measuring EQ or level. Pauses playback for the duration if this
+   * device may control it, and resumes afterwards.
+   */
+  async start(opts: { quick?: boolean } = {}): Promise<void> {
     if (this.run) return;
     const run = { cancelled: false, cleanup: [] as Array<() => void>, planWaiter: null as ((p: CalibrationPlan) => void) | null };
     this.run = run;
@@ -237,11 +286,13 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
+      this.pauseDuring(run);
+      const include: Array<'chirp' | 'sweep' | 'noise'> = opts.quick ? ['chirp'] : ['chirp', 'sweep', 'noise'];
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS }), 'calibrate', MAX_LATENCY_MS,
+      const { plan, rec } = await this.record(run, buildCalibrationSlots(deviceIds, { maxLatencyMs: MAX_LATENCY_MS, include }), 'calibrate', MAX_LATENCY_MS,
         () => patch('calibration', { message: 'Syncing clocks…' }),
-        () => patch('calibration', { step: 'recording', message: 'Listen: each speaker will chirp and sweep in turn.' }),
+        () => patch('calibration', { step: 'recording', message: opts.quick ? 'Listen: each speaker will chirp in turn.' : 'Listen: each speaker will chirp and sweep in turn.' }),
         (progress) => patch('calibration', { progress }),
       );
       patch('calibration', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
@@ -261,14 +312,14 @@ export class CalibrationController {
 
       const heard = report.devices.filter((d) => d.heard);
       if (!heard.length) {
-        const floors = report.devices.map((d) => d.noiseFloorDb).filter((x): x is number => x !== null);
-        const noisy = floors.length > 0 && Math.max(...floors) > -40;
-        throw new Error(
-          noisy
-            ? 'The room is too noisy to measure. Pause the music, turn off fans/TV and try again.'
-            : "No speakers were heard. Turn every device's volume up, unmute them, and keep this device within a few meters.",
+        failedRecording = { samples: rec.samples, sampleRate: ctx.sampleRate };
+        console.table(
+          report.devices.map(({ deviceId, bestPeak, bestSnrDb, arrivalOffsetMs, noiseFloorDb }) => ({ deviceId, bestPeak, bestSnrDb, arrivalOffsetMs, noiseFloorDb })),
         );
+        console.warn('[calibration] nobody heard', { recordingPeakDb: report.recordingPeakDb, recordingRmsDb: report.recordingRmsDb, preflight: this.preflightNote });
+        throw new Error(explainNotHeard(report, this.preflightNote));
       }
+      failedRecording = null;
 
       const results: CalibrationDeviceResult[] = report.devices.map((d) => {
         const fit = report.eq[d.deviceId];
@@ -284,6 +335,8 @@ export class CalibrationController {
           ...(d.bassCapable !== null ? { bassCapable: d.bassCapable } : {}),
           ...(trim !== undefined ? { trimDb: Math.max(-24, Math.min(12, trim)) } : {}),
           ...(d.levelDb !== null ? { levelDb: d.levelDb } : {}),
+          // a full pass clears an old hint; a quick (timing-only) pass leaves level results alone
+          ...(opts.quick ? {} : { volumeUpDb: report.volumeUp[d.deviceId] ?? null }),
         };
       });
       if (!this.send({ type: 'CALIBRATION_RESULT', planId: plan.id, results })) throw new Error('Lost the connection before the results could be saved.');
@@ -379,6 +432,7 @@ export class CalibrationController {
       onWaiting();
       await this.waitForTiming(run);
     }
+    if (purpose === 'calibrate' && !lb) await this.preflight(run, recorder, ctx, clock);
     onRecording();
     const plan = await new Promise<CalibrationPlan>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error("The server didn't start the run. Try again.")), 8000);
@@ -416,7 +470,53 @@ export class CalibrationController {
     return { plan, rec: await recorder.stop() };
   }
 
+  /**
+   * ~2 s self-test before the real run: this device chirps once and listens to itself. Silent mic → fail fast with
+   * the real cause; own speaker not heard → noted (phones may still be heard) and added to a final failure.
+   */
+  private async preflight(run: NonNullable<CalibrationController['run']>, recorder: Recorder, ctx: AudioContext, clock: RoomClock): Promise<void> {
+    this.preflightNote = null;
+    patch('calibration', { message: "Checking the microphone and this device's speaker…" });
+    const sr = ctx.sampleRate;
+    const ref = calibrationSignal('chirp', PREFLIGHT_BAND, sr);
+    const schedRoom = clock.toRoomTime(performance.now()) + 500;
+    const emitted = this.engine.emitAt(ref, schedRoom);
+    if (!emitted) return;
+    while (this.engine.ctx!.currentTime < emitted.endCtx + 1.2 && !run.cancelled) await new Promise((r) => setTimeout(r, 100));
+    if (run.cancelled) return;
+    const snap = recorder.snapshot();
+    if (!snap) throw new Error('The microphone produced no audio.');
+    let peak = 0;
+    for (const v of snap.samples) peak = Math.max(peak, Math.abs(v));
+    const peakDb = 20 * Math.log10(peak + 1e-10);
+    if (peakDb < -80)
+      throw new Error(`The microphone recorded silence (mic peak ${peakDb.toFixed(0)} dBFS). Check the browser's microphone permission, that the mic isn't muted, and the selected input device.`);
+    const recStart = clock.toRoomTime(this.engine.audioClock.ctxToPerf(snap.startCtx));
+    const sched = Math.round(((schedRoom - recStart) / 1000) * sr);
+    const a = scanArrival(snap.samples, ref, {
+      searchStart: sched - Math.round((SEARCH_EARLY_MS / 1000) * sr),
+      searchEnd: sched + Math.round(((MAX_LATENCY_MS + SEARCH_LATE_MS) / 1000) * sr),
+    });
+    const ok = !!a && a.snrDb >= 10 && a.peak >= 0.1;
+    console.info('[calibration] preflight', { peakDb, snrDb: a?.snrDb, peak: a?.peak, offsetMs: a ? ((a.index - sched) / sr) * 1000 : null });
+    if (!ok) this.preflightNote = "This device's own speaker wasn't heard by its own microphone — check its system volume and output device.";
+  }
+
   /** Sync-measurement tool: every device clicks (device-unique chirp) once per second through normal compensation. */
+  /** pause playback for this run if this device may control it; resume the same track when the run ends */
+  private pauseDuring(run: { cleanup: Array<() => void> }) {
+    const st = useRoomStore.getState();
+    const room = st.room;
+    const me = room?.devices.find((d) => d.id === st.deviceId);
+    if (!room || room.playback.status !== 'playing' || !(me?.isHost || !room.settings.hostOnlyControl)) return;
+    const trackId = room.playback.trackId;
+    this.send({ type: 'CONTROL', command: { type: 'pause' } });
+    run.cleanup.push(() => {
+      const pb = useRoomStore.getState().room?.playback;
+      if (pb?.status === 'paused' && pb.trackId === trackId) this.send({ type: 'CONTROL', command: { type: 'play' } });
+    });
+  }
+
   async measureSync(durationSec = 60): Promise<void> {
     if (this.run) return;
     const run = { cancelled: false, cleanup: [] as Array<() => void>, planWaiter: null as ((p: CalibrationPlan) => void) | null };
@@ -428,6 +528,7 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !clock || !room) throw new Error('Join the speaker array first.');
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
+      this.pauseDuring(run);
       const { plan, rec } = await this.record(
         run,
         buildSyncMeasurementSlots(deviceIds, { durationSec }),
