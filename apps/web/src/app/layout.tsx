@@ -48,6 +48,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </a>
         {children}
         <SwRegister />
+        <Analytics />
       </body>
     </html>
   );
