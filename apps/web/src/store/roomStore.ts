@@ -20,7 +20,8 @@ import {
   type Track,
 } from '@syncsound/protocol';
 import { serverUrl } from '../lib/config';
-import { batteryLevel, buildCaps, getDeviceId, randomId, rememberName } from '../lib/device';
+import { batteryLevel, buildCaps, getDeviceId, randomId, rememberName, storage } from '../lib/device';
+import { recallOutputCalibration, rememberOutputCalibration, routeChangeAction } from '../lib/outputMemory';
 import { AudioEngine } from '../lib/engine/audioEngine';
 import { CalibrationController, presetPatch } from '../lib/engine/calibration';
 import { CaptureController } from '../lib/engine/capture';
@@ -54,6 +55,10 @@ interface Session {
   scene: ReturnType<typeof mergingThrottle<ScenePatch>>;
   lastLocalSceneEdit: number;
   autoObjectsKey: string;
+  /** sent on every (re)JOIN; refreshed when the output route changes */
+  caps: DeviceCaps;
+  /** current output label (undefined when the browser hides it) → per-output calibration memory key */
+  outputLabel: string | undefined;
   cleanup: Array<() => void>;
 }
 
@@ -174,6 +179,81 @@ function maybeAutoObjects(s: Session, room: RoomState) {
   }
 }
 
+// ---------- per-output calibration memory (Bluetooth / headphones / built-in each keep their own latency) ----------
+
+const selfDevice = (room: RoomState | null, id: string) => room?.devices.find((d) => d.id === id) ?? null;
+
+function restoreOutputCalibration(label: string, calibratedLatencyMs: number) {
+  roomActions.updateDevice({ calibratedLatencyMs });
+  useRoomStore.setState({ routeChanged: false, routeRestored: { label, calibratedLatencyMs } });
+}
+
+/** re-read caps + output label; returns the new label (undefined when hidden) */
+async function refreshOutput(s: Session): Promise<string | undefined> {
+  const caps = await buildCaps(s.engine.ctx);
+  if (session !== s) return undefined;
+  s.caps = caps;
+  return caps.outputLabel;
+}
+
+/** devicechange: restore that output's calibration, clear one that belonged to the previous output, or prompt */
+async function onRouteChange(s: Session) {
+  let next: string | undefined;
+  try {
+    next = await refreshOutput(s);
+  } catch {
+    next = undefined;
+  }
+  if (session !== s) return;
+  const action = routeChangeAction(s.outputLabel, next, recallOutputCalibration(storage(), next));
+  if (next) s.outputLabel = next;
+  switch (action.kind) {
+    case 'none':
+      return;
+    case 'unknown':
+      useRoomStore.setState({ routeChanged: true, routeRestored: null });
+      return;
+    case 'restore':
+      restoreOutputCalibration(next!, action.calibratedLatencyMs);
+      return;
+    case 'clear':
+      roomActions.updateDevice({ calibratedLatencyMs: null });
+      useRoomStore.setState({ routeChanged: true, routeRestored: null });
+  }
+}
+
+/** keep the memory current: own calibrated latency changed in-session, or this device just calibrated itself */
+function watchOutputCalibration(s: Session): () => void {
+  return useRoomStore.subscribe((st, prev) => {
+    if (session !== s) return;
+    const me = selfDevice(st.room, st.deviceId);
+    const before = selfDevice(prev.room, st.deviceId);
+    if (me && !before && s.outputLabel) {
+      // first room state: the server profile may hold another output's calibration
+      const r = recallOutputCalibration(storage(), s.outputLabel);
+      const label = s.outputLabel;
+      if (r !== undefined && r !== me.calibratedLatencyMs) queueMicrotask(() => restoreOutputCalibration(label, r));
+    } else if (me && before && me.calibratedLatencyMs !== before.calibratedLatencyMs) {
+      rememberOutputCalibration(storage(), s.outputLabel, me.calibratedLatencyMs);
+    }
+    if (prev.calibration.running && !st.calibration.running && st.calibration.step === 'done') {
+      // the mic grant makes the output label readable; once the route settles back from the hands-free
+      // profile, file this device's fresh result under it (only if this run measured this device)
+      const measured = st.calibration.devices.some((d) => d.deviceId === st.deviceId && d.heard);
+      setTimeout(() => {
+        void refreshOutput(s)
+          .then((label) => {
+            if (session !== s || !label) return;
+            s.outputLabel = label;
+            const now = selfDevice(useRoomStore.getState().room, st.deviceId);
+            if (measured && now) rememberOutputCalibration(storage(), label, now.calibratedLatencyMs);
+          })
+          .catch(() => {});
+      }, 1500);
+    }
+  });
+}
+
 const lastStats = { t: 0 };
 function sendStats(s: Session) {
   if (!dueNow(lastStats, 10_000)) return;
@@ -261,6 +341,9 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const engine = new AudioEngine({
       clock: () => (session ? activeClock(session) : null),
       clockReady: () => !!session?.client.synced,
+      onRouteChange: () => {
+        if (session) void onRouteChange(session);
+      },
     });
     try {
       engine.unlock(); // synchronous: must stay inside the click's user activation
@@ -289,7 +372,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       deviceId,
       name: displayName,
       ...(password ? { password } : {}),
-      caps: () => caps,
+      caps: () => session?.caps ?? caps,
       onMessage: (m) => {
         handleMessage(m);
         if (m.type === 'WELCOME') resolveJoin();
@@ -323,9 +406,12 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       // not 0: performance.now() starts near 0, so 0 would drop every SCENE in the page's first 400 ms
       lastLocalSceneEdit: -Infinity,
       autoObjectsKey: '',
+      caps,
+      outputLabel: caps.outputLabel,
       cleanup: [],
     };
     session = s;
+    s.cleanup.push(watchOutputCalibration(s));
 
     s.cleanup.push(
       useRoomStore.subscribe((st, prev) => {
@@ -627,7 +713,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   },
 
   dismissRouteChange() {
-    useRoomStore.setState({ routeChanged: false });
+    useRoomStore.setState({ routeChanged: false, routeRestored: null });
   },
 
   async startCapture() {

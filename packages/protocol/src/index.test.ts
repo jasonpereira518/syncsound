@@ -43,8 +43,11 @@ describe('protocol validation (trust boundary)', () => {
   it('rejects non-finite numbers and out-of-range scene/device values', () => {
     expect(parseClientMessage({ type: 'PING', t0: Infinity }).success).toBe(false);
     expect(parseClientMessage({ type: 'SCENE_UPDATE', listener: { x: 999, y: 0 } }).success).toBe(false);
-    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { latencyMs: 501 } }).success).toBe(false);
-    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { latencyMs: -500, trimDb: 12 } }).success).toBe(true);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { latencyMs: 1001 } }).success).toBe(false);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { latencyMs: -1001 } }).success).toBe(false);
+    // slow Bluetooth speakers need more than the old ±500 ms
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { latencyMs: 750 } }).success).toBe(true);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { latencyMs: -1000, trimDb: 12 } }).success).toBe(true);
     expect(parseClientMessage({ type: 'CONTROL', command: { type: 'seek', position: -1 } }).success).toBe(false);
     expect(parseClientMessage({ type: 'CONTROL', command: { type: 'volume', volume: 1.5 } }).success).toBe(false);
   });
