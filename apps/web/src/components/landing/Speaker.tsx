@@ -27,6 +27,8 @@ export function Speaker({
   children?: ReactNode;
 }) {
   const meta = renders[`${view}-cone`];
+  // Next 16 deprecated `priority`; above-the-fold images load eagerly at high fetch priority instead
+  const load = priority ? ({ loading: 'eager', fetchPriority: 'high' } as const) : {};
   const style = {
     aspectRatio: `${meta.w} / ${meta.h}`,
     '--cx': `${meta.cx * 100}%`,
@@ -35,7 +37,7 @@ export function Speaker({
   } as CSSProperties;
   return (
     <div className={`spk ${className}`} style={style}>
-      <Image src={`/landing/${view}-cabinet.webp`} alt={alt} width={meta.w} height={meta.h} sizes={sizes} priority={priority} />
+      <Image src={`/landing/${view}-cabinet.webp`} alt={alt} width={meta.w} height={meta.h} sizes={sizes} {...load} />
       <Image
         src={`/landing/${view}-cone.webp`}
         alt=""
@@ -43,7 +45,7 @@ export function Speaker({
         width={meta.w}
         height={meta.h}
         sizes={sizes}
-        priority={priority}
+        {...load}
         className="spk-cone"
       />
       {children}
