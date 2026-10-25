@@ -88,7 +88,8 @@ Record results in the table at the bottom.
 18. **Calibration v3: one-tap tune (laptops).** Three or more laptops in one room on the same Wi-Fi, Chrome; one
     of them playing through a Bluetooth speaker.
     - On the laptop you'll sit at, press **Start tuning** (setup wizard; or Advanced → Calibrate → Start). Every laptop should ask once for its microphone and show
-      "Tuning: <name> is playing" while each one sweeps in turn (~1.5 s each).
+      "Tuning: <name> is playing" while each one chimes in turn (~1.5 s each). Each device makes **one** sound (a
+      rising swoosh landing on a bell) and nothing plays after the last one (no click run, even with Bluetooth).
     - The result should list every laptop with a distance; tape-measure them: **within 10–15 cm**. The Bluetooth
       speaker should say "placed by hand"; drag it to where it really is.
     - Sit with your head ~40 cm behind the tuning laptop and run **Measure sync (60 s)**: **p95 < 1 ms**.
@@ -100,3 +101,13 @@ Record results in the table at the bottom.
       restore p95 < 1 ms without asking the other laptops for their microphones.
     - Close the LAN clock master's tab (the host) mid-song: the banner should appear on the others (clock path
       changed); a quick tune restores sync.
+
+19. **Tune: does it sound good, and are levels even?** Same room as 18.
+    - Ask 2–3 people whether the chime sounds pleasant at normal volume; listen for buzz or rattle on laptop
+      speakers during the swoosh. Note any device that sounds harsh.
+    - After the tune, solo each device in turn on the demo "Synth groove" loop and read a phone SPL app (C or Z
+      weighting, slow) at the seat: **every device within ±2 dB**, the tuning laptop included (if it is off, note by how much: that is
+      the near-field prior error, LIMITATIONS).
+    - Play a loud track: the boosted devices (positive trim in Advanced → Calibrate) shouldn't audibly pump or
+      distort.
+    - The Bluetooth "timing varies by ±X ms" line should appear only after **Measure sync**, not after the tune.

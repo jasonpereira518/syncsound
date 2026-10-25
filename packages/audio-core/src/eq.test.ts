@@ -78,15 +78,23 @@ describe('fitEq', () => {
     expect(eqToBiquads({ ...phone.eq, enabled: false }, SR)).toHaveLength(0);
   });
 
-  it('loudness trims match the quietest device', () => {
-    expect(loudnessTrims({ a: -20, b: -26, c: -23 })).toEqual({ a: -6, b: 0, c: -3 });
+  it('loudness trims meet in the middle: loud devices cut, soft ones boosted (≤ +6 dB) to the median', () => {
+    expect(loudnessTrims({ a: -20, b: -26, c: -23 })).toEqual({ a: -3, b: 3, c: 0 });
+    // even count: the mean of the middle two (−21.5)
+    expect(loudnessTrims({ a: -20, b: -23 })).toEqual({ a: -1.5, b: 1.5 });
+    // b would need +15: capped at the boost limit; a 40 dB-hot device is floored at −24
+    expect(loudnessTrims({ a: -20, b: -35, c: -20 })).toEqual({ a: 0, b: 6, c: 0 });
+    expect(loudnessTrims({ a: 20, b: -20, c: -20 })).toEqual({ a: -24, b: 0, c: 0 });
+    expect(loudnessTrims({ a: -20, b: -30 }, { refDb: -24 })).toEqual({ a: -4, b: 6 });
     expect(loudnessTrims({})).toEqual({});
   });
 
-  it('volume hints flag only devices well below the median', () => {
-    // median −22: b is 4 dB under → raise it; c (1 dB under) is fine
-    expect(volumeHints({ a: -20, b: -26, c: -23, d: -21 })).toEqual({ b: 4 });
-    expect(volumeHints({ a: -20, b: -40 })).toEqual({ b: 10 });
+  it('volume hints flag only what the boost leaves short', () => {
+    // median −21: b is 14 dB under, the boost covers 6 → raise it ~8 dB
+    expect(volumeHints({ a: -20, b: -35, c: -21 })).toEqual({ b: 8 });
+    // within the boost (+ 1 dB tolerance): no hint
+    expect(volumeHints({ a: -20, b: -26.9, c: -20 })).toEqual({});
+    expect(volumeHints({ a: -20, b: -40 })).toEqual({ b: 4 });
     expect(volumeHints({ a: -20 })).toEqual({});
   });
 });

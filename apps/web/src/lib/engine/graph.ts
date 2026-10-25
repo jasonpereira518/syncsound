@@ -6,8 +6,9 @@
  *  OutputChain:  mainIn ───────────────────────────┐
  *                bassIn → [LR4 LP] → bassGain ──────┴→ preHp → [LR4 HP @ mix.highpassHz] → preEq
  *                preEq → [EQ (no HP)] → preamp → wet ─┐
- *                preEq → dry ─────────────────────────┼→ limiter → delay → out → dest
+ *                preEq → dry ─────────────────────────┼→ trim → limiter → delay → out → dest
  *                fxIn (click test) ───────────────────┘
+ *  trim (mix.trimGain) sits before the limiter, so a calibration boost is limited, not clipped; out = mix.volumeGain.
  */
 import {
   channelIndexFor,
@@ -68,6 +69,7 @@ export class OutputChain {
   private readonly preamp: GainNode;
   private readonly wet: GainNode;
   private readonly dry: GainNode;
+  private readonly trim: GainNode;
   private readonly limiter: DynamicsCompressorNode;
   private readonly delay: DelayNode;
   private readonly out: GainNode;
@@ -86,6 +88,7 @@ export class OutputChain {
     this.preamp = gainNode(ctx, 1);
     this.wet = gainNode(ctx, 1);
     this.dry = gainNode(ctx, 0);
+    this.trim = gainNode(ctx, 1);
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -3;
     this.limiter.ratio.value = 20;
@@ -102,9 +105,10 @@ export class OutputChain {
     this.preEq.connect(this.preamp);
     this.preEq.connect(this.dry);
     this.preamp.connect(this.wet);
-    this.wet.connect(this.limiter);
-    this.dry.connect(this.limiter);
-    this.fxIn.connect(this.limiter);
+    this.wet.connect(this.trim);
+    this.dry.connect(this.trim);
+    this.fxIn.connect(this.trim);
+    this.trim.connect(this.limiter);
     this.limiter.connect(this.delay);
     this.delay.connect(this.out);
     this.out.connect(ctx.destination);
@@ -156,7 +160,8 @@ export class OutputChain {
 
   setMix(mix: DeviceMix) {
     smooth(this.ctx, this.bassGain.gain, mix.bassGain);
-    smooth(this.ctx, this.out.gain, mix.outputGain);
+    smooth(this.ctx, this.trim.gain, mix.trimGain);
+    smooth(this.ctx, this.out.gain, mix.volumeGain);
   }
 
   setDelayMs(ms: number) {
@@ -174,6 +179,7 @@ export class OutputChain {
       this.preamp,
       this.wet,
       this.dry,
+      this.trim,
       this.limiter,
       this.delay,
       this.out,

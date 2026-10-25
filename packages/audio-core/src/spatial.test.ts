@@ -187,8 +187,13 @@ describe('computeDeviceMix', () => {
     };
     const all = run(base);
     expect(all.laptop!.outputGain).toBeCloseTo(0.8 * 0.5 * dbToGain(-6), 12);
+    // split for the output chain: trim before the limiter, volume after it
+    expect(all.laptop!.trimGain).toBeCloseTo(dbToGain(-6), 12);
+    expect(all.laptop!.volumeGain).toBeCloseTo(0.8 * 0.5, 12);
+    expect(run(base.map((d) => (d.id === 'phone' ? { ...d, trimDb: 6 } : d))).phone!.trimGain).toBeCloseTo(dbToGain(6), 12);
     const muted = run(base.map((d) => (d.id === 'desk' ? { ...d, muted: true } : d)));
     expect(muted.desk!.outputGain).toBe(0);
+    expect(muted.desk!.volumeGain).toBe(0);
     expect(muted.phone!.objectGains['obj-L']! ** 2 + muted.laptop!.objectGains['obj-L']! ** 2).toBeCloseTo(
       1,
       12,

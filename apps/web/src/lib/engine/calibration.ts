@@ -454,7 +454,7 @@ export class CalibrationController {
         'calibrate',
         opts.quick ? 'listener' : 'all',
         () => patch('calibration', { message: 'Syncing clocks…' }),
-        () => patch('calibration', { step: 'recording', message: 'Listen: each speaker plays a short sweep in turn.' }),
+        () => patch('calibration', { step: 'recording', message: 'Listen: each speaker plays one chime in turn.' }),
         (progress) => patch('calibration', { progress }),
       );
       patch('calibration', { step: 'analyzing', progress: 1, message: 'Analyzing…' });

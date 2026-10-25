@@ -377,7 +377,7 @@ export class Room {
         // a run plays on every device (and a tune rewrites their latency/EQ): a playback-control action
         if (!this.canControl(sender)) throw new RoomError('forbidden', 'only the host may calibrate');
         if (msg.recorders === 'all') {
-          // every device opens its mic and buffers the whole run: keep it a tune — one sweep per known device, short
+          // every device opens its mic and buffers the whole run: keep it a tune — one chime per known device, short
           const ids = msg.slots.map((s) => s.deviceId);
           const endMs = Math.max(...msg.slots.map((s) => s.offsetMs + s.durationMs));
           if (msg.purpose === 'measure' || msg.slots.some((s) => s.repeat !== undefined) || new Set(ids).size !== ids.length || ids.some((id) => !this.device(id)) || endMs > CALIBRATION_ALL_MAX_MS)

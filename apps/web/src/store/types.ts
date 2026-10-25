@@ -82,7 +82,7 @@ export interface CalibrationUi {
   warnings: string[];
   /** a calibration / sync-check plan is playing on this device (any role) */
   emitting: boolean;
-  /** device whose tune sweep is playing right now (every device shows it), or null */
+  /** device whose tune chime is playing right now (every device shows it), or null */
   nowPlaying: string | null;
 }
 

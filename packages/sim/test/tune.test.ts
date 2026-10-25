@@ -62,7 +62,7 @@ const nearest = (x: Laptop, p: Vec2) =>
 const rough = (rnd: () => number) =>
   Object.fromEntries(ROOM.map((x) => [x.id, { x: (x.speaker ?? x.pos).x + 0.3 * gauss(rnd), y: (x.speaker ?? x.pos).y + 0.3 * gauss(rnd) }]));
 
-function tune(seed: number, placeHead: boolean) {
+function tune(seed: number, placeHead: boolean, selfGainDbL = 0) {
   const rnd = mulberry32(seed);
   const clock1 = Object.fromEntries(ROOM.map((x) => [x.id, CLOCK_SIGMA_MS * gauss(rnd)]));
   const ppm = Object.fromEntries(ROOM.map((x) => [x.id, 50 * (2 * rnd() - 1)]));
@@ -78,6 +78,7 @@ function tune(seed: number, placeHead: boolean) {
     position: x.pos,
     ...(x.speaker ? { speakerPosition: x.speaker } : { stereoHalfWidthM: STEREO }),
     ...(x.directGain ? { directGain: x.directGain } : {}),
+    ...(x.id === 'L' && selfGainDbL ? { selfGainDb: selfGainDbL } : {}),
   }));
   const rows: RowsByRecorder = {};
   let listener: ReturnType<typeof analyzeRecording> | null = null;
@@ -115,7 +116,21 @@ function tune(seed: number, placeHead: boolean) {
   });
   // control: align at the mic itself (no head model)
   if (!placeHead) report.listener = report.positions['L']!;
-  return { report, rnd };
+  // reference levels: what a mic AT THE TRUE HEAD hears from each device (same room, same analysis)
+  const atHead = renderListenerRecording({
+    plan,
+    speakers,
+    listener: HEAD,
+    sampleRate: SR,
+    durationMs: calibrationRecordingMs(slots),
+    inputLatencyMs: 10,
+    noiseDb: -60,
+    roomNoiseDb: -50,
+    reflections: REFL,
+    seed: seed * 31 + 7,
+  });
+  const headRows = analyzeRecording({ plan, recording: atHead, sampleRate: SR, toRoomMs: (i) => plan.startRoomTime + (i / SR) * 1000 }).rows;
+  return { report, rnd, headLevels: Object.fromEntries(headRows.map((r) => [r.emitterId, r.levelDb!])) };
 }
 
 /** play at a later instant: fresh clock errors; arrival at the TRUE head of each device's sound, ms */
@@ -138,6 +153,7 @@ describe('tune v3 (end to end, reflective room, 4 laptops + a Bluetooth speaker)
   const SEEDS = [1, 2, 3, 4, 5, 6];
   const runs = SEEDS.map((s) => tune(s, true));
   const controls = SEEDS.map((s) => tune(s, false));
+  const misread = SEEDS.map((s) => tune(s, true, -8));
 
   it('ranges the laptops (within their speaker spread) and leaves the Bluetooth speaker hand-placed', () => {
     const errs: number[] = [];
@@ -171,6 +187,30 @@ describe('tune v3 (end to end, reflective room, 4 laptops + a Bluetooth speaker)
     results.controlAtMicMs = { p95: r3(p95(pairs)), max: r3(Math.max(...pairs)) };
     expect(p95(pairs)).toBeGreaterThan(0.6);
     expect(p95(pairs)).toBeGreaterThan(2 * (results.headAlignmentMs as { p95: number }).p95);
+  });
+
+  it('levels at the head: each device within ±2 dB of what a mic at the true head measures (mean removed)', () => {
+    const errs: number[] = [];
+    for (const { report, headLevels } of runs) {
+      const diff = ROOM.map((x) => report.devices.find((r) => r.deviceId === x.id)!.levelDb! - headLevels[x.id]!);
+      const mean = diff.reduce((a, b) => a + b, 0) / diff.length;
+      errs.push(...diff.map((e) => Math.abs(e - mean)));
+    }
+    results.headLevelErrorDb = { p95: r3(p95(errs)), max: r3(Math.max(...errs)) };
+    expect(Math.max(...errs)).toBeLessThan(2);
+  });
+
+  it("a listener laptop whose own speaker reads 8 dB quiet (near-field prior off) doesn't move anyone else's trim", () => {
+    const shifts: number[] = [];
+    for (const [k, { report }] of misread.entries()) {
+      const base = runs[k]!.report;
+      expect(report.devices.every((x) => x.heard)).toBe(true);
+      for (const x of ROOM) if (x.id !== 'L') shifts.push(Math.abs(report.trims[x.id]! - base.trims[x.id]!));
+      // the listener itself is boosted instead of dragging everyone down
+      expect(report.trims['L']!).toBeGreaterThan(base.trims['L']!);
+    }
+    results.listenerSelfMisreadTrimShiftDb = { max: r3(Math.max(...shifts)) };
+    expect(Math.max(...shifts)).toBeLessThan(0.5);
   });
 
   it('writes metrics', () => {
