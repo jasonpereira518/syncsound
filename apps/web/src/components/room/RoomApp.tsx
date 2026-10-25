@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useRoomStore, roomActions } from '@/store/roomStore';
 import { rememberLastRoom } from '@/lib/home';
 import { getRoomInfo } from '@/lib/roomClient';
-import { Icon, Tabs, fmtSigned, tabPanelProps, type TabDef } from '../ui';
+import { Icon, IconButton, Tabs, fmtSigned, tabPanelProps, type TabDef } from '../ui';
 import { CalibrationWizard } from './CalibrationWizard';
 import { DeviceList, SpeakerCard } from './DeviceList';
 import { JoinGate } from './JoinGate';
@@ -109,27 +109,62 @@ export function RoomApp({ code }: { code: string }) {
   return <AdvancedRoom header={<RoomHeader name={name} debug extra={toggle} />} />;
 }
 
+const COLS_KEY = 'syncsound.advancedColumns';
+
+/** Desktop side columns can fold to a thin rail so the stage gets the width; remembered per browser. */
+function useColumns() {
+  const [cols, setCols] = useState({ lib: true, side: true });
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLS_KEY) ?? 'null') as { lib?: unknown; side?: unknown } | null;
+      if (saved) setCols({ lib: saved.lib !== false, side: saved.side !== false });
+    } catch {
+      /* storage blocked or corrupt: keep both open */
+    }
+  }, []);
+  const set = (next: Partial<typeof cols>) =>
+    setCols((c) => {
+      const v = { ...c, ...next };
+      try {
+        localStorage.setItem(COLS_KEY, JSON.stringify(v));
+      } catch {
+        /* storage blocked */
+      }
+      return v;
+    });
+  return [cols, set] as const;
+}
+
 /** The full expert shell: library | free-placement stage | devices & calibration, plus debug. */
 function AdvancedRoom({ header }: { header: ReactNode }) {
   const isHost = useRoomStore((s) => s.isHost);
   // null = default: hosts start on the library, guests on their own speaker card
   const [picked, setPicked] = useState<RoomTab | null>(null);
   const tab = picked ?? (isHost ? 'library' : 'devices');
+  const [cols, setCols] = useColumns();
 
-  // Desktop (lg+): library | stage | devices-or-calibrate, all fitting the viewport above the player bar.
-  // Mobile: one section at a time, picked from the bottom tab bar.
+  // Desktop (lg+): library | stage | devices-or-calibrate, all fitting the viewport above the player bar;
+  // either side column folds to a rail. Mobile: one section at a time, picked from the bottom tab bar.
   const side = tab === 'calibrate' ? 'calibrate' : 'devices';
   const panel = (id: RoomTab) => ({
     ...tabPanelProps('room', id),
     'aria-labelledby': `room-tab-${id}${id === 'devices' || id === 'calibrate' ? ` side-tab-${id}` : ''}`,
     className: `${tab === id ? 'block' : 'hidden'} min-w-0 lg:min-h-0 ${
-      id === 'library' || id === 'stage'
+      id === 'stage'
         ? 'lg:block'
-        : side === id
-          ? 'lg:flex lg:flex-1 lg:flex-col'
-          : 'lg:hidden'
+        : id === 'library'
+          ? cols.lib
+            ? 'relative lg:block'
+            : 'lg:hidden'
+          : side === id
+            ? 'lg:flex lg:flex-1 lg:flex-col'
+            : 'lg:hidden'
     }`,
   });
+  const openSide = (t: RoomTab) => {
+    setPicked(t);
+    setCols({ side: true });
+  };
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -137,25 +172,48 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
       <Banners />
       <main
         id="main"
-        className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 lg:grid lg:grid-cols-[17rem_minmax(0,1fr)_20rem] lg:gap-3 lg:overflow-hidden xl:grid-cols-[19rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[22rem_minmax(0,1fr)_26rem]"
+        className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 lg:grid lg:grid-cols-[var(--lib)_minmax(0,1fr)_var(--side)] lg:gap-3 lg:overflow-hidden ${
+          cols.lib ? '[--lib:15rem] xl:[--lib:17rem]' : '[--lib:3.5rem]'
+        } ${cols.side ? '[--side:18rem] xl:[--side:20rem]' : '[--side:3.5rem]'}`}
       >
         <div {...panel('library')}>
           <Library />
+          {/* Library's header has no actions of its own, so the fold button sits in its top-right corner */}
+          <IconButton
+            icon="chevronLeft"
+            label="Hide library"
+            onClick={() => setCols({ lib: false })}
+            className="absolute top-3 right-3 !size-9 border-transparent max-lg:hidden"
+          />
         </div>
+        {!cols.lib && (
+          <Rail>
+            <IconButton icon="music" label="Show library" onClick={() => setCols({ lib: true })} />
+          </Rail>
+        )}
         <div {...panel('stage')}>
           <Stage />
         </div>
-        <div className="max-lg:contents lg:flex lg:min-h-0 lg:flex-col lg:gap-2">
-          <Tabs
-            tabs={SIDE_TABS}
-            value={side}
-            onChange={setPicked}
-            label="Speaker tools"
-            idPrefix="side"
-            panelPrefix="room"
-            className="hidden gap-1 rounded-xl border border-ink-700/80 bg-ink-900/80 p-1 lg:grid lg:grid-cols-2"
-            tabClassName="!min-h-9 rounded-lg aria-selected:bg-ink-700/70"
-          />
+        {!cols.side && (
+          <Rail>
+            <IconButton icon="devices" label="Show devices" onClick={() => openSide('devices')} />
+            <IconButton icon="mic" label="Show calibration" onClick={() => openSide('calibrate')} />
+          </Rail>
+        )}
+        <div className={`max-lg:contents lg:min-h-0 lg:flex-col lg:gap-2 ${cols.side ? 'lg:flex' : 'lg:hidden'}`}>
+          <div className="hidden gap-1 lg:flex">
+            <Tabs
+              tabs={SIDE_TABS}
+              value={side}
+              onChange={setPicked}
+              label="Speaker tools"
+              idPrefix="side"
+              panelPrefix="room"
+              className="grid flex-1 grid-cols-2 gap-1 rounded-xl border border-ink-700/80 bg-ink-900/80 p-1"
+              tabClassName="!min-h-9 rounded-lg aria-selected:bg-ink-700/70"
+            />
+            <IconButton icon="chevronRight" label="Hide speaker tools" onClick={() => setCols({ side: false })} className="!h-auto !w-9 border-transparent" />
+          </div>
           <div {...panel('devices')}>
             <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {!isHost && <SpeakerCard />}
@@ -185,6 +243,11 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
       <Toasts />
     </div>
   );
+}
+
+/** A folded desktop column: just the buttons that bring it back. */
+function Rail({ children }: { children: ReactNode }) {
+  return <div className="hidden min-h-0 flex-col items-center gap-2 rounded-2xl border border-ink-700/80 bg-ink-900/80 py-3 lg:flex">{children}</div>;
 }
 
 function Banners() {
