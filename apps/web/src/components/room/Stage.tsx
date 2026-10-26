@@ -643,11 +643,11 @@ function Inspector({
         <p className="min-w-0 truncate font-medium">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
         <div className="flex shrink-0 items-center gap-1">
           {obj && (
-            <Button variant="danger" className="!min-h-9 !px-3" disabled={!canControl} onClick={() => onDelete(obj.id)}>
+            <Button variant="danger" size="sm" disabled={!canControl} onClick={() => onDelete(obj.id)}>
               <Icon name="trash" className="size-4" /> Delete
             </Button>
           )}
-          <IconButton icon="x" label="Close inspector" className="!size-9 border-transparent" onClick={onClose} />
+          <IconButton icon="x" label="Close inspector" variant="ghost" size="sm" onClick={onClose} />
         </div>
       </div>
       <p className="mt-1 font-mono text-xs text-ink-400">{pos ? fmtPos(pos) : 'not placed'}</p>

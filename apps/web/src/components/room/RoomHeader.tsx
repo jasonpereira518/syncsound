@@ -109,9 +109,10 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
           icon={copied ? 'check' : 'link'}
           label={copied ? 'Link copied' : 'Copy join link'}
           onClick={copy}
-          className={`border-transparent ${canShare ? 'max-sm:hidden' : ''}`}
+          variant="ghost"
+          className={canShare ? 'max-sm:hidden' : ''}
         />
-        {canShare && <IconButton icon="share" label="Share join link" onClick={share} className="border-transparent sm:hidden" />}
+        {canShare && <IconButton icon="share" label="Share join link" onClick={share} variant="ghost" className="sm:hidden" />}
         {debug && <DebugDrawer />}
         {extra}
         <button type="button" onClick={leave} className="min-h-11 rounded-xl px-3 text-sm text-ink-400 hover:bg-ink-800 hover:text-ink-100">

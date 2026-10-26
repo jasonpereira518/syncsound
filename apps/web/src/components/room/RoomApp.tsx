@@ -153,8 +153,8 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
             label="Speaker tools"
             idPrefix="side"
             panelPrefix="room"
-            className="hidden gap-1 rounded-xl border border-ink-700/80 bg-ink-900/80 p-1 lg:grid lg:grid-cols-2"
-            tabClassName="!min-h-9 rounded-lg aria-selected:bg-ink-700/70"
+            variant="segmented"
+            className="hidden lg:grid lg:grid-cols-2"
           />
           <div {...panel('devices')}>
             <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -178,8 +178,8 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
           onChange={setPicked}
           label="Room sections"
           idPrefix="room"
+          variant="bar"
           className="grid grid-cols-4"
-          tabClassName="min-h-14 flex-col !gap-0.5 !px-1 text-xs"
         />
       </nav>
       <Toasts />

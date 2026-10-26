@@ -79,8 +79,8 @@ export function Library() {
         onChange={setSource}
         label="Audio source"
         idPrefix="src"
-        className="flex flex-wrap gap-1.5 py-1"
-        tabClassName="!min-h-8 rounded-full border border-ink-700 !px-3 text-xs aria-selected:border-accent/60 aria-selected:bg-accent/10"
+        variant="chips"
+        className="flex flex-wrap py-1"
       />
       <div {...tabPanelProps('src', source)} className="min-w-0 pt-3">
         <fieldset disabled={!canControl} className="min-w-0">
@@ -139,7 +139,7 @@ export function Player() {
         <IconButton
           icon="prev"
           label="Previous track"
-          className="border-transparent"
+          variant="ghost"
           onClick={() => control({ type: 'previous' })}
         />
         <button
@@ -155,7 +155,7 @@ export function Player() {
         <IconButton
           icon="next"
           label="Next track"
-          className="border-transparent"
+          variant="ghost"
           onClick={() => control({ type: 'next' })}
         />
       </fieldset>
@@ -213,7 +213,7 @@ export function HostOnlyToggle({ compact }: { compact?: boolean }) {
       icon="lock"
       label="Only I can control: others can still adjust their own speaker"
       pressed={hostOnly}
-      className={hostOnly ? '' : 'border-transparent'}
+      variant="ghost"
       onClick={() => set(!hostOnly)}
     />
   ) : (
@@ -322,13 +322,13 @@ function Queue() {
               icon="play"
               label={`Play ${t.title}`}
               onClick={() => control({ type: 'play', trackId: t.id })}
-              className="border-transparent"
+              variant="ghost"
             />
             <IconButton
               icon="trash"
               label={`Remove ${t.title}`}
               onClick={() => control({ type: 'remove', trackId: t.id })}
-              className="border-transparent"
+              variant="ghost"
             />
           </li>
         );

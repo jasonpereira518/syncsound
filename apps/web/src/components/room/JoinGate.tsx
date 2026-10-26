@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { isValidRoomCode } from '@syncsound/protocol';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { getRoomInfo, hostKeyName } from '@/lib/roomClient';
-import { Icon, inputClass } from '../ui';
+import { BrandLink } from '../Brand';
+import { Button, Icon, inputClass } from '../ui';
 import { errMsg } from './shared';
 
 type Info = { state: 'loading' } | { state: 'ok'; hasPassword: boolean; name?: string } | { state: 'missing' } | { state: 'unreachable' };
@@ -100,12 +101,7 @@ export function JoinGate({ code }: { code: string }) {
 
   return (
     <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
-      <Link href="/" className="mb-8 inline-flex min-h-11 items-center gap-2 self-start text-sm text-ink-400 hover:text-ink-100">
-        <span aria-hidden className="grid size-7 place-items-center rounded-md bg-accent text-accent-ink">
-          <Icon name="wave" className="size-4" />
-        </span>
-        SyncSound
-      </Link>
+      <BrandLink className="mb-8" />
       <p className="text-sm text-ink-400">{info.state === 'ok' && info.name ? info.name : 'Room'}</p>
       <p className="font-mono text-5xl font-bold tracking-[0.18em] text-accent">{code}</p>
       <h1 className="mt-4 font-display text-3xl font-bold tracking-tight">{mine ? 'Your room' : 'Use this device as a speaker'}</h1>
@@ -150,15 +146,10 @@ export function JoinGate({ code }: { code: string }) {
             {error}
           </p>
         )}
-        <button
-          type="submit"
-          data-testid="join-button"
-          disabled={connecting}
-          className="mt-2 inline-flex min-h-16 items-center justify-center gap-3 rounded-2xl bg-accent px-6 font-display text-xl font-semibold text-accent-ink shadow-[0_0_48px_-8px_var(--color-accent)] transition hover:brightness-110 disabled:opacity-60"
-        >
-          <Icon name="volume" className="size-6" />
+        <Button type="submit" variant="primary" size="lg" data-testid="join-button" disabled={connecting} className="mt-2 w-full">
+          <Icon name="volume" className="size-5" />
           {connecting ? 'Joining…' : mine ? 'Open my room' : 'Use this device as a speaker'}
-        </button>
+        </Button>
       </form>
 
       <ul className="mt-8 space-y-3 text-sm text-ink-400">

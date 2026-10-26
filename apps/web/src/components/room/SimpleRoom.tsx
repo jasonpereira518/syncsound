@@ -159,7 +159,7 @@ function SpeakerList({ devices }: { devices: Device[] }) {
                 {d.volumeUpDb ? ', needs its volume turned up' : ''}
               </span>
             </span>
-            <Button variant="ghost" className="!min-h-9 text-sm" onClick={() => act(() => roomActions.identify(d.id))}>
+            <Button variant="ghost" size="sm" onClick={() => act(() => roomActions.identify(d.id))}>
               Beep
             </Button>
             {(canControl || d.id === selfId) && (
@@ -167,7 +167,7 @@ function SpeakerList({ devices }: { devices: Device[] }) {
                 icon={d.muted ? 'mute' : 'volume'}
                 label={d.muted ? `Unmute ${d.name}` : `Mute ${d.name}`}
                 pressed={d.muted}
-                className="border-transparent"
+                variant="ghost"
                 onClick={() => act(() => roomActions.updateDevice({ muted: !d.muted }, d.id))}
               />
             )}

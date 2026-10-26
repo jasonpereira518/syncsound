@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import type { HomeView } from '@syncsound/protocol';
 import { addRoom, claimRooms, getHome, ownerKeyFor, rememberHome, removeRoom, renameRoom } from '@/lib/home';
+import { BrandLink } from './Brand';
 import { Button, Icon, inputClass } from './ui';
 
 /** A home: its rooms, how many speakers are in each right now, and (for the owner) adding/renaming rooms. */
@@ -52,12 +53,7 @@ export function HomeApp({ homeId }: { homeId: string }) {
 
   return (
     <main id="main" className="mx-auto flex min-h-dvh max-w-xl flex-col px-4 py-8">
-      <Link href="/" className="mb-8 inline-flex min-h-11 items-center gap-2 self-start text-sm text-ink-400 hover:text-ink-100">
-        <span aria-hidden className="grid size-7 place-items-center rounded-md bg-accent text-accent-ink">
-          <Icon name="wave" className="size-4" />
-        </span>
-        SyncSound
-      </Link>
+      <BrandLink className="mb-8" />
       <h1 className="font-display text-4xl font-bold tracking-tight">Your home</h1>
       <p className="mt-2 text-ink-300">
         Each room keeps its own speakers, layout and tuning. Open a room on the device you&rsquo;ll control it from, then add speakers to it.

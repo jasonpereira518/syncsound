@@ -6,20 +6,25 @@
   --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --color-ink-950: #0e0c0a;
-  --color-ink-900: #141210;
-  --color-ink-850: #1a1714;
-  --color-ink-800: #211d19;
-  --color-ink-700: #2e2924;
-  --color-ink-600: #3d3630;
-  --color-ink-500: #5e554c;
-  --color-ink-400: #9c9184;
+  --color-ink-900: #161311;
+  --color-ink-850: #1e1a16;
+  --color-ink-800: #282320;
+  --color-ink-700: #342d27;
+  --color-ink-600: #453c35;
+  --color-ink-500: #7b6f62;
+  --color-ink-400: #a89d8f;
   --color-ink-300: #bdb3a5;
   --color-ink-200: #dcd4c7;
   --color-ink-100: #eeeae3;
 
   --color-accent: #ffb23e;
-  --color-accent-dim: #b8781f;
+  --color-accent-bright: #ffc266;
   --color-accent-ink: #1a0f00;
+
+  /* surfaces: panel/sheet, row/note/well, input/select (buttons and chips are rounded-full) */
+  --radius-panel: 1.5rem;
+  --radius-row: 1rem;
+  --radius-field: 0.75rem;
 
   --color-ok: #4ade80;
   --color-warn: #e9d96a;
@@ -75,20 +80,75 @@ body {
   overflow-x: hidden;
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
+/* element defaults live in the base layer so utilities (ring-*, outline-none, appearance-none) can override them */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 
-input[type='range'] {
-  accent-color: var(--color-accent);
-  height: 44px;
-  cursor: pointer;
-}
+  fieldset:disabled {
+    opacity: 0.55;
+  }
 
-fieldset:disabled {
-  opacity: 0.55;
+  /* range: 44px hit area, 4px track filled in amber up to --fill (set by RangeField / Seek), round amber thumb */
+  input[type='range'] {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 44px;
+    background: transparent;
+    cursor: pointer;
+    accent-color: var(--color-accent);
+  }
+  input[type='range']::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) var(--fill, 0%),
+      var(--color-ink-700) var(--fill, 0%)
+    );
+  }
+  input[type='range']::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--color-ink-700);
+  }
+  input[type='range']::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--color-accent);
+  }
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+    border-radius: 9999px;
+    background: var(--color-accent);
+    border: 0;
+    transition: transform 0.15s;
+  }
+  input[type='range']::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    background: var(--color-accent);
+    border: 0;
+  }
+  input[type='range']:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+  input[type='range']:disabled {
+    cursor: not-allowed;
+  }
+  input[type='range']:disabled::-webkit-slider-thumb {
+    background: var(--color-ink-500);
+  }
+  input[type='range']:disabled::-moz-range-thumb {
+    background: var(--color-ink-500);
+  }
 }
 
 .stage-item {

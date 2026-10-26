@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import Image from 'next/image';
+import { ConeMark } from '@/components/Brand';
 import { LandingActions } from '@/components/LandingActions';
 import { CloseCta } from '@/components/landing/CloseCta';
 import { LayoutDemo } from '@/components/landing/LayoutDemo';
@@ -50,19 +51,6 @@ const FAQ = [
     a: 'Keep the page open in front: iOS pauses background audio. Each device also needs one tap on “Use this device as a speaker” before the browser allows sound.',
   },
 ];
-
-/** the cone, seen from the front: concentric filled rings with even gaps (the page's one shape) */
-function ConeMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 100 100" className={className} aria-hidden>
-      <circle cx="50" cy="50" r="50" fill="var(--color-accent)" />
-      <circle cx="50" cy="50" r="39" fill="var(--mark-gap, var(--color-ink-950))" />
-      <circle cx="50" cy="50" r="34" fill="var(--color-accent)" />
-      <circle cx="50" cy="50" r="23" fill="var(--mark-gap, var(--color-ink-950))" />
-      <circle cx="50" cy="50" r="18" fill="var(--color-accent)" />
-    </svg>
-  );
-}
 
 function Rings() {
   return (

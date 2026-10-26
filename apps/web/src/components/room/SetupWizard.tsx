@@ -91,7 +91,7 @@ function AddSpeakers({ devices }: { devices: Device[] }) {
                 {d.name}
                 {d.id === selfId && <span className="ml-2 text-xs text-ink-400">this device</span>}
               </span>
-              <Button variant="ghost" className="!min-h-9 text-sm" onClick={() => act(() => roomActions.identify(d.id))}>
+              <Button variant="ghost" size="sm" onClick={() => act(() => roomActions.identify(d.id))}>
                 Play a beep
               </Button>
             </li>
