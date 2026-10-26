@@ -3,6 +3,8 @@
  * the transport feeds it parsed messages + arrival times and fans out the returned Outbound list.
  */
 import {
+  AUTO_ADVANCE_MARGIN_MS,
+  QUEUE_END_STOP_MS,
   defaultEq,
   defaultScene,
   defaultSettings,
@@ -14,6 +16,7 @@ import {
   type Scene,
   type ServerMessage,
   type ServerMessageBody,
+  type Track,
 } from '@syncsound/protocol';
 import { clampToRoom, minScheduleLeadMs } from '@syncsound/audio-core';
 
@@ -360,6 +363,7 @@ export class Room {
         if (msg.hostOnlyControl !== undefined) s.hostOnlyControl = msg.hostOnlyControl;
         if (msg.videoBufferMs !== undefined) s.videoBufferMs = msg.videoBufferMs;
         if (msg.lipSyncNudgeMs !== undefined) s.lipSyncNudgeMs = msg.lipSyncNudgeMs;
+        if (msg.crossfadeSec !== undefined) s.crossfadeSec = msg.crossfadeSec;
         if (msg.password !== undefined) {
           this.passwordHash = msg.password ? this.deps.passwords.hash(msg.password) : null;
           s.hasPassword = this.passwordHash !== null;
@@ -496,6 +500,78 @@ export class Room {
     return pos;
   }
 
+  /** room ms at which the current track ends under the current playback; null unless a rendered track with a known duration is playing */
+  endRoomTime(): number | null {
+    const p = this.state.playback;
+    if (p.status !== 'playing') return null;
+    const track = this.state.queue.find((q) => q.id === p.trackId);
+    if (!track || track.sourceClass !== 'rendered' || !track.durationSec) return null;
+    return p.startRoomTime + Math.max(0, track.durationSec - p.trackOffset) * 1000;
+  }
+
+  /** what the end of the current track leads to: the next track (crossfaded when both are rendered) or a stop */
+  private transition(): { targetRoomTime: number; end: number; next: Track | null } | null {
+    const end = this.endRoomTime();
+    if (end === null) return null;
+    const p = this.state.playback;
+    const i = this.state.queue.findIndex((t) => t.id === p.trackId);
+    const next = this.state.queue[i + 1] ?? null;
+    if (!next) return { targetRoomTime: end + QUEUE_END_STOP_MS, end, next };
+    const remainingMs = Math.max(0, this.state.queue[i]!.durationSec! - p.trackOffset) * 1000;
+    const nextMs = next.durationSec ? next.durationSec * 1000 : Infinity;
+    // a fade never covers more than half of either track (a short track is still heard on its own, and its
+    // fade-in has ended before its fade-out starts); sync-only (SDK-owned) tracks can't overlap: plain hand-over
+    const fadeMs =
+      next.sourceClass === 'rendered' ? Math.min(this.state.settings.crossfadeSec * 1000, remainingMs / 2, nextMs / 2) : 0;
+    return { targetRoomTime: end - fadeMs, end, next };
+  }
+
+  /** room ms at which the transport should call `tick`: early enough for the transition's SCHEDULE to carry the full lead */
+  nextDueAt(): number | null {
+    const t = this.transition();
+    return t && t.targetRoomTime - this.lead() - AUTO_ADVANCE_MARGIN_MS;
+  }
+
+  /**
+   * Auto-advance at the end of the current track; a no-op before `nextDueAt`. Schedules the next track to start
+   * `settings.crossfadeSec` before the current one ends (0 = gapless join), or a stop just past the end of the
+   * last track. The start is never earlier than now + lead; a late tick shortens the crossfade instead.
+   */
+  tick(now: number): Outbound[] {
+    const due = this.nextDueAt();
+    const t = this.transition();
+    if (due === null || !t || now < due) return [];
+    const T = Math.max(t.targetRoomTime, now + this.lead());
+    const p = this.state.playback;
+    p.startRoomTime = T;
+    p.trackOffset = 0;
+    if (!t.next) {
+      // end of the queue: stop on the last track, like `next` past the end
+      p.status = 'stopped';
+      delete p.crossfadeSec;
+      return this.scheduleOut('stop', now);
+    }
+    p.trackId = t.next.id;
+    p.status = 'playing';
+    p.crossfadeSec = Math.max(0, t.end - T) / 1000;
+    return this.scheduleOut('play', now);
+  }
+
+  private scheduleOut(action: 'play' | 'pause' | 'seek' | 'stop', now: number): Outbound[] {
+    const p = this.state.playback;
+    return [
+      this.out('all', {
+        type: 'SCHEDULE',
+        action,
+        startRoomTime: p.startRoomTime,
+        trackOffset: p.trackOffset,
+        trackId: p.trackId,
+        ...(p.crossfadeSec !== undefined && { crossfadeSec: p.crossfadeSec }),
+      }),
+      this.stateMsg('all', now),
+    ];
+  }
+
   private control(
     cmd: ControlCmd,
     sender: Device | undefined,
@@ -504,21 +580,13 @@ export class Room {
     T: number,
   ): Outbound[] {
     const p = this.state.playback;
-    const schedule = (action: 'play' | 'pause' | 'seek' | 'stop') => [
-      this.out('all', {
-        type: 'SCHEDULE',
-        action,
-        startRoomTime: p.startRoomTime,
-        trackOffset: p.trackOffset,
-        trackId: p.trackId,
-      }),
-      this.stateMsg('all', now),
-    ];
+    const schedule = (action: 'play' | 'pause' | 'seek' | 'stop') => this.scheduleOut(action, now);
     const startAt = (trackId: string | null, offset: number, status: 'playing' | 'paused' | 'stopped') => {
       p.trackId = trackId;
       p.trackOffset = offset;
       p.startRoomTime = T;
       p.status = status;
+      delete p.crossfadeSec; // user-driven: no transition from a previous track
     };
     const idx = () => this.state.queue.findIndex((t) => t.id === p.trackId);
 
@@ -562,7 +630,12 @@ export class Room {
         return wasPlaying ? schedule('play') : [this.stateMsg('all', now)];
       }
       case 'queue': {
-        if (!this.state.queue.some((t) => t.id === cmd.track.id)) {
+        const existing = this.state.queue.find((t) => t.id === cmd.track.id);
+        if (existing) {
+          // re-queueing a known track only fills in what the first queue didn't know yet (learned when decoded)
+          if (existing.durationSec === undefined && cmd.track.durationSec !== undefined) existing.durationSec = cmd.track.durationSec;
+          if (existing.channels === undefined && cmd.track.channels !== undefined) existing.channels = cmd.track.channels;
+        } else {
           if (this.state.queue.length >= 200) throw new RoomError('queue_full', 'queue is full');
           this.state.queue.push({ ...cmd.track, ...(sender && { addedBy: sender.id }) });
         }

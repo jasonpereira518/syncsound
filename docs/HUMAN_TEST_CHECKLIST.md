@@ -113,7 +113,15 @@ Record results in the table at the bottom.
       distort.
     - The Bluetooth "timing varies by ±X ms" line should appear only after **Measure sync**, not after the tune.
 
-20. **Live share quality (capture rework).** Laptop host (Chrome) + two phones on the same Wi-Fi.
+20. **Auto-advance: gapless and crossfade.** Queue two demo tracks (better: upload two tracks of a gapless album) and
+    play the first to its end. With *Crossfade* at *Gapless* (Library → below the queue, host only) the second should
+    start on every device the instant the first ends: no gap, no double audio, no click; the title switches shortly
+    before the sound does. Set *Crossfade* to 4 s and repeat: the tracks should overlap for ~4 s at an even loudness
+    (no dip in the middle), starting at the same instant on every device. Paste a web link with no known length as
+    the first track: it should still advance once a device has decoded it. Pause during a crossfade: both tracks must
+    stop. Let the last track run out: the player should read *stopped*, not keep "playing" at the end.
+
+21. **Live share quality (capture rework).** Laptop host (Chrome) + two phones on the same Wi-Fi.
     - **YouTube tab shared** to the phones: no echo or "wash", no periodic pitch wobble over 5 minutes, and the laptop
       plays in time with the phones. Debug drawer on a phone: "align delay" switches stay ≤ 2 after the first minute.
     - **Move the Stream buffer slider** while sharing: one brief dip on each device, no pitch bend, no click.

@@ -2,7 +2,8 @@
 import type { ScheduleAction } from '@syncsound/protocol';
 
 export interface ScheduleRecord {
-  action: ScheduleAction | 'reschedule';
+  /** advance = the server moved to this track at the end of the previous one (gapless join or crossfade) */
+  action: ScheduleAction | 'reschedule' | 'advance';
   trackId: string;
   startRoomTime: number;
   trackOffset: number;

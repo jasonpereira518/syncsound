@@ -24,11 +24,13 @@ import {
   autoOnlyCompensationSec,
   compensationSec,
   driftErrorMs,
+  equalPowerCurves,
   expectedHeardEpochMs,
   expectedPositionAtCtx,
   outputLatencyMs,
   type LatencyInput,
   snapToSampleGrid,
+  transitionPlan,
 } from './timing';
 
 /** live-capture voice fade in/out, s */
@@ -42,6 +44,8 @@ interface PlayingVoice {
   when: number;
   tracker: PlaybackTracker;
   stopAt: number | null;
+  /** ctx s until which this voice's own fade-in curve runs (automation inside a curve cannot be edited) */
+  fadeUntil: number;
 }
 
 export interface EngineDeps {
@@ -50,6 +54,8 @@ export interface EngineDeps {
   clockReady: () => boolean;
   /** media devices changed outside a calibration run; default: prompt to recalibrate */
   onRouteChange?: () => void;
+  /** a queued track was fetched and decoded on this device (lets the room learn durations it did not know) */
+  onDecoded?: (trackId: string, info: { durationSec: number; channels: number }) => void;
 }
 
 const playbackKey = (pb: Playback) => `${pb.trackId}|${pb.startRoomTime}|${pb.trackOffset}`;
@@ -63,6 +69,8 @@ export class AudioEngine {
 
   private chain: OutputChain | null = null;
   private voice: PlayingVoice | null = null;
+  /** the previous track playing out under an auto-advance transition (gapless tail or crossfade) */
+  private outgoing: PlayingVoice | null = null;
   private external: Voice | null = null;
   /** `?tap=1` e2e instrumentation: analysers on the output and the live source */
   private taps: ReturnType<OutputChain['enableTaps']> | null = null;
@@ -85,6 +93,8 @@ export class AudioEngine {
       (id) => {
         const e = this.assets.get(id);
         if (e?.state === 'error' && id === this.currentTrack()?.id) setError(e.error);
+        if (e?.state === 'ready' && e.buffer)
+          this.deps.onDecoded?.(id, { durationSec: e.buffer.duration, channels: e.buffer.numberOfChannels });
         this.reconcile();
       },
     );
@@ -140,6 +150,7 @@ export class AudioEngine {
     this.ctx = null;
     this.loopbackNode = null;
     this.voice = null;
+    this.outgoing = null;
     this.external = null;
     this.taps = null;
     this.chain?.dispose();
@@ -356,10 +367,26 @@ export class AudioEngine {
     const voice = new Voice(ctx, src, buffer.numberOfChannels, this.chain!);
     voice.apply(room.scene, this.mix!);
     const old = this.voice;
+    let fadeUntil = 0;
     if (old && old.stopAt === null) {
-      voice.fade.gain.setValueAtTime(0, d.when);
-      voice.fade.gain.linearRampToValueAtTime(1, d.when + XFADE_SEC);
-      this.fadeOut(old, d.when);
+      const plan = transitionPlan({
+        crossfadeSec: pb.crossfadeSec,
+        whenCtx: d.when,
+        scheduledStartCtx: this.roomToCtx(pb.startRoomTime) - comp,
+      });
+      if (plan.kind === 'crossfade') {
+        fadeUntil = plan.end;
+        this.crossfade(old, voice, plan.start, plan.end);
+      } else if (plan.kind === 'gapless') {
+        // the old buffer ends right here on the room timeline; a decoder that padded it is cut over XFADE
+        voice.fade.gain.value = 1;
+        this.fadeOut(old, d.when);
+        this.outgoing = old;
+      } else {
+        voice.fade.gain.setValueAtTime(0, d.when);
+        voice.fade.gain.linearRampToValueAtTime(1, d.when + XFADE_SEC);
+        this.fadeOut(old, d.when);
+      }
     } else {
       voice.fade.gain.value = 1;
     }
@@ -367,16 +394,17 @@ export class AudioEngine {
     src.start(g.when, g.offset);
     const tracker = new PlaybackTracker();
     tracker.start(g.when, g.offset);
-    const pv: PlayingVoice = { voice, src, key, trackId, when: d.when, tracker, stopAt: null };
+    const pv: PlayingVoice = { voice, src, key, trackId, when: d.when, tracker, stopAt: null, fadeUntil };
     src.onended = () => {
       voice.dispose();
       if (this.voice === pv) this.voice = null;
+      if (this.outgoing === pv) this.outgoing = null;
       this.publish();
     };
     this.voice = pv;
     const L = outputLatencyMs(this.latencyInput());
     recordSchedule({
-      action,
+      action: pb.crossfadeSec !== undefined && action === 'play' ? 'advance' : action,
       trackId,
       startRoomTime: pb.startRoomTime,
       trackOffset: pb.trackOffset,
@@ -395,20 +423,49 @@ export class AudioEngine {
     });
   }
 
-  /** ramp `pv` out over XFADE ending at `endAt` (ctx s) */
+  /** ramp `pv` out over XFADE starting at `startAt` (ctx s) */
   private fadeOut(pv: PlayingVoice, startAt: number) {
     const ctx = this.ctx!;
     const t = Math.max(startAt, ctx.currentTime);
     const g = pv.voice.fade.gain;
-    g.cancelScheduledValues(t);
-    g.setValueAtTime(g.value || 1, t);
-    g.linearRampToValueAtTime(0, t + XFADE_SEC);
+    try {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value || 1, t);
+      g.linearRampToValueAtTime(0, t + XFADE_SEC);
+    } catch {
+      /* inside its own fade-in curve: the stop below ends it */
+    }
     pv.stopAt = t + XFADE_SEC;
     try {
       pv.src.stop(t + XFADE_SEC + 0.005);
     } catch {
       /* not started */
     }
+  }
+
+  /** equal-power crossfade over [start, end] (ctx s): `pv` out, `voice` in; `pv` stops at the end */
+  private crossfade(pv: PlayingVoice, voice: Voice, start: number, end: number) {
+    const dur = end - start;
+    const { fadeIn, fadeOut } = equalPowerCurves(Math.min(512, Math.max(16, dur * 100)));
+    voice.fade.gain.value = 0;
+    voice.fade.gain.setValueCurveAtTime(fadeIn, start, dur);
+    // the outgoing voice may still be fading in (short track): its curve cannot be edited, so start after it
+    const outStart = Math.max(start, pv.fadeUntil);
+    const g = pv.voice.fade.gain;
+    try {
+      g.cancelScheduledValues(outStart);
+      if (end - outStart > 0.005) g.setValueCurveAtTime(fadeOut, outStart, end - outStart);
+      else g.setValueAtTime(0, end);
+    } catch {
+      /* automation conflict: the hard stop below still ends it on time */
+    }
+    pv.stopAt = end;
+    try {
+      pv.src.stop(end + 0.005);
+    } catch {
+      /* not started */
+    }
+    this.outgoing = pv;
   }
 
   private stopVoice(atCtx: number) {
@@ -430,6 +487,16 @@ export class AudioEngine {
     }
     const trackId = this.voice.trackId;
     this.stopVoice(at);
+    const out = this.outgoing;
+    if (out && out.stopAt !== null && out.stopAt > at + XFADE_SEC) {
+      // a pause mid-transition also ends the track that was fading out
+      try {
+        out.src.stop(Math.max(at, ctx.currentTime) + XFADE_SEC);
+      } catch {
+        /* not started */
+      }
+      out.stopAt = at + XFADE_SEC;
+    }
     recordSchedule({
       action: pb.status === 'paused' ? 'pause' : 'stop',
       trackId,
@@ -670,7 +737,10 @@ export class AudioEngine {
     const cur = this.currentTrack();
     const entry = cur ? this.assets.get(cur.id) : undefined;
     const pv = this.voice;
+    const out = this.outgoing;
     const playing = !!ctx && !!pv && pv.stopAt === null && ctx.currentTime >= pv.when;
+    // between an auto-advance SCHEDULE and the new track's start the previous track is still playing out
+    const playingOut = !!ctx && !!out && out.stopAt !== null && ctx.currentTime < out.stopAt;
     let comp = 0;
     try {
       comp = this.compensationSec() * 1000;
@@ -683,8 +753,8 @@ export class AudioEngine {
       sampleRate: ctx?.sampleRate ?? null,
       autoLatencyMs: this.autoLatencyMs === null ? null : Math.round(this.autoLatencyMs * 10) / 10,
       usingOutputTimestamp: this.usingOutputTimestamp,
-      bufferState: playing ? 'playing' : (entry?.state ?? 'idle'),
-      loadedTrackId: playing ? pv!.trackId : entry?.state === 'ready' ? cur!.id : null,
+      bufferState: playing || playingOut ? 'playing' : (entry?.state ?? 'idle'),
+      loadedTrackId: playing ? pv!.trackId : playingOut ? out!.trackId : entry?.state === 'ready' ? cur!.id : null,
       syncErrorMs: Math.round(this.syncErrorMs * 10) / 10,
       playbackRate: pv?.tracker.rate ?? 1,
       corrections: this.corrections,

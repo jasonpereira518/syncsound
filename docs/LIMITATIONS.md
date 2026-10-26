@@ -82,7 +82,7 @@ An honest list of what is not done, what can't be verified without hardware, and
   is recommended beyond that but not integrated. The capture pipeline-delay estimate uses `getStats`
   (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), median-filtered over 2.5 s and applied only
   in ≥ 10 ms steps; its absolute accuracy (host encode latency, the receiver's WebRTC → Web Audio bridge) is
-  unverified on real networks, so host-vs-receiver alignment of a live stream needs ears (HUMAN_TEST item 20).
+  unverified on real networks, so host-vs-receiver alignment of a live stream needs ears (HUMAN_TEST item 21).
   Headless e2e hears a steady tone and a stable delay, but can't hear WebRTC's own concealment on a lossy Wi-Fi.
   A receiver whose browser reports no `jitterBufferDelay` stats stays silent until it does.
 - **Positions:** a full tune measures laptop-to-laptop distances (two-way ranging) and lays the room out from them,
@@ -91,8 +91,13 @@ An honest list of what is not done, what can't be verified without hardware, and
   implemented.
 - **Upmix** is a simple mid/side derivation (C = mid −3 dB, surrounds = filtered and delayed side), not a
   steering decoder.
-- **Track end:** the client doesn't auto-advance; the host presses next. The server doesn't track durations to
-  auto-advance.
+- **Track end:** rendered tracks with a known duration auto-advance (gapless, or the room's crossfade). The next
+  track's title and seek bar switch over when its SCHEDULE arrives, i.e. up to the room's lead (~0.3 s, up to ~2 s
+  with Bluetooth) before it is heard. Sync-only tracks (Spotify / Apple Music) have no server-side end: the SDK plays
+  on and the host presses next. A track whose length nobody has decoded yet (a web link, until the first device
+  decodes it) doesn't advance. During a crossfade the outgoing track is no longer drift-corrected (its rate stays at
+  the last nudge, ≤ 0.2 %). Decoders that pad a gapless album's tracks differently (MP3 in particular) leave a few
+  ms of overlap or gap at a gapless join; an overlap is cut over 15 ms, a gap can't be filled.
 - **Single server process:** room state lives in memory, so run one instance. `room.ts` is transport-free to make
   a Durable Object port straightforward, but the port isn't done.
 - **Device id lives in localStorage:** two tabs of the same browser profile share it and replace each other in the

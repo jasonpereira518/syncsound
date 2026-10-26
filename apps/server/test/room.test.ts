@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AUTO_ADVANCE_MARGIN_MS,
   MIN_SCHEDULE_LEAD_MS,
+  QUEUE_END_STOP_MS,
   SCHEDULE_SAFETY_MARGIN_MS,
   type ClientMessage,
   type DeviceCaps,
@@ -578,5 +580,152 @@ describe('Room capture (live share)', () => {
     expect(one(room.handle('ch', { type: 'CAPTURE', active: true }, 1000), 'STATE').msg.roomState.captureHostId).toBe(
       'h',
     );
+  });
+});
+
+describe('Room auto-advance', () => {
+  const LEAD = MIN_SCHEDULE_LEAD_MS;
+  const remote = (id: string): Track => ({ id, title: id, kind: 'spotify', sourceClass: 'remote', remoteId: `spotify:track:${id}` });
+
+  it('schedules the next track to start exactly when the current one ends, then a stop after the last', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('a', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('b', 5) }), 1000);
+    expect(room.nextDueAt()).toBeNull(); // nothing playing
+    expect(one(room.handle('ch', ctl({ type: 'play' }), 2000), 'SCHEDULE').msg.startRoomTime).toBe(2000 + LEAD);
+    expect(room.endRoomTime()).toBe(12_000 + LEAD);
+
+    const due = room.nextDueAt()!;
+    expect(due).toBe(12_000 + LEAD - LEAD - AUTO_ADVANCE_MARGIN_MS);
+    expect(room.tick(due - 1)).toEqual([]); // not yet
+    const adv = room.tick(due);
+    expect(one(adv, 'SCHEDULE').msg).toEqual({
+      type: 'SCHEDULE',
+      seq: expect.any(Number),
+      action: 'play',
+      trackId: 'b',
+      trackOffset: 0,
+      startRoomTime: 12_000 + LEAD,
+      crossfadeSec: 0,
+    });
+    expect(one(adv, 'STATE').msg.roomState.playback).toEqual({
+      status: 'playing',
+      trackId: 'b',
+      trackOffset: 0,
+      startRoomTime: 12_000 + LEAD,
+      crossfadeSec: 0,
+    });
+    expect(room.tick(due + 1)).toEqual([]); // idempotent: the transition happened
+
+    // end of the queue: stop on the last track just past its end
+    const due2 = room.nextDueAt()!;
+    const bEnd = 12_000 + LEAD + 5000;
+    expect(due2).toBe(bEnd + QUEUE_END_STOP_MS - LEAD - AUTO_ADVANCE_MARGIN_MS);
+    const stop = one(room.tick(due2), 'SCHEDULE').msg;
+    expect(stop).toMatchObject({ action: 'stop', trackId: 'b', trackOffset: 0, startRoomTime: bEnd + QUEUE_END_STOP_MS });
+    expect(stop).not.toHaveProperty('crossfadeSec');
+    expect(room.state.playback).toMatchObject({ status: 'stopped', trackId: 'b' });
+    expect(room.state.playback).not.toHaveProperty('crossfadeSec');
+    expect(room.nextDueAt()).toBeNull();
+  });
+
+  it('a user action clears the pending transition and the crossfade marker', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('a', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('b', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 2000);
+    room.tick(room.nextDueAt()!); // now on b, crossfadeSec 0
+    expect(room.state.playback.crossfadeSec).toBe(0);
+    room.handle('ch', ctl({ type: 'pause' }), 13_000); // b started at 12 250 → paused 1 s in (at 13 250)
+    expect(room.state.playback).toMatchObject({ status: 'paused', trackId: 'b', trackOffset: 1 });
+    expect(room.state.playback).not.toHaveProperty('crossfadeSec');
+    expect(room.nextDueAt()).toBeNull();
+    expect(one(room.handle('ch', ctl({ type: 'play' }), 14_000), 'SCHEDULE').msg).not.toHaveProperty('crossfadeSec');
+  });
+
+  it('crossfade setting: the next track starts early by the fade, clamped to half of either track; never into a sync-only track', () => {
+    const room = setup();
+    expect(room.state.settings.crossfadeSec).toBe(0);
+    room.handle('ch', { type: 'SETTINGS_UPDATE', crossfadeSec: 3 }, 1000);
+    expect(room.state.settings.crossfadeSec).toBe(3);
+    for (const t of [track('a', 10), track('b', 2), track('c', 10), remote('s')]) room.handle('ch', ctl({ type: 'queue', track: t }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 2000); // a: 2250 → 12250
+    const aEnd = 12_000 + LEAD;
+
+    // a → b: b is only 2 s long, so the fade is limited to 1 s (half of b)
+    let s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 'b', startRoomTime: aEnd - 1000, crossfadeSec: 1 });
+    // b → c: half of b's remaining 2 s
+    const bEnd = aEnd - 1000 + 2000;
+    s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 'c', startRoomTime: bEnd - 1000, crossfadeSec: 1 });
+    // c → s (Spotify): no overlap possible, plain hand-over at c's end
+    const cEnd = bEnd - 1000 + 10_000;
+    s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 's', startRoomTime: cEnd, crossfadeSec: 0 });
+    expect(room.nextDueAt()).toBeNull(); // a sync-only track has no server-side end
+  });
+
+  it('a late tick never starts earlier than now + lead; the crossfade shrinks to what is left', () => {
+    const room = setup();
+    room.handle('ch', { type: 'SETTINGS_UPDATE', crossfadeSec: 3 }, 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('a', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('b', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 2000);
+    const aEnd = 12_000 + LEAD;
+    expect(room.nextDueAt()).toBe(aEnd - 3000 - LEAD - AUTO_ADVANCE_MARGIN_MS);
+    const s = one(room.tick(aEnd - 1500), 'SCHEDULE').msg; // 1.5 s before the end: fade over what is left
+    expect(s).toMatchObject({ trackId: 'b', startRoomTime: aEnd - 1500 + LEAD, crossfadeSec: 1.25 });
+
+    const room2 = setup();
+    room2.handle('ch', ctl({ type: 'queue', track: track('a', 10) }), 1000);
+    room2.handle('ch', ctl({ type: 'queue', track: track('b', 10) }), 1000);
+    room2.handle('ch', ctl({ type: 'play' }), 2000);
+    const s2 = one(room2.tick(aEnd + 5000), 'SCHEDULE').msg; // long past the end (gap, no overlap)
+    expect(s2).toMatchObject({ trackId: 'b', startRoomTime: aEnd + 5000 + LEAD, crossfadeSec: 0 });
+  });
+
+  it('a seek near the end transitions from the new position; the lead follows the devices', () => {
+    const room = setup();
+    room.handle('ch', { type: 'SETTINGS_UPDATE', crossfadeSec: 3 }, 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('a', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('b', 10) }), 1000);
+    room.handle('c1', { type: 'STATS', stats: stats(400) }, 1500);
+    room.handle('ch', ctl({ type: 'play' }), 2000);
+    const lead = 400 + SCHEDULE_SAFETY_MARGIN_MS;
+    room.handle('ch', ctl({ type: 'seek', position: 9.5 }), 3000); // 0.5 s left
+    const end = 3000 + lead + 500;
+    expect(room.endRoomTime()).toBe(end);
+    expect(room.nextDueAt()).toBe(end - 250 - lead - AUTO_ADVANCE_MARGIN_MS); // fade = half of the 0.5 s left
+    const s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 'b', startRoomTime: end - 250, crossfadeSec: 0.25 });
+  });
+
+  it('tracks without a known duration are learned from a re-queue (duration/channels only) and then advance', () => {
+    const room = setup();
+    const link: Track = { id: 'u', title: 'Link', kind: 'url', sourceClass: 'rendered', url: 'https://x.test/a.mp3' };
+    room.handle('ch', ctl({ type: 'queue', track: link }), 1000);
+    room.handle('ch', ctl({ type: 'queue', track: track('b', 10) }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 2000);
+    expect(room.endRoomTime()).toBeNull();
+    expect(room.nextDueAt()).toBeNull();
+    // a guest's decode fills in what was unknown; title/url stay as queued
+    room.handle('c1', ctl({ type: 'queue', track: { ...link, title: 'renamed', durationSec: 30, channels: 2 } }), 3000);
+    expect(room.state.queue[0]).toMatchObject({ title: 'Link', durationSec: 30, channels: 2, addedBy: 'h' });
+    // a later re-queue never overwrites a known value
+    room.handle('c2', ctl({ type: 'queue', track: { ...link, durationSec: 99, channels: 6 } }), 3100);
+    expect(room.state.queue[0]).toMatchObject({ durationSec: 30, channels: 2 });
+    expect(room.endRoomTime()).toBe(2000 + LEAD + 30_000);
+    expect(room.state.queue).toHaveLength(2);
+  });
+
+  it('a stored home room keeps the crossfade setting', () => {
+    const cfgs: Array<{ settings: { crossfadeSec: number } }> = [];
+    const room = mkRoom({ onConfig: (cfg) => cfgs.push(cfg) });
+    join(room, 'ch', 'h', { hostKey: 'HOSTKEY' });
+    room.handle('ch', { type: 'SETTINGS_UPDATE', crossfadeSec: 6 }, 1000);
+    expect(cfgs.at(-1)?.settings.crossfadeSec).toBe(6);
+    const again = mkRoom({ settings: cfgs.at(-1)!.settings as never });
+    expect(again.state.settings.crossfadeSec).toBe(6);
   });
 });
