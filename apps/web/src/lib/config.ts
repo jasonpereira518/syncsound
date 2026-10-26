@@ -32,6 +32,11 @@ export const NO_SERVER_MESSAGE =
   "This SyncSound site isn't connected to its room server yet, so rooms can't open. " +
   'Site owner: deploy the server and set NEXT_PUBLIC_SERVER_URL (see docs/DEPLOY.md).';
 
+/** the server's messages don't fit this site's protocol even after the legacy defaults: the two were deployed apart */
+export const SERVER_MISMATCH_MESSAGE =
+  'The room server is running a different version of SyncSound than this site, so this device can’t join. ' +
+  'Site owner: redeploy the server from the same code as the site (see docs/DEPLOY.md).';
+
 /** Cloud Run scales an idle server to zero: the first connection after that waits for it to start */
 export const SERVER_WAKING_HINT = 'If the server was idle, starting it can take a few seconds.';
 

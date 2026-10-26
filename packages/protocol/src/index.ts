@@ -505,8 +505,36 @@ export type ServerMessage = ServerMessageBody & { seq: number };
 export function parseClientMessage(raw: unknown) {
   return ClientMessage.safeParse(raw);
 }
+/**
+ * Fields newer than servers that may still be deployed, with what an older server means by leaving them out (it
+ * knows no crossfade and no tune identity, so every device is untuned). Only filled where the key is absent.
+ */
+export const LEGACY_DEVICE_DEFAULTS = { tuneArrivalMs: null, tuneId: null, tuneStale: null, syncState: 'untuned' } as const;
+export const LEGACY_SETTINGS_DEFAULTS = { crossfadeSec: 0 } as const;
+
+const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+
+/** a copy of a server message with the LEGACY_* defaults filled into every device and room-settings object in it */
+export function withLegacyDefaults(raw: unknown): unknown {
+  if (Array.isArray(raw)) return raw.map(withLegacyDefaults);
+  if (!isObj(raw)) return raw;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) out[k] = withLegacyDefaults(v);
+  const fill = (defaults: Record<string, unknown>) => {
+    for (const [k, v] of Object.entries(defaults)) if (out[k] === undefined) out[k] = v;
+  };
+  if ('caps' in out && 'joinedAt' in out) fill(LEGACY_DEVICE_DEFAULTS);
+  if ('hostOnlyControl' in out && 'videoBufferMs' in out) fill(LEGACY_SETTINGS_DEFAULTS);
+  return out;
+}
+
+/**
+ * Parse a server message. One from an older server that only lacks the LEGACY_* fields is accepted with their
+ * defaults; anything else that fails is a real version mismatch (the caller says so instead of ignoring it).
+ */
 export function parseServerMessage(raw: unknown) {
-  return ServerMessage.safeParse(raw);
+  const exact = ServerMessage.safeParse(raw);
+  return exact.success ? exact : ServerMessage.safeParse(withLegacyDefaults(raw));
 }
 
 // ---------- HTTP API ----------

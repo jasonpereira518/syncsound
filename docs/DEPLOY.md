@@ -51,6 +51,12 @@ Check it: `https://syncsound-server-645599971176.us-central1.run.app/health` →
 
 **Good to know**
 
+- **Keep the server and the site on the same code.** Vercel redeploys the site on every merge to `main`; the Cloud Run
+  server only changes when you run the two commands above. After merging changes to `apps/server` or
+  `packages/protocol`, redeploy the server too. A server that is only missing newer optional fields still works (the
+  site fills in safe defaults); a bigger difference shows *"The room server is running a different version of
+  SyncSound than this site"* instead of "Can't reach the server".
+
 - With no minimum instances, an idle server scales to zero and the first visit waits a few seconds for it to start
   (the site says so). `--min-instances 1` keeps it warm, at a cost.
 - The container's disk is in memory and starts empty on every new instance or deploy: saved homes, their layouts and

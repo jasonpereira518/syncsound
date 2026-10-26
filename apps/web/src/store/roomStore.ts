@@ -35,7 +35,7 @@ import {
   type ServerMessage,
   type Track,
 } from '@syncsound/protocol';
-import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl } from '../lib/config';
+import { isServerMissing, NO_SERVER_MESSAGE, SERVER_MISMATCH_MESSAGE, SERVER_WAKING_HINT, serverUrl } from '../lib/config';
 import { batteryLevel, buildCaps, getDeviceId, probeMic, probeMicEnabled, randomId, rememberName, storage, type MicPermission } from '../lib/device';
 import { tuneStatus } from '../lib/tuneStatus';
 import { recallOutputTune, rememberOutputTune, routeChangeAction, type OutputTune } from '../lib/outputMemory';
@@ -72,6 +72,8 @@ interface Session {
   scene: ReturnType<typeof mergingThrottle<ScenePatch>>;
   lastLocalSceneEdit: number;
   autoObjectsKey: string;
+  /** the server's messages don't fit this site's protocol (it was deployed from other code) */
+  serverMismatch: boolean;
   /** sent on every (re)JOIN; refreshed when the output route changes */
   caps: DeviceCaps;
   /** current output label (undefined when the browser hides it) → per-output calibration memory key */
@@ -573,6 +575,11 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         setError(FRIENDLY[code] ?? msg);
         resolveJoin();
       },
+      onMismatch: () => {
+        if (session) session.serverMismatch = true;
+        setError(SERVER_MISMATCH_MESSAGE);
+        resolveJoin();
+      },
     });
     const link = new ClockLink({
       selfId: deviceId,
@@ -596,6 +603,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       // not 0: performance.now() starts near 0, so 0 would drop every SCENE in the page's first 400 ms
       lastLocalSceneEdit: -Infinity,
       autoObjectsKey: '',
+      serverMismatch: false,
       caps,
       outputLabel: caps.outputLabel,
       tunedClockPath: null,
@@ -638,7 +646,8 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
     client.connect();
     const slow = setTimeout(() => {
-      if (useRoomStore.getState().conn !== 'open') setError(`Can't reach the SyncSound server yet. Still trying… ${SERVER_WAKING_HINT}`);
+      // a version mismatch already said what's wrong: the server is reachable, it just speaks another version
+      if (useRoomStore.getState().conn !== 'open' && !s.serverMismatch) setError(`Can't reach the SyncSound server yet. Still trying… ${SERVER_WAKING_HINT}`);
       resolveJoin();
     }, 10_000);
     s.cleanup.push(() => clearTimeout(slow));

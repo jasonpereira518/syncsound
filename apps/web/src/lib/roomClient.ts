@@ -81,6 +81,8 @@ export interface RoomClientOptions {
   onSynced: (reason: 'connect' | 'resync', shiftMs: number) => void;
   /** unrecoverable (join rejected) — no more reconnects */
   onFatal: (code: string, msg: string) => void;
+  /** the server sent a message this site can't read (a server/site version mismatch); reported once per client */
+  onMismatch?: (messageType: string, issues: string) => void;
 }
 
 export class RoomClient {
@@ -98,6 +100,7 @@ export class RoomClient {
   private burstReason: 'connect' | 'resync' = 'connect';
   private burstBase: ClockMappingData | null = null;
   private bursting = false;
+  private mismatchReported = false;
   private burstDeadline = 0;
 
   constructor(private readonly o: RoomClientOptions) {}
@@ -244,7 +247,16 @@ export class RoomClient {
       return;
     }
     const parsed = parseServerMessage(data);
-    if (!parsed.success) return;
+    if (!parsed.success) {
+      if (!this.mismatchReported) {
+        this.mismatchReported = true;
+        const type = typeof (data as { type?: unknown })?.type === 'string' ? (data as { type: string }).type : 'unknown';
+        const issues = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        console.warn('[room] server message does not match this site', type, issues);
+        this.o.onMismatch?.(type, issues);
+      }
+      return;
+    }
     const msg = parsed.data as ServerMessage;
     if (msg.type === 'PONG') {
       try {

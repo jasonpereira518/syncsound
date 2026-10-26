@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { defaultScene, isValidRoomCode, parseClientMessage, parseServerMessage } from './index';
+import { defaultScene, isValidRoomCode, parseClientMessage, parseServerMessage, ServerMessage, withLegacyDefaults } from './index';
 
 describe('protocol', () => {
   it('validates room codes', () => {
@@ -110,5 +111,32 @@ describe('protocol validation (trust boundary)', () => {
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', data: { kind: 'offer', sdp: 'x'.repeat(20001) } }).success).toBe(false);
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', ch: 'clock', data: { kind: 'hangup' } }).success).toBe(true);
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', ch: 'video', data: { kind: 'hangup' } }).success).toBe(false);
+  });
+});
+
+describe('older servers', () => {
+  // a real WELCOME from a server deployed before crossfade and tune identity (captured from Cloud Run)
+  const welcome = JSON.parse(readFileSync(new URL('./fixtures/welcome-before-tune-identity.json', import.meta.url), 'utf8'));
+
+  it('accepts a message that only lacks newer fields, with the safe defaults', () => {
+    expect(ServerMessage.safeParse(welcome).success).toBe(false); // the strict schema alone rejects it
+    const r = parseServerMessage(welcome);
+    expect(r.success).toBe(true);
+    if (!r.success || r.data.type !== 'WELCOME') throw new Error('expected a WELCOME');
+    expect(r.data.roomState.settings.crossfadeSec).toBe(0);
+    expect(r.data.roomState.devices[0]).toMatchObject({ tuneArrivalMs: null, tuneId: null, tuneStale: null, syncState: 'untuned' });
+  });
+
+  it('never overrides a value the server sent, and still rejects a real mismatch', () => {
+    const tuned = structuredClone(welcome);
+    tuned.roomState.settings.crossfadeSec = 4;
+    tuned.roomState.devices[0].syncState = 'tuned';
+    const r = parseServerMessage(tuned);
+    expect(r.success && r.data.type === 'WELCOME' && r.data.roomState.settings.crossfadeSec).toBe(4);
+    expect(r.success && r.data.type === 'WELCOME' && r.data.roomState.devices[0]!.syncState).toBe('tuned');
+    const broken = structuredClone(welcome);
+    broken.roomState.devices[0].caps = 'not caps';
+    expect(parseServerMessage(broken).success).toBe(false);
+    expect(withLegacyDefaults({ type: 'PONG', t0: 1 })).toEqual({ type: 'PONG', t0: 1 });
   });
 });
