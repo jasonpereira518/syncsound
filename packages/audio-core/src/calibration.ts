@@ -1,32 +1,36 @@
 import type { CalibrationPlan, CalibrationRow, DeviceClass, Scene, Vec2 } from '@syncsound/protocol';
 import { commonTarget, fitEq, type EqFitResult } from './eq';
-import { loudnessTrims, volumeHints } from './loudness';
+import { loudnessTrims, medianOf, volumeHints } from './loudness';
 import {
-  bandMeanDb,
   crossCorrelate,
   deconvolve,
   estimateRolloffHz,
   firstArrival,
   logFreqs,
+  loudnessDb,
   magnitudeResponse,
   rmsDb,
   smoothFractionalOctave,
   type Response,
 } from './measure';
-import { CALIBRATION_SIGNAL_MS, calibrationSignal, calibrationSweepInverse } from './signals';
+import { CALIBRATION_SIGNAL_MS, calibrationArrivalRef, calibrationInverse, calibrationSignal } from './signals';
 import { polar, procrustes2d, smacof2d, SPEED_OF_SOUND } from './spatial';
 
 /** Silence before the first slot (noise-floor reference + clock-error slack), ms. */
 export const CALIBRATION_LEAD_MS = 500;
 /**
  * Arrival search window around a slot's scheduled start: unreported output latency (Bluetooth: 100–300 ms, some
- * speakers more) + mic input latency + clock-map error. Every device plays the SAME sweep, so a window must never
- * reach the next slot's earliest possible arrival: TUNE_PERIOD_MS > EARLY + LATE (+ margin for the next sweep's
+ * speakers more) + mic input latency + clock-map error. Every device plays the SAME signal, so a window must never
+ * reach the next slot's earliest possible arrival: TUNE_PERIOD_MS > EARLY + LATE (+ margin for the next swoosh's
  * harmonic-distortion images, ≤ 124 ms before it).
  */
 export const SEARCH_EARLY_MS = 400;
 export const SEARCH_LATE_MS = 1000;
-/** One device's slot in a tune run, ms. */
+/**
+ * One device's slot in a tune run, ms. The response segment of a late device may reach into the next slot's start:
+ * that is the same signal, so it deconvolves into an impulse a whole slot (minus the latency difference) later, far
+ * past the IR window. Kept short: the recorders' ±20 ppm rate error accumulates between slots and costs ranging.
+ */
 export const TUNE_PERIOD_MS = SEARCH_EARLY_MS + SEARCH_LATE_MS + 150;
 /** IR window used for response measurement, samples at 48 kHz (scaled with sample rate). */
 const IR_SEC = 16384 / 48000;
@@ -68,14 +72,14 @@ export const heldAtHead = (deviceClass: DeviceClass) => deviceClass === 'phone';
 /** mic → head distance for a tuning device of this class, m */
 export const headOffsetFor = (deviceClass: DeviceClass) => (heldAtHead(deviceClass) ? 0 : HEAD_OFFSET_M);
 
-/** Tune plan slots: one sweep per device, each in its own TUNE_PERIOD_MS slot. */
+/** Tune plan slots: one swoosh → chime per device, each in its own TUNE_PERIOD_MS slot. */
 export function buildTuneSlots(deviceIds: string[]): CalibrationPlan['slots'] {
   return deviceIds.map((deviceId, i) => ({
     deviceId,
     deviceIndex: i % 64,
-    signal: 'sweep' as const,
+    signal: 'tune' as const,
     offsetMs: CALIBRATION_LEAD_MS + i * TUNE_PERIOD_MS,
-    durationMs: CALIBRATION_SIGNAL_MS.sweep,
+    durationMs: CALIBRATION_SIGNAL_MS.tune,
   }));
 }
 
@@ -135,7 +139,6 @@ export function analyzeRecording(input: RecordingInput): RecordingAnalysis {
   const { plan, recording: rec, sampleRate: sr } = input;
   const toIdx = indexMap(input.toRoomMs, rec.length);
   const ms = (x: number) => Math.round((x / 1000) * sr);
-  const inverse = calibrationSweepInverse(sr);
   const irLength = Math.round(IR_SEC * sr);
   const rows: CalibrationRow[] = [];
   const responses: Record<string, Response> = {};
@@ -145,7 +148,8 @@ export function analyzeRecording(input: RecordingInput): RecordingAnalysis {
   for (const slot of plan.slots) {
     const row: CalibrationRow = { emitterId: slot.deviceId, mMs: null, levelDb: null, directDb: null, snrDb: null, clipped: false };
     rows.push(row);
-    const ref = calibrationSignal(slot.signal, slot.deviceIndex, sr);
+    const full = calibrationSignal(slot.signal, slot.deviceIndex, sr);
+    const ref = calibrationArrivalRef(slot.signal, slot.deviceIndex, sr);
     const schedRoom = plan.startRoomTime + slot.offsetMs;
     const sched = Math.round(toIdx(schedRoom));
     const w0 = Math.max(0, sched - ms(SEARCH_EARLY_MS));
@@ -159,19 +163,21 @@ export function analyzeRecording(input: RecordingInput): RecordingAnalysis {
     const at = w0 + fa.index;
     row.mMs = input.toRoomMs(at) - schedRoom;
     row.directDb = fa.directDb;
-    for (let i = Math.floor(at); i < Math.min(rec.length, at + ref.length); i++)
+    for (let i = Math.floor(at); i < Math.min(rec.length, at + full.length); i++)
       if (Math.abs(rec[i]!) >= CLIP) {
         row.clipped = true;
         break;
       }
     broadbandSnrDb[slot.deviceId] = rmsDb(rec, at, at + ref.length) - floorDb;
+    if (slot.signal !== 'sweep' && slot.signal !== 'tune') continue;
+    const inverse = calibrationInverse(slot.signal, sr);
     const s0 = Math.max(0, Math.floor(at) - ms(50));
-    const s1 = Math.min(rec.length, Math.floor(at) + inverse.length + irLength + ms(50));
-    if (s1 - s0 <= inverse.length) continue;
+    const s1 = Math.min(rec.length, Math.floor(at) + full.length + irLength + ms(50));
+    if (s1 - s0 <= full.length) continue;
     const ir = deconvolve(rec.subarray(s0, s1), inverse, irLength);
     const r = smoothFractionalOctave(magnitudeResponse(ir, sr, CALIBRATION_FREQS), 6);
     responses[slot.deviceId] = r;
-    row.levelDb = bandMeanDb(r, 300, 3000);
+    row.levelDb = loudnessDb(r);
   }
   let peak = 0;
   for (const v of rec) peak = Math.max(peak, Math.abs(v));
@@ -283,7 +289,7 @@ export interface TuneReport {
   targetDb: number[] | null;
   eq: Record<string, EqFitResult>;
   trims: Record<string, number>;
-  /** dB to raise on the device itself (only devices well below the median; see volumeHints) */
+  /** dB to raise on the device itself (only devices the +6 dB boost leaves short of the median; see volumeHints) */
   volumeUp: Record<string, number>;
   warnings: string[];
 }
@@ -400,13 +406,16 @@ export function solveTune(input: TuneInput): TuneReport {
     eq[d.deviceId] = fit;
     if (d.levelDb !== null) {
       // trims act on the post-EQ loudness (EQ + preamp change each device's level differently)
-      const eqShift =
-        bandMeanDb({ freqs: d.response!.freqs, db: fit.predictedDb }, 300, 3000) - bandMeanDb(d.response!, 300, 3000);
+      const eqShift = loudnessDb({ freqs: d.response!.freqs, db: fit.predictedDb }) - loudnessDb(d.response!);
       postLevels[d.deviceId] = d.levelDb + eqShift;
     }
   }
   for (const d of heard)
     if (d.levelDb !== null && postLevels[d.deviceId] === undefined) postLevels[d.deviceId] = d.levelDb;
+  // The listener's own level is the least certain one (near field: its speaker→mic path is a prior, not measured), so
+  // with two or more others the target is THEIR median: a misread listener can never move everyone else's trim.
+  const others = Object.entries(postLevels).filter(([id]) => id !== L);
+  const refDb = others.length >= 2 ? medianOf(others.map(([, l]) => l)) : undefined;
   return {
     devices,
     positions,
@@ -415,8 +424,8 @@ export function solveTune(input: TuneInput): TuneReport {
     stress,
     targetDb,
     eq,
-    trims: loudnessTrims(postLevels),
-    volumeUp: volumeHints(postLevels),
+    trims: loudnessTrims(postLevels, { refDb }),
+    volumeUp: volumeHints(postLevels, { refDb }),
     warnings,
   };
 }

@@ -219,7 +219,7 @@ function Tune({ devices }: { devices: Device[] }) {
     <div className="space-y-4">
       <p className="text-ink-200">
         Check that every speaker&rsquo;s own volume is all the way up (each one shows a reminder). {placementHint(selfClass)} Keep the room
-        quiet. Each speaker plays a short sweep in turn, about {seconds} seconds in all, while every phone and laptop listens (each asks once
+        quiet. Each speaker plays one short chime in turn, about {seconds} seconds in all, while every phone and laptop listens (each asks once
         for its microphone) — keep their screens on. SyncSound measures how far apart they are, lines them up in time at your
         seat and matches their loudness.
       </p>
@@ -261,13 +261,11 @@ function Tune({ devices }: { devices: Device[] }) {
                           ? `: in sync, but about ${Math.round(d.volumeUpDb)} dB quieter. Turn it up and tune again.`
                           : ': in sync, level matched'
                         : ': not heard. Check its volume and that it is unmuted.'}
-                      {r.heard && d?.caps.deviceClass === 'bluetooth' && (
+                      {r.heard && d?.caps.deviceClass === 'bluetooth' && (sm.running || jitterOf(d.id) !== undefined) && (
                         <span data-testid={`bt-jitter-${d.id}`} className="block text-ink-400">
                           {sm.running
                             ? 'Measuring how steady its Bluetooth timing is…'
-                            : jitterOf(d.id) !== undefined
-                              ? `Bluetooth timing varies by about ±${jitterOf(d.id)!.toFixed(1)} ms${jitterOf(d.id)! >= 1 ? ', so it can drift slightly from the others' : ''}.`
-                              : null}
+                            : `Bluetooth timing varies by about ±${jitterOf(d.id)!.toFixed(1)} ms${jitterOf(d.id)! >= 1 ? ', so it can drift slightly from the others' : ''}.`}
                         </span>
                       )}
                     </span>

@@ -29,9 +29,10 @@ Record results in the table at the bottom.
    the L object across the room slowly and quickly. The sound should move between the physical devices with no
    zipper noise or clicks. Then try *5.1 ring* with *5.1 channel test*; each channel should come from the
    expected device, and LFE only from bass-capable devices.
-8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open YouTube in the app's YouTube
-   tab and start Capture (share this tab with audio). Every device should play the audio. Use the lip-sync nudge
-   to get perceived lip-sync within ±40 ms, and note the buffer value that gives dropout-free audio.
+8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open a YouTube video in its own tab,
+   then in the app's YouTube panel start capture and pick that tab (share tab audio on). Every device, the laptop
+   included, should play the audio. Use the lip-sync nudge to get perceived lip-sync within ±40 ms, and note the
+   buffer value that gives dropout-free audio.
 9. **DRM detection.** Capture a Netflix/Disney+ tab. The "This tab is silent / DRM" explanation should appear
    within ~3 s.
 10. **Spotify sync-only, two Premium accounts.** Configure `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`, connect Spotify on
@@ -67,8 +68,8 @@ Record results in the table at the bottom.
     as "in sync, level matched", or as needing its volume turned up. Close everything and reopen the home link: the
     room should open straight to Now Playing with the same layout.
 17. **Gap pass (real devices).**
-    - **YouTube:** paste a link and tap "Play on all speakers", pick this tab with tab audio on, and every speaker
-      should play it.
+    - **YouTube:** paste a link, tap "Open on YouTube", start the video there, come back and tap "Start capture",
+      pick the YouTube tab with tab audio on, and every speaker should play it.
     - **Bluetooth:** with a Bluetooth speaker in the room, finish tuning; it should show "Bluetooth timing varies by
       ±X ms".
     - **Re-sync banner:** switch a phone's output to Bluetooth mid-song; the "audio delay changed" banner should
@@ -88,7 +89,8 @@ Record results in the table at the bottom.
 18. **Calibration v3: one-tap tune (laptops).** Three or more laptops in one room on the same Wi-Fi, Chrome; one
     of them playing through a Bluetooth speaker.
     - On the laptop you'll sit at, press **Start tuning** (setup wizard; or Advanced → Calibrate → Start). Every laptop should ask once for its microphone and show
-      "Tuning: <name> is playing" while each one sweeps in turn (~1.5 s each).
+      "Tuning: <name> is playing" while each one chimes in turn (~1.5 s each). Each device makes **one** sound (a
+      rising swoosh landing on a bell) and nothing plays after the last one (no click run, even with Bluetooth).
     - The result should list every laptop with a distance; tape-measure them: **within 10–15 cm**. The Bluetooth
       speaker should say "placed by hand"; drag it to where it really is.
     - Sit with your head ~40 cm behind the tuning laptop and run **Measure sync (60 s)**: **p95 < 1 ms**.
@@ -101,7 +103,34 @@ Record results in the table at the bottom.
     - Close the LAN clock master's tab (the host) mid-song: the banner should appear on the others (clock path
       changed); a quick tune restores sync.
 
-19. **Speaker spots + 8D.** 4–5 phones/laptops around one chair, any stereo music file.
+19. **Tune: does it sound good, and are levels even?** Same room as 18.
+    - Ask 2–3 people whether the chime sounds pleasant at normal volume; listen for buzz or rattle on laptop
+      speakers during the swoosh. Note any device that sounds harsh.
+    - After the tune, solo each device in turn on the demo "Synth groove" loop and read a phone SPL app (C or Z
+      weighting, slow) at the seat: **every device within ±2 dB**, the tuning laptop included (if it is off, note by how much: that is
+      the near-field prior error, LIMITATIONS).
+    - Play a loud track: the boosted devices (positive trim in Advanced → Calibrate) shouldn't audibly pump or
+      distort.
+    - The Bluetooth "timing varies by ±X ms" line should appear only after **Measure sync**, not after the tune.
+
+20. **Auto-advance: gapless and crossfade.** Queue two demo tracks (better: upload two tracks of a gapless album) and
+    play the first to its end. With *Crossfade* at *Gapless* (Library → below the queue, host only) the second should
+    start on every device the instant the first ends: no gap, no double audio, no click; the title switches shortly
+    before the sound does. Set *Crossfade* to 4 s and repeat: the tracks should overlap for ~4 s at an even loudness
+    (no dip in the middle), starting at the same instant on every device. Paste a web link with no known length as
+    the first track: it should still advance once a device has decoded it. Pause during a crossfade: both tracks must
+    stop. Let the last track run out: the player should read *stopped*, not keep "playing" at the end.
+
+21. **Live share quality (capture rework).** Laptop host (Chrome) + two phones on the same Wi-Fi.
+    - **YouTube tab shared** to the phones: no echo or "wash", no periodic pitch wobble over 5 minutes, and the laptop
+      plays in time with the phones. Debug drawer on a phone: "align delay" switches stay ≤ 2 after the first minute.
+    - **Move the Stream buffer slider** while sharing: one brief dip on each device, no pitch bend, no click.
+    - **Entire screen + system audio** (a desktop player): no echo loop on the phones; the laptop plays the original
+      and the panel says so.
+    - **Bluetooth phone** receiving at 150 ms: the "plays N ms late" warning appears; set the buffer to the suggested
+      value and it disappears, and the phone falls into line with the others.
+
+22. **Speaker spots + 8D.** 4–5 phones/laptops around one chair, any stereo music file.
     - Pick **5.1** on the Stage. Every speaker plays: the centre and both surrounds must not be silent.
     - Change a speaker's spot from the Devices list (e.g. Front left → Surround right): it moves on the map, and the
       speaker that held that spot takes the old one. Nothing goes quiet.
@@ -111,7 +140,7 @@ Record results in the table at the bottom.
       device in step (no speaker lagging the sweep). Try Slow / Fast, then Off.
     - Pick **Everywhere**: every speaker plays the full mix; with 8D on, the mix circles the room through all of them.
 
-20. **Phone as the listener + iOS audio (Phase 2).** An iPhone (Safari) and an Android phone, plus 2–3 other speakers.
+23. **Phone as the listener + iOS audio (Phase 2).** An iPhone (Safari) and an Android phone, plus 2–3 other speakers.
     - Tune from the iPhone held at your head: the wizard says to hold it at ear height. The result should place the
       seat on the phone, and timing at your head should sound tight (Measure sync from the same spot: p95 < 1 ms).
     - Afterwards the iPhone is muted as a speaker with a note; unmuting it in Devices works.

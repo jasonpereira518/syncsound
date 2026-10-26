@@ -27,7 +27,7 @@ unreported latency, compensated by the acoustic calibration.
 
 ## Capabilities and Constraints
 - Layouts: stereo, 3.1, 5.1, 7.1 (`packages/audio-core/src/layout.ts`), drag-to-place sound objects, Advanced view.
-- Sources: local files (full spatial + EQ); YouTube via its official player with tab capture for audio.
+- Sources: local files (full spatial + EQ); YouTube in its own tab via the official player, with tab capture for audio.
 - Spotify and Apple Music are "Sync-only mode (no spatial/EQ)": driven through official SDKs, never captured.
 - DRM video (Netflix, Disney+) yields silence to tab capture; the product detects and explains it.
 - Never download or extract YouTube streams; never circumvent DRM.

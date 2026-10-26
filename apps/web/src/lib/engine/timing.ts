@@ -93,6 +93,39 @@ export function videoCorrection(diffSec: number): { seek: boolean; rate: number 
   return { seek: false, rate: 1 };
 }
 
+/** How a new voice joins while another one is still playing. */
+export type Transition = { kind: 'cut' } | { kind: 'gapless' } | { kind: 'crossfade'; start: number; end: number };
+
+/**
+ * Auto-advance (`crossfadeSec` defined): the previous track ends at scheduledStartCtx + crossfadeSec on the room
+ * timeline. The crossfade runs from the actual start (a late start shortens it) to that end; shorter than
+ * minFadeSec → gapless join (full level, no fade-in). User-driven changes (undefined) cut over with the short fade.
+ */
+export function transitionPlan(p: {
+  crossfadeSec: number | undefined;
+  whenCtx: number;
+  scheduledStartCtx: number;
+  minFadeSec?: number;
+}): Transition {
+  if (p.crossfadeSec === undefined) return { kind: 'cut' };
+  const end = p.scheduledStartCtx + p.crossfadeSec;
+  if (end - p.whenCtx < (p.minFadeSec ?? 0.02)) return { kind: 'gapless' };
+  return { kind: 'crossfade', start: p.whenCtx, end };
+}
+
+/** Equal-power fade curves (quarter-wave sin / cos): fadeIn² + fadeOut² = 1 at every point. */
+export function equalPowerCurves(points = 64): { fadeIn: Float32Array; fadeOut: Float32Array } {
+  const n = Math.max(2, Math.round(points));
+  const fadeIn = new Float32Array(n);
+  const fadeOut = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = (Math.PI / 2) * (i / (n - 1));
+    fadeIn[i] = Math.sin(a);
+    fadeOut[i] = Math.cos(a);
+  }
+  return { fadeIn, fadeOut };
+}
+
 /**
  * Snap a start to the sample grid. Chromium interpolates AudioBufferSourceNode playback linearly when
  * start(when, offset) is fractional-sample, which low-passes the signal (≈ −2.4 dB at 11 kHz for half a sample).

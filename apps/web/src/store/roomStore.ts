@@ -102,6 +102,8 @@ const FRIENDLY: Record<string, string> = {
   forbidden: 'Only the host can do that in this room.',
   host_only: 'Only the host can do that in this room.',
   rate_limited: 'Too many requests. Slow down a little.',
+  capture_busy: 'Another device is already sharing audio.',
+  capture_active: 'Stop sharing audio first.',
 };
 
 function handleMessage(msg: ServerMessage) {
@@ -163,16 +165,45 @@ function handleMessage(msg: ServerMessage) {
   }
 }
 
-/** host only: give multichannel / upmixed sources matching objects once per (track, channels, upmix) */
+/**
+ * A track queued before anyone knew its length (a web link, a file too big to decode before upload) gets its
+ * duration and channel count from the first device that decodes it, so the room can auto-advance at its end.
+ * Re-queueing a known track only fills in those fields on the server.
+ */
+function learnTrackInfo(trackId: string, info: { durationSec: number; channels: number }) {
+  const st = useRoomStore.getState();
+  const t = st.room?.queue.find((q) => q.id === trackId);
+  if (!t || (t.durationSec !== undefined && t.channels !== undefined)) return;
+  if (!st.isHost && st.room?.settings.hostOnlyControl) return; // CONTROL would be refused
+  if (!Number.isFinite(info.durationSec) || info.durationSec <= 0) return;
+  const track: Track = {
+    ...t,
+    durationSec: t.durationSec ?? info.durationSec,
+    channels: t.channels ?? Math.min(8, Math.max(1, Math.round(info.channels))),
+  };
+  session?.client.send({ type: 'CONTROL', command: { type: 'queue', track } });
+}
+
+/**
+ * Give multichannel / upmixed sources matching objects once per (source, channels, upmix): the host for the playing
+ * track, the sharing device for a live capture (always stereo: a leftover mono or 5.1 layout would mute it).
+ */
 function maybeAutoObjects(s: Session, room: RoomState) {
-  if (!useRoomStore.getState().isHost) return;
-  const track = room.queue.find((t) => t.id === room.playback.trackId);
-  if (!track || track.sourceClass !== 'rendered') return;
-  // tab / system capture arrives as a stereo stream
-  const channels = track.channels ?? (track.kind === 'capture' || track.kind === 'youtube' ? 2 : 0);
-  if (!channels) return;
+  const { isHost, deviceId } = useRoomStore.getState();
+  // standard layouts with a centre / surrounds upmix stereo by themselves, so no slot is ever silent
   const upmix = upmixActive(room.scene);
-  const key = `${track.id}|${channels}|${upmix}`;
+  let channels: number;
+  let key: string;
+  if (room.captureHostId === deviceId) {
+    channels = 2;
+    key = `capture|2|${upmix}`;
+  } else {
+    if (!isHost) return;
+    const track = room.queue.find((t) => t.id === room.playback.trackId);
+    if (!track?.channels || track.sourceClass !== 'rendered') return;
+    channels = track.channels;
+    key = `${track.id}|${track.channels}|${upmix}`;
+  }
   if (key === s.autoObjectsKey) return;
   s.autoObjectsKey = key;
   try {
@@ -394,6 +425,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       onRouteChange: () => {
         if (session) void onRouteChange(session);
       },
+      onDecoded: learnTrackInfo,
     });
     try {
       engine.unlock(); // synchronous: must stay inside the click's user activation
@@ -736,11 +768,8 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   async startCalibration(opts) {
     if (!session) return setError('Join the room first.');
+    // one chime per device and done: Bluetooth wobble ("±X ms") comes from the manual sync check
     await session.calibration.start(opts);
-    // Bluetooth links wobble: after a full pass, measure how much (10 s of clicks) so the UI can say "±X ms"
-    const st = useRoomStore.getState();
-    const bt = st.room?.devices.some((d) => d.connected && d.caps.deviceClass === 'bluetooth');
-    if (!opts?.quick && bt && st.calibration.step === 'done') await session.calibration.measureSync(10);
   },
 
   async startSyncMeasurement(durationSec = 60) {
@@ -843,4 +872,6 @@ installInstrumentation({
   },
   // the engine's live mix: with 8D on it moves ~30×/s while the store keeps the last full recompute
   mix: () => session?.engine.mix ?? useRoomStore.getState().mix,
+  tap: () => session?.engine.readTaps() ?? null,
+  liveDelay: () => session?.capture.liveDelayInfo() ?? null,
 });

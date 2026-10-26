@@ -27,7 +27,7 @@ const FAQ = [
   {
     tab: 'YouTube',
     q: 'Does YouTube work?',
-    a: 'Yes. The video plays in YouTube’s official player and its sound is shared from the browser tab. Nothing is downloaded or extracted.',
+    a: 'Yes. Open the video in its own tab and share that tab: the picture stays in YouTube’s official player and the sound plays on every speaker. Nothing is downloaded or extracted.',
   },
   {
     tab: 'Spotify',

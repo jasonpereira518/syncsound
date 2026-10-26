@@ -7,7 +7,7 @@ import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui
 import { act, placementHint, useCanControl } from './shared';
 import { SyncMeasurePanel } from './SyncMeasure';
 
-const STEPS = ['Sit where you listen with this device', 'Allow microphone', 'Tune: each speaker sweeps in turn', 'Done'];
+const STEPS = ['Sit where you listen with this device', 'Allow microphone', 'Tune: each speaker chimes in turn', 'Done'];
 
 function stepIndex(c: CalibrationUi): number {
   switch (c.step) {
@@ -51,7 +51,8 @@ export function CalibrationWizard() {
   return (
     <Panel title="Calibrate" icon="mic" className="lg:min-h-0 lg:flex-1">
       <p className="text-sm text-ink-300">
-        {placementHint(selfClass)} Every speaker plays a short sweep in turn while every phone and laptop listens (keep their screens on): SyncSound measures how far apart they are, each one&rsquo;s delay, level and frequency response, then lines them up at
+        {placementHint(selfClass)} Every speaker plays one short chime in turn while every phone and laptop listens (keep their screens on):
+        SyncSound measures how far apart they are, each one&rsquo;s delay, level and frequency response, then lines them up at
         your seat and EQs them.
       </p>
 

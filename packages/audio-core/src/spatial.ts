@@ -50,8 +50,12 @@ export interface DeviceMix {
   highpassHz: number | null;
   /** propagation time-alignment delay for this device, s */
   delaySec: number;
-  /** final linear output gain: master volume × device volume × trim × mute/solo */
+  /** final linear output gain: master volume × device volume × trim × mute/solo (= volumeGain · trimGain) */
   outputGain: number;
+  /** trim as a linear gain: applied BEFORE the output limiter, so a positive trim (a boost) is limited, not clipped */
+  trimGain: number;
+  /** master volume × device volume × mute/solo: applied after the limiter */
+  volumeGain: number;
 }
 
 export interface MixInput {
@@ -111,6 +115,8 @@ export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
       highpassHz: self?.eq.highpassHz ?? null,
       delaySec: 0,
       outputGain: 0,
+      trimGain: dbToGain(self?.trimDb ?? 0),
+      volumeGain: 0,
     };
   }
   const panners = pannerDevices(input);
@@ -148,8 +154,9 @@ export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
         parts.map((d) => d.id),
       )[deviceId] ?? 0)
     : 0;
-  const outputGain = input.masterVolume * dev.volume * dbToGain(dev.trimDb);
-  return { objectGains, bassObjectGains, bassGain, highpassHz, delaySec, outputGain };
+  const volumeGain = input.masterVolume * dev.volume;
+  const trimGain = dbToGain(dev.trimDb);
+  return { objectGains, bassObjectGains, bassGain, highpassHz, delaySec, outputGain: volumeGain * trimGain, trimGain, volumeGain };
 }
 
 /** delay_i = (d_max − d_i)/c for each positioned device (s), distances to scene.listener. */

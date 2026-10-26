@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { CalibrationRow, Vec2 } from '@syncsound/protocol';
-import { beepBeep, headOffsetFor, SELF_OFFSET_M, solveTune, type RowsByRecorder, type TuneReport } from './calibration';
+import type { CalibrationPlan, CalibrationRow, Vec2 } from '@syncsound/protocol';
+import { cascadeMagnitudeDb, designBiquad, processCascade } from './biquad';
+import {
+  analyzeRecording,
+  beepBeep,
+  buildTuneSlots,
+  calibrationRecordingMs,
+  headOffsetFor,
+  SELF_OFFSET_M,
+  solveTune,
+  type RowsByRecorder,
+  type TuneReport,
+} from './calibration';
+import { smoothFractionalOctave } from './measure';
+import { calibrationSignal } from './signals';
 import { propagationDelays, SPEED_OF_SOUND } from './spatial';
 
 const d = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -179,5 +192,48 @@ describe('solveTune', () => {
     expect(lvl('L')).toBeCloseTo(-20 * Math.log10(0.4), 6);
     const a = room[1]!;
     expect(lvl('A')).toBeCloseTo(a.p + room[0]!.g - 20 * Math.log10(d(a.pos, rep.listener)), 6);
+  });
+
+  it("levels to the other devices' median: a misread listener self level never moves anyone else's trim", () => {
+    const base = solve(room, exact(room));
+    for (const shift of [-10, 10]) {
+      const rows = rowsFor(room);
+      rows['L'] = rows['L']!.map((r) => (r.emitterId === 'L' ? { ...r, levelDb: r.levelDb! + shift } : r));
+      const rep = solve(room, exact(room), rows);
+      for (const id of ['A', 'B', 'C']) expect(rep.trims[id]).toBeCloseTo(base.trims[id]!, 9);
+      expect(rep.trims['L']).toBeCloseTo(Math.max(-24, Math.min(6, base.trims['L']! - shift)), 9);
+    }
+    // meet in the middle: someone is cut, someone boosted, nobody past +6 dB
+    const t = Object.values(base.trims);
+    expect(Math.max(...t)).toBeGreaterThan(0);
+    expect(Math.min(...t)).toBeLessThan(0);
+    expect(Math.max(...t)).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('analyzeRecording (tune signal)', () => {
+  const SR = 48000;
+  const cs = [designBiquad('highpass', 150, Math.SQRT1_2, 0, SR), designBiquad('peaking', 4000, 1.2, 6, SR)];
+  const other = [designBiquad('highpass', 400, Math.SQRT1_2, 0, SR), designBiquad('peaking', 2000, 1, -6, SR)];
+
+  it("measures a late device whose response segment reaches into the next slot's (identical) signal", () => {
+    const slots = buildTuneSlots(['A', 'B']);
+    const plan: CalibrationPlan = { id: 'p', listenerId: 'A', startRoomTime: 0, slots };
+    const rec = new Float32Array(Math.round((calibrationRecordingMs(slots) / 1000) * SR));
+    const put = (filters: typeof cs, atMs: number, gain: number) => {
+      const x = processCascade(filters, calibrationSignal('tune', 0, SR));
+      const at = Math.round((atMs / 1000) * SR);
+      x.forEach((v, i) => (rec[at + i] = rec[at + i]! + gain * v));
+    };
+    put(cs, slots[0]!.offsetMs + 300, 0.5); // A: 300 ms of unreported (Bluetooth-class) latency
+    put(other, slots[1]!.offsetMs, 0.5); // B: on time, so A's segment holds B's first ~240 ms
+    const a = analyzeRecording({ plan, recording: rec, sampleRate: SR, toRoomMs: (i) => (i / SR) * 1000 });
+    expect(a.rows[0]!.mMs!).toBeCloseTo(300, 1);
+    expect(Math.abs(a.rows[1]!.mMs!)).toBeLessThan(0.1);
+    const r = a.responses['A']!;
+    const want = smoothFractionalOctave({ freqs: r.freqs, db: r.freqs.map((f) => 20 * Math.log10(0.5) + cascadeMagnitudeDb(cs, f, SR)) }, 6);
+    r.freqs.forEach((f, i) => {
+      if (f >= 40) expect(Math.abs(r.db[i]! - want.db[i]!)).toBeLessThan(0.5);
+    });
   });
 });

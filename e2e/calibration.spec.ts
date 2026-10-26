@@ -63,7 +63,7 @@ test('calibration wizard completes against a loopback microphone', async ({ brow
   await ctx.close();
 });
 
-// Two devices, each with its own loopback "mic" (which hears only that device's own sweep): the guest records the
+// Two devices, each with its own loopback "mic" (which hears only that device's own chime): the guest records the
 // listener's all-recorders plan and sends its rows; the listener collects them and solves. With no cross cells there
 // is nothing to range, so positions stay as placed — the plumbing (plan → recorders → rows → solve) is what's tested.
 test('tune: every device records and sends its rows to the listener, which solves', async ({ browser }) => {
@@ -93,7 +93,7 @@ test('tune: every device records and sends its rows to the listener, which solve
   expect(cal.step).toBe('done');
   expect(cal.devices).toHaveLength(2);
   expect(cal.devices.find((d) => d.deviceId !== guestId)!.heard).toBe(true);
-  // the guest's own loopback heard its own sweep; its row reached the listener
+  // the guest's own loopback heard its own chime; its row reached the listener
   expect(logs.some((l) => l.includes(`rows from ${guestId} 1 heard`))).toBe(true);
   expect((await state(host.page)).room.scene.devices).toEqual(before);
   expect(pageErrors(host.page)).toEqual([]);

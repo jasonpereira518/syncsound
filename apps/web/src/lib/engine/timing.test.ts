@@ -5,10 +5,12 @@ import {
   captureDelayMs,
   compensationSec,
   driftErrorMs,
+  equalPowerCurves,
   expectedHeardEpochMs,
   expectedPositionAtCtx,
   outputLatencyMs,
   roomPosition,
+  transitionPlan,
   videoCorrection,
 } from './timing';
 
@@ -156,5 +158,35 @@ describe('snapToSampleGrid', () => {
       // timeline origin (when − offset) preserved
       expect(Math.abs(s.when - s.offset - (when - offset))).toBeLessThanOrEqual(0.5 / sr + 1e-9);
     }
+  });
+});
+
+describe('track transitions', () => {
+  const scheduled = 100;
+  it('user-driven changes cut over; an auto-advance with no overlap joins gapless', () => {
+    expect(transitionPlan({ crossfadeSec: undefined, whenCtx: 100, scheduledStartCtx: scheduled })).toEqual({ kind: 'cut' });
+    expect(transitionPlan({ crossfadeSec: 0, whenCtx: 100, scheduledStartCtx: scheduled })).toEqual({ kind: 'gapless' });
+    // a crossfade too short to matter (or already over because the start was late) is a gapless join too
+    expect(transitionPlan({ crossfadeSec: 0.01, whenCtx: 100, scheduledStartCtx: scheduled })).toEqual({ kind: 'gapless' });
+    expect(transitionPlan({ crossfadeSec: 2, whenCtx: 102.5, scheduledStartCtx: scheduled })).toEqual({ kind: 'gapless' });
+  });
+  it('a crossfade runs from the actual start to the previous track’s end on the room timeline', () => {
+    expect(transitionPlan({ crossfadeSec: 3, whenCtx: 100, scheduledStartCtx: scheduled })).toEqual({ kind: 'crossfade', start: 100, end: 103 });
+    // late start (buffer arrived 1 s in): shorter fade, same end
+    expect(transitionPlan({ crossfadeSec: 3, whenCtx: 101, scheduledStartCtx: scheduled })).toEqual({ kind: 'crossfade', start: 101, end: 103 });
+  });
+  it('equal-power curves keep the summed power constant and meet the endpoints', () => {
+    const { fadeIn, fadeOut } = equalPowerCurves(65);
+    expect(fadeIn).toHaveLength(65);
+    expect(fadeIn[0]).toBe(0);
+    expect(fadeOut[0]).toBe(1);
+    expect(fadeIn[64]).toBeCloseTo(1, 6);
+    expect(fadeOut[64]).toBeCloseTo(0, 6);
+    for (let i = 0; i < 65; i++) expect(fadeIn[i]! ** 2 + fadeOut[i]! ** 2).toBeCloseTo(1, 6);
+    for (let i = 1; i < 65; i++) {
+      expect(fadeIn[i]!).toBeGreaterThan(fadeIn[i - 1]!);
+      expect(fadeOut[i]!).toBeLessThan(fadeOut[i - 1]!);
+    }
+    expect(equalPowerCurves(1).fadeIn).toHaveLength(2); // never fewer than two points
   });
 });

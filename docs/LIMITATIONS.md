@@ -8,8 +8,13 @@ An honest list of what is not done, what can't be verified without hardware, and
   SDK / MusicKit JS, with no spatial rendering, no EQ and no sample-accurate scheduling. Expect tens of ms to
   ~150 ms. Every device needs its own Premium / Apple Music subscription.
 - **DRM video** (Netflix, Disney+, …) captures as silence. The app detects this after 3 s and explains it.
-- **YouTube** streams are never downloaded. The host shows the official IFrame player, and audio reaches the
-  other devices only through tab capture (Mode 1).
+- **YouTube** streams are never downloaded. The video plays in its own tab with YouTube's official player and its
+  sound reaches every device through tab capture (Mode 1): two steps (open the tab, then share it), because the
+  browser needs one user gesture per step. The app's own tab can't be shared (it would capture its own output).
+- **Sharing a window or the whole screen** (system audio) keeps the original playing on the sharing device, which
+  the browser can't mute; the other speakers follow it by the stream buffer. Share the tab itself for tight sync.
+- **A device whose output latency exceeds the stream buffer** (Bluetooth: 100–300 ms unreported) plays a live
+  stream late by the difference; it shows the shortfall and the buffer value that would fit.
 - **Secure context:** microphone (calibration), `getDisplayMedia` (capture) and Wake Lock need HTTPS. Phones on
   `http://<LAN-IP>` can play, but can't calibrate or capture. See DEPLOY.md.
 - **iOS Safari** suspends audio in the background and some versions lack `outputLatency`. The app re-syncs and
@@ -18,7 +23,7 @@ An honest list of what is not done, what can't be verified without hardware, and
   back on" (iOS needs a tap). A tune stops with an explanation if a listening or recording device's screen locks.
 - **iOS audio session while tuning:** the mic needs Safari's `play-and-record` session, which can route sound to the
   earpiece or make it quieter. Every mic close sets the session back to `playback`; behaviour varies by iOS
-  version and is only checked on hardware (HUMAN_TEST_CHECKLIST item 20).
+  version and is only checked on hardware (HUMAN_TEST_CHECKLIST item 23).
 - **Bluetooth output latency** is not reported by browsers. It needs acoustic calibration or the manual slider
   (±1000 ms). The schedule lead grows with the largest device compensation, so a Bluetooth room has a slightly
   slower response to play/seek (e.g. ~550 ms instead of ~250 ms).
@@ -80,15 +85,24 @@ An honest list of what is not done, what can't be verified without hardware, and
   back to the server clock, which keeps the old ~1–2 ms device-to-device spread over a WAN.
 - **Capture transport** is a WebRTC mesh: host uplink = N × ~256 kbps Opus. Fine for ~8 devices. LiveKit (an SFU)
   is recommended beyond that but not integrated. The capture pipeline-delay estimate uses `getStats`
-  (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), which is unverified on real networks.
+  (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), median-filtered over 2.5 s and applied only
+  in ≥ 10 ms steps; its absolute accuracy (host encode latency, the receiver's WebRTC → Web Audio bridge) is
+  unverified on real networks, so host-vs-receiver alignment of a live stream needs ears (HUMAN_TEST item 21).
+  Headless e2e hears a steady tone and a stable delay, but can't hear WebRTC's own concealment on a lossy Wi-Fi.
+  A receiver whose browser reports no `jitterBufferDelay` stats stays silent until it does.
 - **Positions:** a full tune measures laptop-to-laptop distances (two-way ranging) and lays the room out from them,
   fitted onto the user's rough layout. Devices that don't record (no mic or permission) or play through Bluetooth
   keep their hand placement (flagged in the result). Multilateration of those, and a height axis, are not
   implemented.
 - **Upmix** is a simple mid/side derivation (C = mid −3 dB, surrounds = filtered and delayed side), not a
   steering decoder.
-- **Track end:** the client doesn't auto-advance; the host presses next. The server doesn't track durations to
-  auto-advance.
+- **Track end:** rendered tracks with a known duration auto-advance (gapless, or the room's crossfade). The next
+  track's title and seek bar switch over when its SCHEDULE arrives, i.e. up to the room's lead (~0.3 s, up to ~2 s
+  with Bluetooth) before it is heard. Sync-only tracks (Spotify / Apple Music) have no server-side end: the SDK plays
+  on and the host presses next. A track whose length nobody has decoded yet (a web link, until the first device
+  decodes it) doesn't advance. During a crossfade the outgoing track is no longer drift-corrected (its rate stays at
+  the last nudge, ≤ 0.2 %). Decoders that pad a gapless album's tracks differently (MP3 in particular) leave a few
+  ms of overlap or gap at a gapless join; an overlap is cut over 15 ms, a gap can't be filled.
 - **Single server process:** room state lives in memory, so run one instance. `room.ts` is transport-free to make
   a Durable Object port straightforward, but the port isn't done.
 - **Device id lives in localStorage:** two tabs of the same browser profile share it and replace each other in the
@@ -100,17 +114,25 @@ An honest list of what is not done, what can't be verified without hardware, and
   see curves again.
 - **Calibration auto-pauses only when the calibrating device may control playback** (host, or open control). A
   guest under host-only control is still told to ask the host to pause.
-- **Loudness matching cuts to the quietest speaker.** It never boosts (the limiter would clip), so one quiet
-  device lowers everyone. Calibration flags it (`volumeUpDb`) and asks for that device's own volume to go up
-  before re-tuning. A browser can't do that itself; the native shells (R7) will.
+- **Loudness matching boosts a soft speaker by at most +6 dB.** Everyone meets at the median; a boosted device's
+  loud peaks are compressed by its output limiter (up to ~6 dB on a full-scale master) rather than clipped. A device
+  more than 6 dB short is flagged (`volumeUpDb`) and asked to turn its own volume up before re-tuning; a browser
+  can't do that itself, the native shells (R7) will.
+- **The tuning laptop's own loudness is a prior.** Its speaker→mic path is assumed to be 0.1 m (`SELF_OFFSET_M`);
+  a down-firing speaker with a bezel mic can read several dB off. Since #58 that only affects the tuning laptop's
+  own trim (the others level to their own median). Estimating the path from pair levels was not adopted: a far mic
+  hears a stereo laptop's two speakers separately (≈ ±3 dB bias), which would add error where the prior is right.
+  Phase 2 (a phone held at the head as the listener) removes the near-field step.
+- **Tabs on older code can't take part in a chime tune.** They reject the `'tune'` plan and are reported "not
+  heard"; reload them.
 - **Room creation and uploads** are rate-limited per remote address in-process. Behind a proxy, use a trusted
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked
   around with tsconfig `paths` for zustand) and makes Vite print a warning. Neither affects clones at normal paths.
 - **Group play** only shares tracks every device decodes itself (demo, music/video files, links). Tab capture,
   YouTube and Spotify/Apple stream from one room, so they can't be played in several rooms at once.
-- **YouTube's one-step play** still depends on the person picking *this* tab with "share tab audio" on in the
-  browser's share dialog; a wrong pick leaves the sound on this device only (the UI offers to share again).
+- **Sharing a tab** depends on the person picking the right tab with "share tab audio" on in the browser's share
+  dialog; a share without audio is refused with an explanation, and a wrong tab simply streams that tab.
 - **Bluetooth wobble** is measured relative to the room's average, so with few speakers it reads somewhat lower than
   the true jitter (about 75 % of it with 4 speakers, per `syncMeasure.test.ts`).
 - **Home links are capabilities:** anyone with a home link can see and join its rooms; only the browser that created

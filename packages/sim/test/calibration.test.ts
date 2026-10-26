@@ -9,6 +9,7 @@ import {
   cascadeMagnitudeDb,
   eqToBiquads,
   estimateRolloffHz,
+  loudnessDb,
   smoothFractionalOctave,
   solveTune,
   type Response,
@@ -193,10 +194,29 @@ describe('acoustic calibration (end to end, synthetic room)', () => {
       expect(r.maxOverallGainDb).toBeLessThanOrEqual(0.05);
       expect(r.preampDb).toBeGreaterThanOrEqual(-12);
     }
-    // trims: quietest device gets 0, everyone else is cut (never boosted)
+    // trims meet in the middle: loud devices cut, soft ones boosted, never past +6 dB
     const trims = Object.values(report.trims);
-    expect(Math.max(...trims)).toBeCloseTo(0, 6);
+    expect(Math.max(...trims)).toBeGreaterThan(0);
     expect(Math.min(...trims)).toBeLessThan(0);
+    expect(Math.max(...trims)).toBeLessThanOrEqual(6);
+  });
+
+  it('after EQ + trim every device is equally loud at the listener (true K-weighted loudness, ±1 dB)', () => {
+    // truth: 1/r spreading of each speaker's gain, its true response, its fitted EQ and its trim
+    const rows = speakers.map((s) => {
+      const fit = report.eq[s.id]!;
+      const cs = eqToBiquads(fit.eq, SIM_SR);
+      const db = trueResponse(s).db.map((d, i) => d + cascadeMagnitudeDb(cs, CALIBRATION_FREQS[i]!, SIM_SR) + fit.eq.preampDb);
+      const dist = Math.hypot(s.position.x - LISTENER.x, s.position.y - LISTENER.y);
+      const trim = report.trims[s.id]!;
+      const level = 20 * Math.log10(s.gain / dist) + loudnessDb({ freqs: CALIBRATION_FREQS, db }) + trim;
+      return { id: s.id, trimDb: r2(trim), levelDb: r2(level), capped: trim >= 6 || trim <= -24 };
+    });
+    const free = rows.filter((r) => !r.capped);
+    const spread = Math.max(...free.map((r) => r.levelDb)) - Math.min(...free.map((r) => r.levelDb));
+    results.loudness = { rows, spreadDb: r2(spread) };
+    expect(free.length).toBeGreaterThanOrEqual(3);
+    expect(spread).toBeLessThanOrEqual(2);
   });
 
   it('flags a noisy room', () => {

@@ -31,6 +31,9 @@ export interface SimSpeaker {
   stereoHalfWidthM?: number;
   /** direct-path gain factor (< 1: side/down-firing speaker whose first reflection is louder than the direct sound) */
   directGain?: number;
+  /** level of its own built-in speaker at its own mic vs a point source SIM_SELF_DISTANCE_M away, dB (e.g. −8: a
+   * down-firing speaker and a bezel mic, so the near-field prior over-corrects) */
+  selfGainDb?: number;
 }
 
 /** Speaker → own mic distance of a built-in speaker (laptop/phone), m. */
@@ -141,7 +144,7 @@ export function renderListenerRecording(spec: RecordingSpec): Float32Array {
     const w = sp.stereoHalfWidthM ?? 0;
     const sources = w ? [{ x: c.x - w, y: c.y }, { x: c.x + w, y: c.y }] : [c];
     const legs = self
-      ? [{ len: SIM_SELF_DISTANCE_M, g: 1 }]
+      ? [{ len: SIM_SELF_DISTANCE_M, g: Math.pow(10, (sp.selfGainDb ?? 0) / 20) }]
       : sources.flatMap((s) => paths(s, spec.listener, sp.directGain ?? 1, spec.reflections).map((p) => ({ ...p, g: p.g / sources.length })));
     for (const slot of plan.slots.filter((s) => s.deviceId === sp.id)) {
       const sig = processCascade(sp.filters, calibrationSignal(slot.signal, slot.deviceIndex, sr));
