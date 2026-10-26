@@ -128,3 +128,13 @@ Record results in the table at the bottom.
     Tune on both at once: the second gets "Another device is tuning the room right now". Cancel a tune halfway: the
     other devices' chimes stop at once. Switch a phone's output to Bluetooth *during* a tune: it should be reported
     as not timed ("wasn't timed: the audio output changed during the run"), and the run should otherwise complete.
+24. **The tune survives the picture, not a move (S3).** After a full tune with Measure sync p95 < 1 ms:
+    - Drag a laptop 1 m on the stage *without moving it*, then change the layout (stereo → quad and back): Measure
+      sync should stay < 1 ms p95 and the Advanced badge should keep reading "tuned X ms" (the value changes with the
+      drag, the sync does not).
+    - Carry that laptop 1 m and drag it to match: expect ~3 ms of error in Measure sync; a quick tune restores < 1 ms.
+    - Let a phone join after the tune: the host's Now Playing reads "N speakers, 1 needs tuning", the phone's screen
+      "Not tuned yet", and in a stereo/quad room the phone gets a free slot without anyone else moving on the stage.
+    - Toggle a Bluetooth speaker off and on: the host sees "needs tuning again (output changed)" on that device
+      within a few seconds; a quick tune from the guest's screen shows its progress and result on that screen.
+    - Reload the host: the room still reads "Tuned" for the host laptop (profile + room tune reference).

@@ -7,6 +7,7 @@ import { Button, CLASS_ICON, Icon } from '../ui';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
 import { useJoinLink } from './RoomHeader';
 import { act } from './shared';
+import { TuneStatus } from './TuneStatus';
 
 const STANDARD = LayoutId.options.filter((l) => isRoutedLayout(l));
 const STEP_TITLES = ['Add your speakers', 'Choose your sound', 'Tune the room'] as const;
@@ -197,10 +198,7 @@ function Tune({ devices }: { devices: Device[] }) {
   const sm = useRoomStore((s) => s.syncMeasure);
   const selfHasMic = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.deviceId)?.caps.hasMic ?? true);
   const busy = (cal.running && cal.step !== 'done' && cal.step !== 'error') || sm.running;
-  const jitterOf = (id: string) => (sm.step === 'done' ? sm.devices.find((m) => m.deviceId === id)?.stdMs : undefined);
-  const selfId = useRoomStore((s) => s.deviceId);
   const seconds = Math.round((devices.length * TUNE_PERIOD_MS) / 1000) + 7;
-  const byId = new Map(devices.map((d) => [d.id, d]));
 
   if (!selfHasMic) {
     return (
@@ -231,50 +229,7 @@ function Tune({ devices }: { devices: Device[] }) {
           <Icon name="mic" className="size-4" /> {cal.step === 'done' ? 'Tune again' : 'Start tuning'}
         </Button>
       )}
-      {cal.step !== 'idle' && (
-        <div role="status" data-testid="wizard-tune-status" data-step={cal.step} className="rounded-2xl border border-ink-700 p-4">
-          <p className={cal.step === 'error' ? 'text-bad' : 'text-ink-100'}>{cal.message}</p>
-          {busy && (
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink-800">
-              <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.round(cal.progress * 100)}%` }} />
-            </div>
-          )}
-          {cal.step === 'done' && (
-            <ul className="mt-3 space-y-1.5 text-sm">
-              {cal.devices.map((r) => {
-                const d = byId.get(r.deviceId);
-                return (
-                  <li key={r.deviceId} className="flex items-start gap-2">
-                    <Icon name={r.heard ? 'check' : 'warning'} className={`mt-0.5 size-4 shrink-0 ${r.heard ? 'text-ok' : 'text-warn'}`} />
-                    <span>
-                      <strong className="font-medium">{d?.name ?? 'Speaker'}</strong>
-                      {d && d.role !== 'Full' && <span className="text-ink-400"> ({SLOT_NAME[d.role].toLowerCase()})</span>}
-                      {r.heard && r.distanceM != null && r.deviceId !== selfId && (
-                        <span className="text-ink-400">
-                          {' '}
-                          {r.distanceM.toFixed(1)} m away{r.ranged ? '' : ' (placed by hand)'}
-                        </span>
-                      )}
-                      {r.heard
-                        ? d?.volumeUpDb
-                          ? `: in sync, but about ${Math.round(d.volumeUpDb)} dB quieter. Turn it up and tune again.`
-                          : ': in sync, level matched'
-                        : ': not heard. Check its volume and that it is unmuted.'}
-                      {r.heard && d?.caps.deviceClass === 'bluetooth' && (sm.running || jitterOf(d.id) !== undefined) && (
-                        <span data-testid={`bt-jitter-${d.id}`} className="block text-ink-400">
-                          {sm.running
-                            ? 'Measuring how steady its Bluetooth timing is…'
-                            : `Bluetooth timing varies by about ±${jitterOf(d.id)!.toFixed(1)} ms${jitterOf(d.id)! >= 1 ? ', so it can drift slightly from the others' : ''}.`}
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+      <TuneStatus persistent testid="wizard-tune-status" />
     </div>
   );
 }

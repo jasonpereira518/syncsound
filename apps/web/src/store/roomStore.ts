@@ -9,9 +9,9 @@ import {
   calibrationRecordingMs,
   defaultObjectsFor,
   isRoutedLayout,
+  placeForLayout,
   presetLayout,
   resyncNeedsReschedule,
-  slotPositions,
   SYNC_SEARCH_LATE_MS,
   type RoomClock,
 } from '@syncsound/audio-core';
@@ -31,7 +31,7 @@ import {
 } from '@syncsound/protocol';
 import { serverUrl } from '../lib/config';
 import { batteryLevel, buildCaps, getDeviceId, randomId, rememberName, storage } from '../lib/device';
-import { recallOutputCalibration, rememberOutputCalibration, routeChangeAction } from '../lib/outputMemory';
+import { recallOutputTune, rememberOutputTune, routeChangeAction, type OutputTune } from '../lib/outputMemory';
 import { AudioEngine } from '../lib/engine/audioEngine';
 import { CalibrationController, presetPatch } from '../lib/engine/calibration';
 import { CaptureController } from '../lib/engine/capture';
@@ -224,10 +224,20 @@ function maybeAutoObjects(s: Session, room: RoomState) {
 // ---------- per-output calibration memory (Bluetooth / headphones / built-in each keep their own latency) ----------
 
 const selfDevice = (room: RoomState | null, id: string) => room?.devices.find((d) => d.id === id) ?? null;
+const myDevice = () => {
+  const st = useRoomStore.getState();
+  return selfDevice(st.room, st.deviceId);
+};
 
-function restoreOutputCalibration(label: string, calibratedLatencyMs: number) {
-  roomActions.updateDevice({ calibratedLatencyMs });
-  useRoomStore.setState({ routeChanged: false, routeRestored: { label, calibratedLatencyMs } });
+function restoreOutputTune(label: string, tune: OutputTune) {
+  roomActions.updateDevice({ tuneArrivalMs: tune.tuneArrivalMs, tuneId: tune.tuneId, tuneStale: null });
+  useRoomStore.setState({ routeChanged: false, routeRestored: { label, tuneArrivalMs: tune.tuneArrivalMs } });
+}
+
+/** this device's tune timing may be off (its output route, clock path or audio output changed): tell the room */
+function markStale(kind: 'route' | 'clock' | 'output') {
+  const d = myDevice();
+  if (d && d.tuneId !== null && d.tuneStale !== kind) roomActions.updateDevice({ tuneStale: kind });
 }
 
 /** re-read caps + output label; returns the new label (undefined when hidden) */
@@ -247,20 +257,24 @@ async function onRouteChange(s: Session) {
     next = undefined;
   }
   if (session !== s) return;
-  const action = routeChangeAction(s.outputLabel, next, recallOutputCalibration(storage(), next));
+  const action = routeChangeAction(s.outputLabel, next, recallOutputTune(storage(), next));
   if (next) s.outputLabel = next;
   switch (action.kind) {
     case 'none':
       return;
     case 'unknown':
+      markStale('route');
       useRoomStore.setState({ routeChanged: true, routeRestored: null });
       return;
     case 'restore':
-      restoreOutputCalibration(next!, action.calibratedLatencyMs);
+      restoreOutputTune(next!, action.tune);
       return;
-    case 'clear':
-      roomActions.updateDevice({ calibratedLatencyMs: null });
+    case 'clear': {
+      // a new output: the old tune's timing, level trim and EQ belong to the previous one
+      const d = myDevice();
+      roomActions.updateDevice({ tuneArrivalMs: null, tuneId: null, tuneStale: null, trimDb: 0, ...(d ? presetPatch(d) : {}) });
       useRoomStore.setState({ routeChanged: true, routeRestored: null });
+    }
   }
 }
 
@@ -271,12 +285,12 @@ function watchOutputCalibration(s: Session): () => void {
     const me = selfDevice(st.room, st.deviceId);
     const before = selfDevice(prev.room, st.deviceId);
     if (me && !before && s.outputLabel) {
-      // first room state: the server profile may hold another output's calibration
-      const r = recallOutputCalibration(storage(), s.outputLabel);
+      // first room state: the server profile may hold another output's tune
+      const r = recallOutputTune(storage(), s.outputLabel);
       const label = s.outputLabel;
-      if (r !== undefined && r !== me.calibratedLatencyMs) queueMicrotask(() => restoreOutputCalibration(label, r));
-    } else if (me && before && me.calibratedLatencyMs !== before.calibratedLatencyMs) {
-      rememberOutputCalibration(storage(), s.outputLabel, me.calibratedLatencyMs);
+      if (r && (r.tuneId !== me.tuneId || r.tuneArrivalMs !== me.tuneArrivalMs)) queueMicrotask(() => restoreOutputTune(label, r));
+    } else if (me && before && (me.tuneArrivalMs !== before.tuneArrivalMs || me.tuneId !== before.tuneId) && me.tuneId !== null && me.tuneArrivalMs !== null) {
+      rememberOutputTune(storage(), s.outputLabel, { tuneId: me.tuneId, tuneArrivalMs: me.tuneArrivalMs });
     }
     if (prev.calibration.running && !st.calibration.running && st.calibration.step === 'done') {
       // the mic grant makes the output label readable; once the route settles back from the hands-free
@@ -288,7 +302,7 @@ function watchOutputCalibration(s: Session): () => void {
             if (session !== s || !label) return;
             s.outputLabel = label;
             const now = selfDevice(useRoomStore.getState().room, st.deviceId);
-            if (measured && now) rememberOutputCalibration(storage(), label, now.calibratedLatencyMs);
+            if (measured && now && now.tuneId !== null && now.tuneArrivalMs !== null) rememberOutputTune(storage(), label, { tuneId: now.tuneId, tuneArrivalMs: now.tuneArrivalMs });
           })
           .catch(() => {});
       }, 1500);
@@ -306,6 +320,7 @@ function watchClockPath(s: Session) {
   if (st.calibration.nowPlaying !== null) s.tunedClockPath = path;
   else if (s.tunedClockPath !== null && path !== s.tunedClockPath) {
     s.tunedClockPath = path;
+    markStale('clock');
     useRoomStore.setState({ routeChanged: true, routeRestored: null });
   }
 }
@@ -400,6 +415,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       onRouteChange: () => {
         if (session) void onRouteChange(session);
       },
+      onStale: (kind) => markStale(kind),
     });
     try {
       engine.unlock(); // synchronous: must stay inside the click's user activation
@@ -587,8 +603,9 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const live = room.devices.filter((d) => d.connected);
     const roles = autoAssign(layout, live);
     for (const d of live) if (roles[d.id] && roles[d.id] !== d.role) roomActions.updateDevice({ role: roles[d.id] }, d.id);
+    // devices the tune ranged keep their measured spots; only hand-placed ones move to the slot's canonical spot
     const devices = isRoutedLayout(layout)
-      ? slotPositions(layout, roles, room.scene)
+      ? placeForLayout(layout, roles, room.scene, room.scene.tune?.ranged ?? [])
       : layout === 'party'
         ? presetLayout('party', [...live].sort((a, b) => a.joinedAt - b.joinedAt).map((d) => d.id), room.scene).devices
         : {};
@@ -601,9 +618,9 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     roomActions.updateDevice({ role }, deviceId);
     const layout = room.scene.layout;
     if (!isRoutedLayout(layout)) return;
-    // re-place everyone so devices sharing a slot fan out around it
+    // re-place the hand-placed devices so those sharing a slot fan out around it; ranged ones stay where they were measured
     const roles = Object.fromEntries(room.devices.filter((d) => d.connected).map((d) => [d.id, d.id === deviceId ? role : d.role]));
-    roomActions.updateScene({ devices: slotPositions(layout, roles, room.scene) }, { commit: true });
+    roomActions.updateScene({ devices: placeForLayout(layout, roles, room.scene, room.scene.tune?.ranged ?? []) }, { commit: true });
   },
 
   updateSettings(p) {

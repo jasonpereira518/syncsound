@@ -86,6 +86,8 @@ export interface CalibrationUi {
   emitting: boolean;
   /** device whose tune chime is playing right now (every device shows it), or null */
   nowPlaying: string | null;
+  /** the last run started on this device was timing-only */
+  quick: boolean;
 }
 
 export interface SyncMeasureDeviceUi {
@@ -153,8 +155,8 @@ export interface RoomStoreState {
   identifyFlash: string | null;
   /** output route changed (devicechange) since last calibration → prompt to recalibrate */
   routeChanged: boolean;
-  /** a previously calibrated output came back and its remembered calibration was re-applied */
-  routeRestored: { label: string; calibratedLatencyMs: number } | null;
+  /** a previously tuned output came back and its remembered tune was re-applied */
+  routeRestored: { label: string; tuneArrivalMs: number } | null;
   demoAssets: DemoAsset[];
   canUndo: boolean;
   canRedo: boolean;

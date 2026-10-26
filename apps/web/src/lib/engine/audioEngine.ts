@@ -51,6 +51,8 @@ export interface EngineDeps {
   clockReady: () => boolean;
   /** media devices changed outside a calibration run; default: prompt to recalibrate */
   onRouteChange?: () => void;
+  /** the audio output's latency stepped outside a run: this device's tune timing may be off */
+  onStale?: (kind: 'output') => void;
 }
 
 const playbackKey = (pb: Playback) => `${pb.trackId}|${pb.startRoomTime}|${pb.trackOffset}`;
@@ -227,7 +229,10 @@ export class AudioEngine {
       // Opening/closing a measurement's recorder causes such a step too, so steps during one (+5 s) don't count.
       const st = useRoomStore.getState();
       if (st.calibration.running || st.calibration.emitting || st.syncMeasure.running) this.measuringUntil = performance.now() + 5000;
-      else if (this.audioClock.steps > steps && performance.now() > this.measuringUntil) useRoomStore.setState({ routeChanged: true });
+      else if (this.audioClock.steps > steps && performance.now() > this.measuringUntil) {
+        useRoomStore.setState({ routeChanged: true });
+        this.deps.onStale?.('output');
+      }
       const ready = this.timingReady();
       if (ready && !this.clockWasReady) this.reconcile(this.gate.pending);
       this.clockWasReady = ready;

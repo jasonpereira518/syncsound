@@ -57,8 +57,11 @@ export const gauss = (rnd: () => number) => Math.sqrt(-2 * Math.log(1 - rnd())) 
 export const nearest = (x: Laptop, p: Vec2) =>
   x.speaker ? d(x.speaker, p) : Math.min(d({ x: x.pos.x - STEREO, y: x.pos.y }, p), d({ x: x.pos.x + STEREO, y: x.pos.y }, p));
 /** the user's rough layout: truth ± ~30 cm */
-export const rough = (rnd: () => number) =>
-  Object.fromEntries(ROOM.map((x) => [x.id, { x: (x.speaker ?? x.pos).x + 0.3 * gauss(rnd), y: (x.speaker ?? x.pos).y + 0.3 * gauss(rnd) }]));
+export const rough = (rnd: () => number, room: Laptop[] = ROOM) =>
+  Object.fromEntries(room.map((x) => [x.id, { x: (x.speaker ?? x.pos).x + 0.3 * gauss(rnd), y: (x.speaker ?? x.pos).y + 0.3 * gauss(rnd) }]));
+/** the same laptop (or its Bluetooth speaker) carried `by` metres */
+export const carried = (x: Laptop, by: Vec2): Laptop =>
+  x.speaker ? { ...x, speaker: { x: x.speaker.x + by.x, y: x.speaker.y + by.y } } : { ...x, pos: { x: x.pos.x + by.x, y: x.pos.y + by.y } };
 
 export interface TuneOptions {
   seed: number;
@@ -75,6 +78,8 @@ export interface TuneOptions {
   recorderPpm?: Record<string, number>;
   /** each recorder's sample-index → room-ms map; default: the recorder's own rate known to ±20 ppm */
   recorderMap?: Record<string, (idx: number) => number>;
+  /** the devices and where they really are; default ROOM */
+  room?: Laptop[];
 }
 
 export interface TuneRun {
@@ -91,16 +96,17 @@ export interface TuneRun {
 }
 
 export function tune(o: TuneOptions): TuneRun {
+  const room = o.room ?? ROOM;
   const rnd = mulberry32(o.seed);
-  const clock1 = Object.fromEntries(ROOM.map((x) => [x.id, CLOCK_SIGMA_MS * gauss(rnd)]));
-  const ppmDrawn = Object.fromEntries(ROOM.map((x) => [x.id, 50 * (2 * rnd() - 1)]));
-  const ppmErr = Object.fromEntries(ROOM.map((x) => [x.id, 20 * (2 * rnd() - 1)]));
+  const clock1 = Object.fromEntries(room.map((x) => [x.id, CLOCK_SIGMA_MS * gauss(rnd)]));
+  const ppmDrawn = Object.fromEntries(room.map((x) => [x.id, 50 * (2 * rnd() - 1)]));
+  const ppmErr = Object.fromEntries(room.map((x) => [x.id, 20 * (2 * rnd() - 1)]));
   const ppm = { ...ppmDrawn, ...o.recorderPpm };
-  const slots = buildTuneSlots(ROOM.map((x) => x.id));
+  const slots = buildTuneSlots(room.map((x) => x.id));
   const plan: CalibrationPlan = { id: `t${o.seed}`, listenerId: 'L', startRoomTime: o.startRoomTime ?? 2_000_000, slots, recorders: 'all' };
   // a device whose clock reads c ms ahead emits c ms early (ε = out − c) and stamps what it hears c ms late (λ = in + c)
   const emitErr = (id: string) => o.emitErrorMs?.[id] ?? -clock1[id]!;
-  const speakers: SimSpeaker[] = ROOM.map((x) => ({
+  const speakers: SimSpeaker[] = room.map((x) => ({
     id: x.id,
     filters: x.filters,
     gain: 0.8,
@@ -113,7 +119,7 @@ export function tune(o: TuneOptions): TuneRun {
   const rows: RowsByRecorder = {};
   const rate: Record<string, number> = {};
   let listener: ReturnType<typeof analyzeRecording> | null = null;
-  for (const r of ROOM) {
+  for (const r of room) {
     const recording = renderListenerRecording({
       plan,
       speakers,
@@ -134,7 +140,7 @@ export function tune(o: TuneOptions): TuneRun {
     rows[r.id] = a.rows;
     if (r.id === 'L') listener = a;
   }
-  const scene = { devices: rough(rnd), listener: { x: 0, y: 2 } };
+  const scene = { devices: rough(rnd, room), listener: { x: 0, y: 2 } };
   const report = solveTune({
     rows,
     listenerId: 'L',
@@ -142,9 +148,9 @@ export function tune(o: TuneOptions): TuneRun {
     broadbandSnrDb: listener!.broadbandSnrDb,
     sampleRate: SR,
     scene,
-    deviceIds: ROOM.map((x) => x.id),
+    deviceIds: room.map((x) => x.id),
     placeHead: true,
-    detached: ROOM.filter((x) => x.speaker).map((x) => x.id),
+    detached: room.filter((x) => x.speaker).map((x) => x.id),
   });
   // control: align at the mic itself (no head model)
   if (o.placeHead === false) report.listener = report.positions['L']!;
@@ -170,13 +176,29 @@ export function tune(o: TuneOptions): TuneRun {
  * clock error then (+ve: its clock reads ahead, so it plays early); default: fresh N(0, CLOCK_SIGMA_MS) draws.
  */
 export function arrivalsAtHead(report: TuneReport, rnd: () => number, playErrorMs?: Record<string, number>): number[] {
-  const ids = ROOM.map((x) => x.id);
-  const delays = propagationDelays({ devices: report.positions, listener: report.listener } as never, ids);
-  return ROOM.map((x) => {
-    const clock2 = playErrorMs?.[x.id] ?? CLOCK_SIGMA_MS * gauss(rnd);
-    const cal = report.devices.find((r) => r.deviceId === x.id)!.relativeLatencyMs!;
-    return x.outMs - clock2 - cal + delays[x.id]! * 1000 + (nearest(x, HEAD) / SPEED_OF_SOUND) * 1000;
+  return arrivalsAtHeadWith({
+    scene: { devices: report.positions, listener: report.listener },
+    cal: Object.fromEntries(report.devices.map((r) => [r.deviceId, r.relativeLatencyMs])),
+    playErrorMs: Object.fromEntries(ROOM.map((x) => [x.id, playErrorMs?.[x.id] ?? CLOCK_SIGMA_MS * gauss(rnd)])),
   });
+}
+
+/**
+ * The same, with everything the app can get wrong spelled out: the scene as the host has edited it (the engine's
+ * `propagationDelays` run on it), each device's compensation as the server derived it (null = untuned → 0), the
+ * devices where they REALLY are (default ROOM) and each device's clock error at play time.
+ */
+export function arrivalsAtHeadWith(o: {
+  scene: { devices: Record<string, Vec2>; listener: Vec2 };
+  cal: Record<string, number | null>;
+  playErrorMs: Record<string, number>;
+  room?: Laptop[];
+}): number[] {
+  const room = o.room ?? ROOM;
+  const delays = propagationDelays(o.scene as never, room.map((x) => x.id));
+  return room.map(
+    (x) => x.outMs - o.playErrorMs[x.id]! - (o.cal[x.id] ?? 0) + (delays[x.id] ?? 0) * 1000 + (nearest(x, HEAD) / SPEED_OF_SOUND) * 1000,
+  );
 }
 
 export const p95 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(0.95 * xs.length))]!;

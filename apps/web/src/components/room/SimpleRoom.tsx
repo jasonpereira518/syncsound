@@ -9,7 +9,7 @@ import { Library, MasterVolume } from './Player';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
 import { act, currentTrack, errMsg, roomNowMs, syncStatusOf, toast, useCanControl } from './shared';
 
-/** the room's one-line health summary: how many speakers, and whether they're all locked together */
+/** the room's one-line health summary: how many speakers, whether they're all locked together, and who needs tuning */
 function useRoomHealth() {
   const devices = useRoomStore((s) => s.room?.devices);
   const selfId = useRoomStore((s) => s.deviceId);
@@ -17,9 +17,18 @@ function useRoomHealth() {
   const live = (devices ?? []).filter((d) => d.connected);
   const statuses = live.map((d) => syncStatusOf(d, selfId, clock));
   const behind = statuses.filter((s) => s !== 'ok').length;
-  const status = behind === 0 ? 'ok' : statuses.includes('bad') ? 'bad' : 'warn';
-  const label = `${live.length} speaker${live.length === 1 ? '' : 's'}, ${behind === 0 ? 'in sync' : `${behind} catching up`}`;
-  return { live, status, label } as const;
+  const needs = live.filter((d) => d.syncState !== 'tuned');
+  const status = behind === 0 && needs.length === 0 ? 'ok' : statuses.includes('bad') ? 'bad' : 'warn';
+  const tail = needs.length ? `${needs.length} need${needs.length === 1 ? 's' : ''} tuning` : behind === 0 ? 'in sync' : `${behind} catching up`;
+  const label = `${live.length} speaker${live.length === 1 ? '' : 's'}, ${tail}`;
+  return { live, status, label, needs } as const;
+}
+
+/** one line per speaker about its tune */
+export function tuneLine(d: Device): string {
+  if (d.syncState === 'tuned') return '';
+  if (d.syncState === 'stale') return d.tuneStale === 'output' || d.tuneStale === 'route' ? ', needs tuning again (output changed)' : ', needs tuning again';
+  return ', not tuned yet';
 }
 
 /** Controller's everyday screen: one volume, the speakers at a glance, and what to play. */
@@ -156,6 +165,7 @@ function SpeakerList({ devices }: { devices: Device[] }) {
               <span className="block text-xs text-ink-400">
                 {SLOT_NAME[d.role]}
                 {bt && (jitter !== undefined ? `, Bluetooth ±${jitter.toFixed(1)} ms` : ', Bluetooth')}
+                {tuneLine(d)}
                 {d.volumeUpDb ? ', needs its volume turned up' : ''}
               </span>
             </span>
@@ -191,6 +201,7 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
   const routed = isRoutedLayout(layout);
   const status = syncStatusOf(self, self.id, clock);
   const title = routed && self.role === 'Full' ? 'Waiting for a spot' : routed || self.role === 'Sub' ? SLOT_NAME[self.role] : 'Playing along';
+  const tuned = self.syncState === 'tuned' ? 'Tuned' : self.syncState === 'stale' ? 'Needs tuning again' : 'Not tuned yet';
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5 px-4 pb-6" data-testid="speaker-screen">
@@ -200,6 +211,8 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
         <p className="mt-2 flex items-center gap-2 text-sm text-ink-300">
           <StatusDot status={status} label="" testid="self-sync-status" />
           {status === 'ok' ? 'In sync with the room' : 'Locking on to the room clock'}
+          <span className="text-ink-500">·</span>
+          <span data-testid="self-tune-state">{tuned}</span>
         </p>
       </div>
       {routed && (
@@ -207,7 +220,7 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
           <RoomDiagram layout={layout} scene={scene} devices={devices} highlight={self.id} />
         </div>
       )}
-      {self.calibratedLatencyMs === null && !self.volumeUpDb && (
+      {self.syncState === 'untuned' && !self.volumeUpDb && (
         <p role="status" data-testid="volume-max-hint" className="rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-sm">
           <strong>Turn this device&rsquo;s volume all the way up.</strong> Tuning then matches every speaker&rsquo;s loudness from the listening
           seat, and the room&rsquo;s master volume does the rest.

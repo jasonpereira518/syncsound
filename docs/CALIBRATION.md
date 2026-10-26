@@ -83,11 +83,22 @@ laptop's own speaker → mic.
    rigid fit (`procrustes2d`, reflection allowed) back onto it so front and left/right stay where the user put them.
    Devices without distances keep their hand placement (and are flagged).
 3. **Head.** `listener = polar(mic, 180°, 0.4 m)` — the head sits ~0.4 m behind the tuning laptop. Draggable.
-4. **Timing, from the listener row only.** `cal_i = M(L,i) − |p_i − mic|/c`, minus the minimum → stored as
-   `calibratedLatencyMs` (slower devices start earlier). `propagationDelays()` then delays nearer speakers by
-   `(d_max − d_i,head)/c`. At the mic every distance error cancels exactly; only the short mic→head step depends on
-   geometry. Every constant — Wi-Fi path asymmetry, unreported Bluetooth latency, mic latency, speaker DSP — is
-   absorbed.
+4. **Timing, from the listener row only.** The run stores, per heard device, its raw arrival at the listener's mic
+   relative to the earliest device of the run (`Device.tuneArrivalMs` = `M(L,i) − min`), the run's id
+   (`Device.tuneId`), and in the room's `scene.tune` the mic position, the positions the arrivals were measured at
+   and the run's id. The server derives the compensation (`deriveCalibratedLatency`, re-evaluated on every scene
+   edit, join, result and profile restore):
+
+   `cal_i = A_i − |q_i − mic|/c − (|p_i − L| − |q_i − L|)/c`, minus the minimum → `calibratedLatencyMs`
+
+   with `q_i` the device's position at tune time, `p_i` its position now and `L` the listener now (the listener's
+   own path is the 0.1 m prior). `propagationDelays()` then delays nearer speakers by `(d_max − d_i,head)/c`. The
+   first term is the device's latency as the tune measured it: at the mic every distance error cancels exactly, and
+   every constant — Wi-Fi path asymmetry, unreported Bluetooth latency, mic latency, speaker DSP — is absorbed. The
+   second term moves exactly as the engine's propagation delay moves when the picture is edited, so a layout
+   change, a drag or an auto-placement never changes when a tuned device's sound reaches the head
+   (`tuneInvariant.test.ts`: 0.000 ms change; the previous frozen value missed by p95 2.96 ms after a 1 m drag).
+   Only the short mic→head step depends on geometry.
 5. **Loudness.** The listener's level per device, corrected by 1/r from mic to head and by each device's EQ level
    shift, → `loudnessTrims` / `volumeHints`: everyone meets at the **median** — loud devices are cut, soft ones
    boosted by up to +6 dB (`MAX_BOOST_DB`); a device still short after that gets "turn it up by ~X dB". With two
@@ -110,9 +121,33 @@ Not budgeted (LIMITATIONS): laptop L/R speaker spread (±0.4 ms off-axis), Bluet
 
 ### Staying in tune
 
-Nothing re-tunes on its own (it would pause music and open a mic unattended). A device whose clock path changes
-(LAN clock master ↔ server clock) or whose output route changes raises the "audio delay changed" banner with a
-one-tap quick tune; a known Bluetooth output restores its remembered value at once.
+Nothing re-tunes on its own (it would pause music and open a mic unattended). Instead every device carries a
+**tune identity** and the room shows a **sync state** per device:
+
+| `syncState` | Meaning | Timing used |
+|---|---|---|
+| `tuned` | `tuneId` is the room's current run and the device reported nothing since | derived compensation |
+| `stale` | tuned, but the device reported its timing may be off (`tuneStale`: a new output route, a clock-path change, an audio-output step) | derived compensation, flagged "needs tuning again" on every screen |
+| `untuned` | never tuned, tuned in an earlier run, or not heard / not timed in the current one | none (0 + the manual nudge) |
+
+- **Every run is a new tune.** Arrivals are relative to the earliest device *of that run*, so a value from another
+  run cannot be compared; devices the run did not hear (or could not time) become `untuned` and the host sees
+  "N speakers, 1 needs tuning". A quick (timing-only) run keeps positions, levels, EQ and the previous ranging.
+- **The picture is free.** Layout changes keep ranged devices where the tune measured them (`placeForLayout`) and
+  move only hand-placed ones to their slot; either way the derived compensation follows the edit (step 4), so
+  nothing has to be re-tuned after rearranging the stage. A **speaker that physically moved** needs a new tune: its
+  arrival was measured where it was (sim: 2.9 ms off per metre until the next tap). The listener icon is where the
+  sound is aimed; moving it re-aims the engine's delays (the tune puts it 0.4 m behind the tuning laptop).
+- **Late joiners** in a laid-out room take the next free slot and its canonical spot (nobody else moves) and are
+  `untuned` until the next tune.
+- **Route changes.** A device whose output route changes, or whose clock path changes (LAN clock master ↔ server
+  clock), reports `tuneStale` to the room (so the host sees "needs tuning again (output changed)") and raises the
+  "audio delay changed" banner with a one-tap quick tune. A known Bluetooth output restores its remembered
+  `{ tuneId, tuneArrivalMs }` at once, which counts only while that tune is still the room's; a new output clears
+  the timing, the level trim and the EQ (they belonged to the previous output).
+- **Profiles** carry `tuneArrivalMs` / `tuneId` / `tuneStale` (never the derived value); a legacy profile with only
+  `calibratedLatencyMs` joins `untuned`.
+- A tune started from any screen shows its progress, result, warnings and error there (`TuneStatus`).
 
 ## Frequency response and EQ
 

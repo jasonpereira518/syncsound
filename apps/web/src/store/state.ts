@@ -42,6 +42,7 @@ export const initialState = (): RoomStoreState => ({
     warnings: [],
     emitting: false,
     nowPlaying: null,
+    quick: false,
   },
   syncMeasure: {
     running: false,

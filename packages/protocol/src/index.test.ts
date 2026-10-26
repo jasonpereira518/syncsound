@@ -66,6 +66,17 @@ describe('protocol validation (trust boundary)', () => {
     expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, signal: 'chime' }] }).success).toBe(false);
   });
 
+  it('device patches carry the tune invariant, never the derived compensation', () => {
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { tuneArrivalMs: 12.5, tuneId: 'p1', tuneStale: null } }).success).toBe(true);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { tuneStale: 'route' } }).success).toBe(true);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { tuneArrivalMs: -1 } }).success).toBe(false);
+    const p = parseClientMessage({ type: 'DEVICE_UPDATE', patch: { calibratedLatencyMs: 50 } });
+    expect(p.success && p.data.type === 'DEVICE_UPDATE' && 'calibratedLatencyMs' in p.data.patch).toBe(false); // unknown keys are stripped
+    const result = { type: 'CALIBRATION_RESULT', planId: 'p1', results: [{ deviceId: 'd1', heard: true, tuneArrivalMs: 3 }], tune: { mic: { x: 0, y: 1 }, quick: false, ranged: ['d1'], positions: { d1: { x: 1, y: 2 } } } };
+    expect(parseClientMessage(result).success).toBe(true);
+    expect(parseClientMessage({ ...result, tune: undefined }).success).toBe(false);
+  });
+
   it('calibration rows may flag invalid emissions; a run can be cancelled', () => {
     const rows = { type: 'CALIBRATION_ROWS', planId: 'p1', rows: [], valid: false, emissionValid: false, reason: 'clock moved' };
     expect(parseClientMessage(rows).success).toBe(true);

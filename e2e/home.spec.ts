@@ -63,6 +63,20 @@ test('home → room → setup wizard (with tuning) → speaker screen, master vo
   await expect(status).toContainText('not heard');
   await host.page.getByTestId('wizard-finish').click();
   await expect(host.page.getByTestId('room-health')).toBeVisible();
+  // the host is tuned; the phone (not heard) is not, and both screens say so
+  await expect(host.page.getByTestId('room-health')).toContainText('2 speakers, 1 needs tuning');
+  await expect(guest.page.getByTestId('self-tune-state')).toHaveText('Not tuned yet');
+  await expect(guest.page.getByTestId('volume-max-hint')).toBeVisible();
+
+  // a quick tune from the controls shows its progress and its result right there (it used to run blind)
+  await host.page.getByTestId('quick-resync').click();
+  const quick = host.page.getByTestId('tune-status');
+  await expect(quick).toBeVisible();
+  await expect(quick).toHaveAttribute('data-step', /done|error/, { timeout: 90_000 });
+  await expect(quick).toHaveAttribute('data-step', 'done');
+  await expect(quick).toContainText('Host laptop');
+  await expect(quick).toContainText('not heard');
+  await expect(host.page.getByTestId('room-health')).toContainText('2 speakers, 1 needs tuning');
 
   // one master volume, set from the host, reaches the other speaker's mix
   const vol = host.page.getByLabel('Master volume').filter({ visible: true }).first();
@@ -79,6 +93,8 @@ test('home → room → setup wizard (with tuning) → speaker screen, master vo
   await joinRoom(host.page, code, 'Host laptop', { advanced: false });
   await expect(host.page.getByTestId('room-health')).toBeVisible();
   expect(await host.page.evaluate(() => (window as unknown as Win).__syncsound.getState().room.scene.layout)).toBe('stereo');
+  // ...and so did the tune: the host is still in it (profile + the room's tune reference), the phone still is not
+  await expect(host.page.getByTestId('room-health')).toContainText('2 speakers, 1 needs tuning');
 
   expect(pageErrors(host.page)).toEqual([]);
   expect(pageErrors(guest.page)).toEqual([]);

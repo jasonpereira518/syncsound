@@ -258,6 +258,12 @@ export interface TuneDevice {
   heard: boolean;
   /** arrival at the listener mic − propagation − min over heard devices, ms → calibratedLatencyMs */
   relativeLatencyMs: number | null;
+  /**
+   * The geometry-free invariant: arrival at the listener mic − scheduled, minus the min over heard devices, ms
+   * (`Device.tuneArrivalMs`). `relativeLatencyMs` = this − |p − mic|/c, re-zeroed; the server re-derives it from
+   * the current positions (`deriveCalibratedLatency`).
+   */
+  arrivalMs: number | null;
   snrDb: number | null;
   /** level at the listener's head (mic level corrected by 1/r from mic to head), dB */
   levelDb: number | null;
@@ -361,6 +367,7 @@ export function solveTune(input: TuneInput): TuneReport {
       deviceId: id,
       heard: !!c,
       relativeLatencyMs: c ? c.mMs! - ((dMic ?? 0) / SPEED_OF_SOUND) * 1000 : null,
+      arrivalMs: c ? c.mMs! : null,
       snrDb: raw?.snrDb ?? null,
       levelDb:
         c && c.levelDb !== null ? c.levelDb + (dMic !== null && dHead !== null ? 20 * Math.log10(dMic / dHead) : 0) : null,
@@ -375,7 +382,11 @@ export function solveTune(input: TuneInput): TuneReport {
 
   const heard = devices.filter((d) => d.heard);
   const min = Math.min(...heard.map((d) => d.relativeLatencyMs!));
-  for (const d of heard) d.relativeLatencyMs = d.relativeLatencyMs! - min;
+  const minArrival = Math.min(...heard.map((d) => d.arrivalMs!));
+  for (const d of heard) {
+    d.relativeLatencyMs = d.relativeLatencyMs! - min;
+    d.arrivalMs = d.arrivalMs! - minArrival;
+  }
   for (const d of devices) {
     if (!d.heard) warnings.push(`Couldn't hear ${d.deviceId} — is its volume up?`);
     else if (d.clipped) warnings.push(`${d.deviceId} was too loud for the microphone — turn it down a little and re-run.`);

@@ -1,0 +1,34 @@
+{
+  "description": "tune invariant under picture edits and a physical move (see tuneRoom.ts)",
+  "seeds": 6,
+  "dragOnPicture": {
+    "baselineMs": {
+      "p95": 0.594,
+      "max": 0.62
+    },
+    "derivedMs": {
+      "p95": 0.594,
+      "max": 0.62,
+      "changeFromBaselineMaxMs": 0
+    },
+    "frozenControlMs": {
+      "p95": 2.957,
+      "max": 4.794
+    }
+  },
+  "layoutReset": {
+    "changeFromBaselineMaxMs": 0
+  },
+  "carriedLaptop": {
+    "note": "the moved device vs the mean of the others, before anyone tunes again; the limit is physical (its chime was measured 1 m away)",
+    "untilRetunedMs": {
+      "p95": 2.867,
+      "max": 2.867,
+      "airPathOf1mMs": 2.915
+    },
+    "afterRetuneMs": {
+      "p95": 0.694,
+      "max": 0.835
+    }
+  }
+}

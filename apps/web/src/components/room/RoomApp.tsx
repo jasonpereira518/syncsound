@@ -12,6 +12,7 @@ import { RoomHeader } from './RoomHeader';
 import { SetupWizard } from './SetupWizard';
 import { NowPlaying, SpeakerScreen } from './SimpleRoom';
 import { Stage } from './Stage';
+import { TuneStatus } from './TuneStatus';
 import { act, dismissToast, useToasts } from './shared';
 
 type View = 'setup' | 'controls' | 'speaker' | 'advanced';
@@ -92,6 +93,11 @@ export function RoomApp({ code }: { code: string }) {
       <div className="flex min-h-dvh flex-col">
         <RoomHeader name={name} extra={toggle} />
         <Banners />
+        {view !== 'setup' && (
+          <div className="mx-auto w-full max-w-2xl px-4">
+            <TuneStatus />
+          </div>
+        )}
         <main id="main" className="flex flex-1 flex-col pt-2">
           {view === 'setup' && <SetupWizard onDone={() => go('controls')} />}
           {view === 'controls' && <NowPlaying onSetup={() => go('setup')} />}
@@ -204,8 +210,8 @@ function Banners() {
         >
           <Icon name="bluetooth" className="size-5 shrink-0 text-accent" />
           <p className="min-w-0 flex-1">
-            <strong className="text-accent">Audio output changed to {routeRestored.label}.</strong> Using its saved
-            calibration ({fmtSigned(routeRestored.calibratedLatencyMs, 0)} ms). Re-sync if it sounds out of step.
+            <strong className="text-accent">Audio output changed to {routeRestored.label}.</strong> Using its saved tuning
+            ({fmtSigned(routeRestored.tuneArrivalMs, 0)} ms). Tune again if it sounds out of step.
           </p>
           <button
             type="button"

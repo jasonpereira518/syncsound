@@ -106,6 +106,9 @@ describe('Room join', () => {
       trimDb: 0,
       latencyMs: 0,
       calibratedLatencyMs: null,
+      tuneArrivalMs: null,
+      tuneId: null,
+      syncState: 'untuned',
       bassCapable: true,
     });
     expect(room.device('h')!.bassCapable).toBe(false); // phone
@@ -223,13 +226,31 @@ describe('Room playback control', () => {
     room.handle('ch', ctl({ type: 'queue', track: track('a') }), 1000);
     room.handle('c1', { type: 'STATS', stats: { ...stats(30), autoLatencyMs: 40 } }, 1500);
     room.handle('c2', { type: 'STATS', stats: stats(100) }, 1500);
-    // calibrated Bluetooth residual 220 ms + manual 10 ms + browser 40 ms = 270 ms on a 30 ms RTT
-    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { calibratedLatencyMs: 220, latencyMs: 10 } }, 1600);
+    // a tune by g2 heard g1's chime 220 ms late (its Bluetooth residual) and its own at the near-field prior:
+    // derived compensation 220 ms, + manual 10 ms + browser 40 ms = 270 ms on a 30 ms RTT
+    const slots = [{ deviceId: 'g1', deviceIndex: 0, signal: 'tune' as const, offsetMs: 500, durationMs: 1100 }];
+    const plan = one(room.handle('c2', { type: 'CALIBRATION_START', slots }, 1500), 'CALIBRATION_PLAN').msg.plan;
+    room.handle(
+      'c2',
+      {
+        type: 'CALIBRATION_RESULT',
+        planId: plan.id,
+        results: [
+          { deviceId: 'g1', heard: true, tuneArrivalMs: 220 },
+          { deviceId: 'g2', heard: true, tuneArrivalMs: (0.1 / 343) * 1000 }, // its own speaker, 0.1 m away
+        ],
+        tune: { mic: room.state.scene.devices.g1!, quick: false, ranged: [], positions: {} },
+      },
+      1600,
+    );
+    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { latencyMs: 10 } }, 1700);
+    expect(room.device('g1')!.calibratedLatencyMs).toBeCloseTo(220, 6);
     const s = one(room.handle('ch', ctl({ type: 'play' }), 2000), 'SCHEDULE');
-    expect(s.msg.startRoomTime - 2000).toBe(30 + 270 + SCHEDULE_SAFETY_MARGIN_MS);
+    expect(s.msg.startRoomTime - 2000).toBeCloseTo(30 + 270 + SCHEDULE_SAFETY_MARGIN_MS, 6);
 
     // a device compensating negatively (plays later) doesn't shorten anything below the RTT rule
-    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { calibratedLatencyMs: null, latencyMs: -300 } }, 2500);
+    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { tuneId: null, latencyMs: -300 } }, 2500);
+    expect(room.device('g1')!.calibratedLatencyMs).toBeNull();
     const s2 = one(room.handle('ch', ctl({ type: 'seek', position: 5 }), 3000), 'SCHEDULE');
     expect(s2.msg.startRoomTime - 3000).toBe(100 + SCHEDULE_SAFETY_MARGIN_MS);
   });
@@ -408,6 +429,7 @@ describe('Room devices + scene', () => {
       preampDb: -1,
       source: 'measured' as const,
     };
+    const tune = { mic: { x: 0, y: 0 }, quick: false, ranged: ['g1', 'ghost'], positions: { g1: { x: 1, y: 0 } } };
     const res = room.handle(
       'c2',
       {
@@ -417,7 +439,7 @@ describe('Room devices + scene', () => {
           {
             deviceId: 'g1',
             heard: true,
-            calibratedLatencyMs: 87,
+            tuneArrivalMs: 87,
             eq,
             rolloffHz: 150,
             bassCapable: false,
@@ -425,25 +447,113 @@ describe('Room devices + scene', () => {
             volumeUpDb: 7.5,
           },
           { deviceId: 'h', heard: true, volumeUpDb: null },
-          { deviceId: 'ghost', heard: true, calibratedLatencyMs: 1 },
+          { deviceId: 'ghost', heard: true, tuneArrivalMs: 1 },
         ],
+        tune,
       },
       5000,
     );
     one(res, 'DEVICE_LIST');
+    expect(one(res, 'SCENE').to).toBe('all');
     expect(room.device('g1')).toMatchObject({
-      calibratedLatencyMs: 87,
+      tuneArrivalMs: 87,
+      tuneId: plan.msg.plan.id,
+      tuneStale: null,
+      syncState: 'tuned',
+      calibratedLatencyMs: 0, // the only device in the tune: it is the reference
       eq,
       rolloffHz: 150,
       bassCapable: false,
       trimDb: -2,
       volumeUpDb: 7.5,
     });
-    expect(room.device('h')!.calibratedLatencyMs).toBeNull();
-    expect(room.device('h')!.volumeUpDb).toBeNull();
+    expect(room.device('h')).toMatchObject({ calibratedLatencyMs: null, tuneArrivalMs: null, syncState: 'untuned', volumeUpDb: null });
+    expect(room.state.scene.tune).toMatchObject({ id: plan.msg.plan.id, listenerId: 'g2', mic: tune.mic, quick: false, ranged: ['g1'], at: 5000 });
 
-    const bad = room.handle('c2', { type: 'CALIBRATION_RESULT', planId: 'nope', results: [] }, 5000);
+    const bad = room.handle('c2', { type: 'CALIBRATION_RESULT', planId: 'nope', results: [], tune }, 5000);
     expect(one(bad, 'ERROR').msg.code).toBe('unknown_plan');
+  });
+
+  it('tune: compensation is derived from the arrivals and the current positions, re-derived when a speaker is moved, and reset by the next run', () => {
+    const room = setup();
+    const msPerM = 1000 / 343;
+    room.handle('ch', { type: 'SCENE_UPDATE', devices: { g1: { x: 0, y: 1 }, h: { x: 0, y: 0 }, g2: { x: 1, y: 0 } } }, 900);
+    const slots = [{ deviceId: 'g1', deviceIndex: 0, signal: 'tune' as const, offsetMs: 500, durationMs: 1100 }];
+    const plan = one(room.handle('c2', { type: 'CALIBRATION_START', slots }, 1000), 'CALIBRATION_PLAN').msg.plan;
+    room.handle(
+      'c2',
+      {
+        type: 'CALIBRATION_RESULT',
+        planId: plan.id,
+        results: [
+          { deviceId: 'g1', heard: true, tuneArrivalMs: 87 },
+          { deviceId: 'h', heard: true, tuneArrivalMs: 20 },
+        ],
+        tune: { mic: { x: 0, y: 0 }, quick: false, ranged: ['g1', 'h'], positions: { g1: { x: 0, y: 1 }, h: { x: 0, y: 0 } } },
+      },
+      2000,
+    );
+    // g1 is 1 m from the mic (2.9 ms of air), h at the mic: raw 84.1 / 20 → re-zeroed on h
+    expect(room.device('g1')!.calibratedLatencyMs).toBeCloseTo(87 - msPerM - 20, 6);
+    expect(room.device('h')!.calibratedLatencyMs).toBeCloseTo(0, 6);
+    expect(room.device('g2')!.syncState).toBe('untuned');
+    // moving the listener icon changes no derived value while nobody has been dragged (the engine follows the head)
+    expect(of(room.handle('ch', { type: 'SCENE_UPDATE', listener: { x: 0, y: 0 } }, 2900), 'DEVICE_LIST')).toHaveLength(0);
+    room.handle('ch', { type: 'SCENE_UPDATE', listener: { x: 0, y: 1 } }, 2950);
+    // the host drags g1 sideways to (1, 1): 1 m farther from the listener at (0, 1) → the engine delays it 2.9 ms less, so
+    // its compensation drops by the same (the sound still reaches the head when it did); everyone is told
+    const moved = room.handle('ch', { type: 'SCENE_UPDATE', devices: { g1: { x: 1, y: 1 } } }, 3000);
+    one(moved, 'DEVICE_LIST');
+    expect(room.device('g1')!.calibratedLatencyMs).toBeCloseTo(87 - 2 * msPerM - 20, 6);
+    // a layout change that moves nothing sends no device list
+    expect(of(room.handle('ch', { type: 'SCENE_UPDATE', layout: 'stereo' }, 3100), 'DEVICE_LIST')).toHaveLength(0);
+    // a device reporting a stale tune is flagged; its value stays in use
+    room.handle('c1', { type: 'DEVICE_UPDATE', patch: { tuneStale: 'output' } }, 3200);
+    expect(room.device('g1')).toMatchObject({ syncState: 'stale', calibratedLatencyMs: expect.any(Number) });
+    // the next run hears only h: g1 drops out of the tune (its old value had a reference that is gone)
+    const plan2 = one(room.handle('c2', { type: 'CALIBRATION_START', slots }, 4000), 'CALIBRATION_PLAN').msg.plan;
+    room.handle('c2', { type: 'CALIBRATION_RESULT', planId: plan2.id, results: [{ deviceId: 'h', heard: true, tuneArrivalMs: 5 }], tune: { mic: { x: 0, y: 0 }, quick: true, ranged: [], positions: {} } }, 5000);
+    expect(room.device('g1')).toMatchObject({ syncState: 'untuned', calibratedLatencyMs: null, tuneId: plan.id });
+    expect(room.device('h')).toMatchObject({ syncState: 'tuned', calibratedLatencyMs: 0, tuneId: plan2.id });
+    expect(room.state.scene.tune!.ranged).toEqual(['g1', 'h']); // a timing-only run keeps the previous ranging
+  });
+
+  it('a late joiner in a laid-out room takes a free slot and its spot; the others stay where they are', () => {
+    const room = setup();
+    room.handle('ch', { type: 'SCENE_UPDATE', layout: 'stereo', devices: { h: { x: -1.3, y: -1.9 }, g1: { x: 1.2, y: -2.0 } } }, 900);
+    room.handle('ch', { type: 'DEVICE_UPDATE', patch: { role: 'L' } }, 901);
+    room.handle('ch', { type: 'DEVICE_UPDATE', targetDeviceId: 'g1', patch: { role: 'R' } }, 902);
+    room.handle('ch', { type: 'DEVICE_UPDATE', targetDeviceId: 'g2', patch: { role: 'Sub' } }, 903);
+    const before = structuredClone(room.state.scene.devices);
+    join(room, 'c3', 'g3', {}, 1000);
+    const g3 = room.device('g3')!;
+    expect(['L', 'R']).toContain(g3.role);
+    expect(room.state.scene.devices.g3).toBeDefined();
+    for (const id of ['h', 'g1', 'g2']) expect(room.state.scene.devices[id]).toEqual(before[id]);
+    // in a room without a layout the joiner is auto-placed as before
+    const plain = setup();
+    join(plain, 'c3', 'g3', {}, 1000);
+    expect(plain.device('g3')!.role).toBe('Full');
+  });
+
+  it('profiles carry the tune fields; a legacy calibratedLatencyMs is not used for timing', () => {
+    const store = new Map<string, Profile>();
+    const profiles = { get: (id: string) => store.get(id), set: (id: string, p: Profile) => void store.set(id, p) };
+    const room = mkRoom({ profiles });
+    join(room, 'ch', 'h', { hostKey: 'HOSTKEY' });
+    join(room, 'c1', 'g1');
+    const slots = [{ deviceId: 'g1', deviceIndex: 0, signal: 'tune' as const, offsetMs: 500, durationMs: 1100 }];
+    const plan = one(room.handle('ch', { type: 'CALIBRATION_START', slots }, 1000), 'CALIBRATION_PLAN').msg.plan;
+    room.handle('ch', { type: 'CALIBRATION_RESULT', planId: plan.id, results: [{ deviceId: 'g1', heard: true, tuneArrivalMs: 42 }], tune: { mic: { x: 0, y: 0 }, quick: false, ranged: [], positions: {} } }, 2000);
+    expect(store.get('g1')).toMatchObject({ tuneArrivalMs: 42, tuneId: plan.id, tuneStale: null });
+    expect('calibratedLatencyMs' in store.get('g1')!).toBe(false);
+    // the same device in a new room instance (same stored scene.tune → still tuned); and a legacy profile
+    store.set('old', { ...store.get('g1')!, tuneArrivalMs: null, tuneId: null, calibratedLatencyMs: 50 } as Profile);
+    const again = mkRoom({ profiles, scene: structuredClone(room.state.scene) });
+    join(again, 'c1', 'g1');
+    join(again, 'c9', 'old');
+    expect(again.device('g1')).toMatchObject({ tuneArrivalMs: 42, tuneId: plan.id, syncState: 'tuned' });
+    expect(again.device('old')).toMatchObject({ calibratedLatencyMs: null, syncState: 'untuned' });
   });
 
   it("calibration: recorders' rows go to the listener only; only the listener may submit results", () => {
@@ -457,9 +567,13 @@ describe('Room devices + scene', () => {
     const fwd = one(room.handle('c1', { type: 'CALIBRATION_ROWS', planId: id, rows: [row], valid: true }, 2000), 'CALIBRATION_ROWS');
     expect(fwd.to).toEqual(['c2']);
     expect(fwd.msg).toMatchObject({ recorderId: 'g1', planId: id, rows: [row], valid: true });
-    const forged = room.handle('c1', { type: 'CALIBRATION_RESULT', planId: id, results: [{ deviceId: 'h', heard: true, calibratedLatencyMs: 999, volumeUpDb: null }] }, 3000);
+    const forged = room.handle(
+      'c1',
+      { type: 'CALIBRATION_RESULT', planId: id, results: [{ deviceId: 'h', heard: true, tuneArrivalMs: 999, volumeUpDb: null }], tune: { mic: { x: 0, y: 0 }, quick: false, ranged: [], positions: {} } },
+      3000,
+    );
     expect(one(forged, 'ERROR').msg.code).toBe('forbidden');
-    expect(room.device('h')!.calibratedLatencyMs).toBeNull();
+    expect(room.device('h')!.tuneArrivalMs).toBeNull();
   });
 
   it('calibration: an all-recorders plan must be one short slot per known device', () => {
@@ -483,7 +597,7 @@ describe('Room devices + scene', () => {
     let plan = one(start(room, 'c2', 1000), 'CALIBRATION_PLAN').msg.plan;
     expect(one(start(room, 'c1', 1100), 'ERROR').msg.code).toBe('calibration_busy');
     expect(one(start(room, 'c2', 1100), 'ERROR').msg.code).toBe('calibration_busy'); // the listener itself too
-    room.handle('c2', { type: 'CALIBRATION_RESULT', planId: plan.id, results: [] }, 1200);
+    room.handle('c2', { type: 'CALIBRATION_RESULT', planId: plan.id, results: [], tune: { mic: { x: 0, y: 0 }, quick: false, ranged: [], positions: {} } }, 1200);
     one(start(room, 'c1', 1300), 'CALIBRATION_PLAN');
     // released by a cancel, which every device hears; only the listener may cancel
     room = setup();

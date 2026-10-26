@@ -540,6 +540,7 @@ export class CalibrationController {
       targetDb: null,
       devices: [],
       warnings: [],
+      quick: !!opts.quick,
     });
     try {
       const ctx = this.engine.ctx;
@@ -634,7 +635,8 @@ export class CalibrationController {
         return {
           deviceId: d.deviceId,
           heard: d.heard,
-          ...(d.heard && d.relativeLatencyMs !== null ? { calibratedLatencyMs: Math.max(-1000, Math.min(1000, d.relativeLatencyMs)) } : {}),
+          // the geometry-free invariant; the server derives the compensation from it and the current positions
+          ...(d.heard && d.arrivalMs !== null ? { tuneArrivalMs: Math.max(0, Math.min(5000, d.arrivalMs)) } : {}),
           // a quick (timing-only) pass leaves EQ and level results alone; a full pass also clears an old hint
           ...(opts.quick
             ? {}
@@ -648,7 +650,16 @@ export class CalibrationController {
               }),
         };
       });
-      if (!this.send({ type: 'CALIBRATION_RESULT', planId: plan.id, results })) throw new Error('Lost the connection before the results could be saved.');
+      const tune = {
+        mic: report.positions[myId] ?? scene.listener,
+        quick: !!opts.quick,
+        ranged: report.devices.filter((d) => d.ranged).map((d) => d.deviceId),
+        // where each heard device was when its arrival was measured
+        positions: Object.fromEntries(
+          results.filter((r) => r.tuneArrivalMs !== undefined && report.positions[r.deviceId]).map((r) => [r.deviceId, report.positions[r.deviceId]!]),
+        ),
+      };
+      if (!this.send({ type: 'CALIBRATION_RESULT', planId: plan.id, results, tune })) throw new Error('Lost the connection before the results could be saved.');
       // the manual nudge compensated exactly what was just measured: keeping it would double-count
       for (const d of nudged) this.send({ type: 'DEVICE_UPDATE', targetDeviceId: d.id, patch: { latencyMs: 0 } });
 

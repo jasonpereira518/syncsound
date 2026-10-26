@@ -195,6 +195,27 @@ tune is played a minute later through each device's live clock. "Old" = before S
   master (§2b) is for.
 - Distances: laptop-to-laptop max 0.146 m (new) vs 0.22 m (old), the stereo half-width either way.
 
+### 4d. The tune under picture edits and a physical move (`tuneInvariant.test.ts`)
+
+The room of §4b, tuned, then edited the way a host does: a ranged laptop and the hand-placed Bluetooth speaker
+dragged 1 m on the picture (nothing moved), the Bluetooth speaker re-placed at a canonical slot ~2 m away (a
+layout reset), and, separately, a laptop carried 1 m across the room and dragged to match. "Derived" = S3 (the
+server re-derives the compensation from the stored arrivals and the tune-time positions); "frozen" = before S3
+(the value solved at tune time + propagation delays recomputed on the edited picture). 6 seeds, fresh clock
+errors at play time, scored at the true head.
+
+| Scenario | Pipeline | Head alignment p95 / max | Change vs. untouched |
+|---|---|---|---|
+| untouched | either | 0.59 / 0.62 ms | — |
+| 1 m drag of a laptop + the Bluetooth speaker | **derived** | **0.59 / 0.62 ms** | 0.000 ms |
+| | frozen | 2.96 / 4.79 ms | |
+| Bluetooth speaker re-placed at a slot 2 m away | derived | | 0.000 ms |
+| laptop carried 1 m (dragged to match), before the next tune | derived | 2.87 ms off (p95, that device vs. the others) | the air path of 1 m is 2.92 ms |
+| the same, after one more tune | derived | 0.69 / 0.84 ms | |
+
+The physical move is a documented limit (LIMITATIONS): nothing can tell a moved speaker from a corrected picture,
+and a quick tune is one tap.
+
 ## 5. Sync-measurement tool (`syncMeasure.test.ts` + E2E)
 
 - **Simulated:** 4 devices click for 60 s, time-staggered by 250 ms with identical wideband chirps, each with a known

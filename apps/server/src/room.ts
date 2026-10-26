@@ -15,7 +15,17 @@ import {
   type ServerMessage,
   type ServerMessageBody,
 } from '@syncsound/protocol';
-import { calibrationRecordingMs, clampToRoom, minScheduleLeadMs, SYNC_SEARCH_LATE_MS } from '@syncsound/audio-core';
+import {
+  calibrationRecordingMs,
+  clampToRoom,
+  deriveCalibratedLatency,
+  isRoutedLayout,
+  minScheduleLeadMs,
+  nextFreeSlot,
+  slotPositions,
+  SYNC_SEARCH_LATE_MS,
+  syncStateOf,
+} from '@syncsound/audio-core';
 
 export type Target = 'all' | 'others' | string[];
 /** `msg` already carries the room-assigned seq; broadcast copies share one seq. */
@@ -32,7 +42,9 @@ export const PROFILE_KEYS = [
   'role',
   'trimDb',
   'latencyMs',
-  'calibratedLatencyMs',
+  'tuneArrivalMs',
+  'tuneId',
+  'tuneStale',
   'eq',
   'bassCapable',
   'rolloffHz',
@@ -231,6 +243,10 @@ export class Room {
         solo: false,
         latencyMs: 0,
         calibratedLatencyMs: null,
+        tuneArrivalMs: null,
+        tuneId: null,
+        tuneStale: null,
+        syncState: 'untuned',
         eq: defaultEq(),
         bassCapable: BASS_CLASSES.has(msg.caps.deviceClass),
         rolloffHz: null,
@@ -245,13 +261,22 @@ export class Room {
       dev.connected = true;
     }
     if (!this.state.scene.devices[dev.id]) {
-      this.autoPlace(dev.id);
+      const layout = this.state.scene.layout;
+      if (isRoutedLayout(layout) && dev.role === 'Full') {
+        // a late joiner in a laid-out room takes a free slot and that slot's spot; nobody else moves
+        const roles = Object.fromEntries(this.state.devices.filter((d) => d.connected && d.id !== dev.id).map((d) => [d.id, d.role]));
+        dev.role = nextFreeSlot(layout, roles);
+        const pos = slotPositions(layout, { ...roles, [dev.id]: dev.role }, this.state.scene)[dev.id];
+        if (pos) this.state.scene.devices[dev.id] = pos;
+      }
+      if (!this.state.scene.devices[dev.id]) this.autoPlace(dev.id);
       this.persist();
     }
     if (isHost) {
       for (const d of this.state.devices) d.isHost = d.id === dev.id;
       this.state.hostId = dev.id;
     }
+    this.syncDerived();
 
     return {
       ok: true,
@@ -316,10 +341,32 @@ export class Room {
       if (this.state.hostId === id) this.state.hostId = null;
     }
     this.state.devices = this.state.devices.filter((d) => !gone.includes(d.id));
+    this.syncDerived();
     return [
       this.deviceList('all'),
       this.out('all', { type: 'SCENE', scene: structuredClone(this.state.scene) }),
     ];
+  }
+
+  /**
+   * Re-derive every device's output compensation (`calibratedLatencyMs`) and `syncState` from the room's tune and
+   * the current positions (audio-core `deriveCalibratedLatency`); true when anything changed. Called wherever a
+   * position, a tune field or the device set changes, so a layout edit or a drag keeps the room aligned.
+   */
+  private syncDerived(): boolean {
+    const tune = this.state.scene.tune;
+    const cal = deriveCalibratedLatency(this.state.devices, tune, this.state.scene.devices, this.state.scene.listener);
+    let changed = false;
+    for (const d of this.state.devices) {
+      const c = cal[d.id] ?? null;
+      const s = syncStateOf(d, tune);
+      if (d.calibratedLatencyMs !== c || d.syncState !== s) {
+        d.calibratedLatencyMs = c;
+        d.syncState = s;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   handle(connId: string, msg: ClientMessage, now: number): Outbound[] {
@@ -353,7 +400,9 @@ export class Room {
         for (const [id, pos] of Object.entries(devices ?? {}))
           if (this.device(id)) this.state.scene.devices[id] = pos;
         this.persist();
-        return [this.out('others', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
+        const out = [this.out('others', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
+        if ((devices || rest.listener) && this.syncDerived()) out.push(this.deviceList('all')); // moved speakers: new compensation
+        return out;
       }
       case 'DEVICE_UPDATE': {
         const target = this.device(msg.targetDeviceId ?? sender.id);
@@ -361,6 +410,7 @@ export class Room {
         if (target.id !== sender.id && !this.canControl(sender))
           throw new RoomError('forbidden', 'only the host may change other devices');
         this.patchDevice(target, msg.patch);
+        this.syncDerived();
         return [this.deviceList('all')];
       }
       case 'SETTINGS_UPDATE': {
@@ -430,11 +480,27 @@ export class Room {
         if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
         if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may submit its results");
         if (this.activeRun?.id === msg.planId) this.activeRun = null;
+        // every run is a new tune: devices it heard join it, the others become untuned (their old value could only
+        // be compared to a reference that no longer exists); a timing-only run keeps the previous run's ranging
+        const prev = this.state.scene.tune;
+        this.state.scene.tune = {
+          id: msg.planId,
+          listenerId: sender.id,
+          mic: msg.tune.mic,
+          at: now,
+          quick: msg.tune.quick,
+          ranged: (msg.tune.quick ? (prev?.ranged ?? []) : msg.tune.ranged).filter((id) => this.device(id)),
+          positions: Object.fromEntries(Object.entries(msg.tune.positions).filter(([id]) => this.device(id))),
+        };
         for (const r of msg.results) {
           const dev = this.device(r.deviceId);
           if (!dev) continue;
           const patch: DevicePatch = {};
-          if (r.calibratedLatencyMs !== undefined) patch.calibratedLatencyMs = r.calibratedLatencyMs;
+          if (r.tuneArrivalMs !== undefined) {
+            patch.tuneArrivalMs = r.tuneArrivalMs;
+            patch.tuneId = msg.planId;
+            patch.tuneStale = null;
+          }
           if (r.eq !== undefined) patch.eq = r.eq;
           if (r.rolloffHz !== undefined) patch.rolloffHz = r.rolloffHz;
           if (r.bassCapable !== undefined) patch.bassCapable = r.bassCapable;
@@ -442,7 +508,9 @@ export class Room {
           this.patchDevice(dev, patch);
           if (r.volumeUpDb !== undefined) dev.volumeUpDb = r.volumeUpDb;
         }
-        return [this.deviceList('all')];
+        this.syncDerived();
+        this.persist();
+        return [this.deviceList('all'), this.out('all', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
       }
       case 'IDENTIFY':
         if (!this.device(msg.targetDeviceId)) throw new RoomError('unknown_target', 'no such device');

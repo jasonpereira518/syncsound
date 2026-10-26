@@ -27,8 +27,8 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Per-output calibration memory** needs readable output labels: desktop Chromium/Firefox after mic permission
   was granted on that device. On iOS, and on Android where output devices aren't listed, a route change still
   only prompts to recalibrate. A device that never granted mic permission (calibrated from another listener)
-  has no labels either. Calibrated latencies are relative to the fastest device *in that run*, so values from
-  runs with different device sets are not strictly comparable.
+  has no labels either. The memory keeps the output's timing (`tuneId` + arrival) only: a level trim or EQ
+  measured through a Bluetooth speaker is cleared when the route changes and is not restored with it.
 - **The tune's search window is −0.4…+1.0 s around each slot** (every device plays the same sweep, so windows
   can't overlap the next slot). A speaker more than ~1 s late (AirPlay-class outputs, ~2 s) is not heard; use the
   manual slider for it.
@@ -111,8 +111,17 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Spotify tokens** aren't refreshed (they expire after 1 h; reconnect). Apple Music has no reliable
   missing-subscription check.
 - **Profiles persist** (server `profiles.json`, keyed by the device id in localStorage): name, role, trim, latency,
-  calibrated latency, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to
-  see curves again.
+  tune arrival + tune id, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to
+  see curves again. A profile written before S3 (a bare `calibratedLatencyMs`) is ignored for timing: the device
+  joins untuned and one tap fixes it.
+- **A speaker that physically moved needs a new tune.** The tune stores each device's arrival where it was; a
+  drag of the picture keeps the sound aligned (that is what it is for), so a laptop carried 1 m across the room
+  and dragged to match plays 2.9 ms off until the next tune (`tuneInvariant.test.ts`; a quick tune is one tap).
+  No silent fix exists: nothing can tell a moved speaker from a corrected picture.
+- **Unheard devices drop out of the tune.** Every run is a new reference, so a device the run did not hear (a
+  phone whose output was muted, a tab on older code) is untuned afterwards rather than kept on its old value;
+  the host is told ("1 needs tuning") and the device plays without compensation until the next tune. Bluetooth
+  outputs included: a stale hint would hide the untuned state.
 - **Calibration auto-pauses only when the calibrating device may control playback** (host, or open control). A
   guest under host-only control is still told to ask the host to pause.
 - **Loudness matching boosts a soft speaker by at most +6 dB.** Everyone meets at the median; a boosted device's

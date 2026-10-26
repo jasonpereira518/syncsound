@@ -33,6 +33,7 @@
 - [ ] S1 on real hardware (HUMAN_TEST_CHECKLIST 20–22)
 - [x] S2 – Calibration accuracy hardening: analytic `frozenRoomMap`, the master's mapping pinned for a plan, `clockSettled` gate, `runValidity` + one retry + emitter faults, one tune at a time (`calibration_busy`, cancel), `tuneRoom.ts` + `tuneClock.test.ts` on real clocks (LAN head p95 3.27 → 0.74 ms) (DECISIONS 69–74)
 - [ ] S2 on real hardware (HUMAN_TEST_CHECKLIST 23)
-- [ ] S3 – Calibration that stays valid (tune invariant + server derivation, tune identity / syncState, late joiner, TuneStatus)
+- [x] S3 – Calibration that stays valid: raw-arrival invariant + tune-time positions in `scene.tune`, server-derived `calibratedLatencyMs` / `syncState` on every edit, tune identity (unheard → untuned, `tuneStale` reported to the room), `placeForLayout` keeps ranged devices, late joiners take a free slot, per-output memory of `{ tuneId, tuneArrivalMs }`, shared `TuneStatus`; sim `tuneInvariant.test.ts` (drag/layout reset: 0.000 ms change vs 2.96 ms frozen); e2e quick tune from Now Playing (DECISIONS 75–79)
+- [ ] S3 on real hardware (HUMAN_TEST_CHECKLIST 24)
 - [ ] S4 – Simplest setup experience (one-screen setup, mic at join, prepare/ready, one "Tune" verb)
 - [ ] S5 – Docs and results
