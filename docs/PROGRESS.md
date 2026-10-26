@@ -20,6 +20,7 @@
 - [x] R4 – Persistent Home + rooms (server/protocol; built in its own session, merged)
 - [x] R5 – Simple UI: landing → Home → room; one-tap join; 3-step setup wizard with room diagram; Now Playing; speaker screen
 - [x] R6 – Advanced view (previous full shell behind "Advanced", debug only there)
+- [x] R6b – Visual pass on the app screens: tone ladder instead of borders, lifted contrast, lucide icons, shared cone brand mark (DECISIONS 59, apps/web/DESIGN.md)
 - [ ] R7 – Native shells (later)
 - [x] Calibration v3 – one-tap "Tune room": every laptop records, BeepBeep ranging → measured layout, listener-row timing aligned at the head, one wideband sweep per device, staggered wideband sync check (sim: head p95 0.53 ms)
 - [ ] Calibration v3 on real hardware (HUMAN_TEST_CHECKLIST items 18–19)

@@ -57,14 +57,14 @@ export function RoomDiagram({
           <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
         </radialGradient>
       </defs>
-      <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={0.25} fill="var(--color-ink-900)" stroke="var(--color-ink-600)" strokeWidth={0.04} />
+      <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={0.3} fill="var(--color-ink-850)" />
       <rect x={-W / 4} y={-D / 2 - 0.12} width={W / 2} height={0.12} rx={0.05} fill="var(--color-accent)" opacity={0.7} />
-      <text x={0} y={-D / 2 - 0.25} textAnchor="middle" fontSize={0.26} fill="var(--color-ink-400)">
+      <text x={0} y={-D / 2 - 0.25} textAnchor="middle" fontSize={0.26} fill="var(--color-ink-300)">
         Screen
       </text>
       <g transform={`translate(${lis.x} ${lis.y})`} aria-hidden>
         <circle r={1.2} fill="url(#seat-glow)" />
-        <rect x={-0.5} y={-0.18} width={1} height={0.5} rx={0.14} fill="var(--color-ink-700)" stroke="var(--color-ink-500)" strokeWidth={0.03} />
+        <rect x={-0.5} y={-0.18} width={1} height={0.5} rx={0.16} fill="var(--color-ink-700)" />
         <text y={0.68} textAnchor="middle" fontSize={0.24} fill="var(--color-ink-300)">
           You
         </text>
@@ -100,10 +100,11 @@ export function RoomDiagram({
               cx={p.x}
               cy={p.y}
               r={r}
-              fill={here.length ? color : 'var(--color-ink-950)'}
+              fill={here.length ? color : 'var(--color-ink-900)'}
               fillOpacity={here.length ? 0.22 : 1}
               stroke={ring ? 'var(--color-accent)' : color}
               strokeWidth={ring ? 0.09 : 0.045}
+              strokeOpacity={here.length || ring ? 1 : 0.7}
               strokeDasharray={here.length ? undefined : '0.12 0.09'}
             />
             {here.length > 0 && (
@@ -111,7 +112,7 @@ export function RoomDiagram({
                 {here.length > 1 ? here.length : here[0]!.name.slice(0, 1).toUpperCase()}
               </text>
             )}
-            <text x={p.x} y={p.y + r + 0.3} textAnchor="middle" fontSize={0.22} fill={here.length ? 'var(--color-ink-100)' : 'var(--color-ink-400)'}>
+            <text x={p.x} y={p.y + r + 0.3} textAnchor="middle" fontSize={0.22} fill={here.length ? 'var(--color-ink-100)' : 'var(--color-ink-300)'}>
               {label.length > 22 ? `${label.slice(0, 21)}…` : label}
             </text>
           </g>
