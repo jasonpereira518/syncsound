@@ -13,6 +13,28 @@ export function deriveServerUrl(
 
 export const toWsUrl = (httpBase: string) => `${httpBase.replace(/^http/, 'ws')}/ws`;
 
+/** this machine or the local network: the room server can run next to the page on :8787 */
+const LOCAL_HOST =
+  /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?|0\.0\.0\.0|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[^.]+|.+\.(local|localhost|test|lan|home|internal))$/i;
+
+/**
+ * A public deployment (Vercel, …) built without NEXT_PUBLIC_SERVER_URL can't guess where its room server is: the
+ * page's own host never runs one. True means "say so" instead of retrying a connection that can't succeed.
+ */
+export function serverMissing(envUrl: string | undefined, loc: { hostname: string } | null): boolean {
+  return !envUrl && !!loc && !LOCAL_HOST.test(loc.hostname);
+}
+
+export const isServerMissing = () =>
+  serverMissing(process.env.NEXT_PUBLIC_SERVER_URL, typeof window === 'undefined' ? null : window.location);
+
+export const NO_SERVER_MESSAGE =
+  "This SyncSound site isn't connected to its room server yet, so rooms can't open. " +
+  'Site owner: deploy the server and set NEXT_PUBLIC_SERVER_URL (see docs/DEPLOY.md).';
+
+/** a free host (e.g. Render) sleeps when idle and takes up to a minute to wake */
+export const SERVER_WAKING_HINT = 'If the server was asleep, waking it can take up to a minute.';
+
 export function serverUrl(): string {
   return deriveServerUrl(
     process.env.NEXT_PUBLIC_SERVER_URL,

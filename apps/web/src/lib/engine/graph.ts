@@ -17,6 +17,7 @@ import {
   eqToBiquads,
   linkwitzRiley4,
   toIirArgs,
+  upmixActive,
   type BiquadCoeffs,
   type DeviceMix,
 } from '@syncsound/audio-core';
@@ -326,7 +327,7 @@ export class Voice {
   }
 
   apply(scene: Scene, mix: Pick<DeviceMix, 'objectGains' | 'bassObjectGains'>) {
-    const key = JSON.stringify([this.channels, scene.upmix, scene.objects.map((o) => [o.id, o.channel])]);
+    const key = JSON.stringify([this.channels, upmixActive(scene), scene.objects.map((o) => [o.id, o.channel])]);
     if (key !== this.layoutKey) {
       this.layoutKey = key;
       this.rebuild(scene, mix);
@@ -346,7 +347,7 @@ export class Voice {
     const keep = <T extends AudioNode>(node: T) => (this.route.push(node), node);
 
     // stereo → surround upmix: C = 0.5(L+R)·0.707, side = 0.5(L−R); SL/SR = side, LP 7 kHz, delayed 12/17 ms
-    const upmix = n === 2 && scene.upmix;
+    const upmix = n === 2 && upmixActive(scene);
     let derived: Partial<Record<'C' | 'SL' | 'SR' | 'AMB', AudioNode>> = {};
     if (upmix) {
       const c = keep(gainNode(ctx, 0.5 * Math.SQRT1_2));

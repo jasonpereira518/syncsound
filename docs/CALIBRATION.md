@@ -6,7 +6,7 @@ All of this lives in `packages/audio-core` (pure TypeScript, unit-tested) and is
 ## Tune (calibration v3)
 
 One tap on any laptop ("the listener") tunes the room. Target: **p95 < 1 ms between any two devices at the
-listener's head**. Laptops first; phones later.
+listener's head**. Any phone or laptop can be the listener: a phone is held at the head, a laptop sits in front of it.
 
 ### Run
 
@@ -59,7 +59,9 @@ laptop's own speaker → mic.
 2. **Positions.** Stress majorization (`smacof2d`) on the measured distances, started from the user's layout, then a
    rigid fit (`procrustes2d`, reflection allowed) back onto it so front and left/right stay where the user put them.
    Devices without distances keep their hand placement (and are flagged).
-3. **Head.** `listener = polar(mic, 180°, 0.4 m)` — the head sits ~0.4 m behind the tuning laptop. Draggable.
+3. **Head.** `listener = polar(mic, 180°, headOffsetFor(class))` — 0.4 m behind a tuning laptop/tablet; a phone is
+   held at the head, so the head *is* its mic (0 m) and the mic→head step disappears. Draggable. After a full tune a
+   held phone mutes itself as a speaker (it would play at the ear) when other speakers were heard.
 4. **Timing, from the listener row only.** `cal_i = M(L,i) − |p_i − mic|/c`, minus the minimum → stored as
    `calibratedLatencyMs` (slower devices start earlier). `propagationDelays()` then delays nearer speakers by
    `(d_max − d_i,head)/c`. At the mic every distance error cancels exactly; only the short mic→head step depends on
@@ -123,13 +125,17 @@ its own latency cancels. Result: histogram plus per-device mean/std/p95.
 
 ## Spatial rendering (per device)
 
-- **DBAP:** `g_i ∝ 1/(d_i² + blur²)^(rolloff/2)`, normalized so `Σ g_i² = 1` over participating devices
-  (connected, positioned, unmuted; solo restricts the set).
+- **Panning (`vbapGains`):** pairwise constant-power panning by direction around the listener, `Σ g_i² = 1` over
+  participating devices (connected, positioned, unmuted; solo restricts the set). Standard layouts pan over their
+  slots (a channel within 10° of its own slot plays from it exactly); Custom over each device's direction;
+  Everywhere plays the whole mix on every speaker unless 8D is on. Sounds near the listener spread over every speaker.
+- **8D (`scene.motion`):** the mix is narrowed to 30 % of its width and turned round the listener, angle
+  `360°·(t − start)/period` from room time, so every device pans the same way with no extra messages.
 - **Main bus** = Σ_objects `objectGains[o]` · object.
 - **Bass bus** = LR4 lowpass @ `crossoverHz` of Σ `bassObjectGains[o]` · object (LFE objects, plus the
   re-routed lows of power that landed on high-passed devices), × `bassGain` = 1/√(number of bass-capable devices).
   Non-bass-capable devices are LR4 high-passed at the crossover; a `Sub` role plays only the bass bus. With no
   bass-capable device, everyone is full range and LFE folds in at −10 dB.
 - **Gains** change via `setTargetAtTime` (τ ≈ 30 ms), so dragging an object makes no zipper noise.
-- **Upmix** (stereo → surround, optional): C = mid at −3 dB; SL/SR = side, low-passed at 7 kHz and delayed
+- **Upmix** (stereo → surround; automatic in standard layouts beyond the front pair): C = mid at −3 dB; SL/SR = side, low-passed at 7 kHz and delayed
   12/17 ms for decorrelation; AMB = side.

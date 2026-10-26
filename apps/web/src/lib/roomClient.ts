@@ -13,7 +13,7 @@ import {
   type ServerMessage,
 } from '@syncsound/protocol';
 import type { ConnStatus } from '../store/types';
-import { serverUrl, wsUrl } from './config';
+import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl, wsUrl } from './config';
 
 export const hostKeyName = (code: string) => `syncsound:hostKey:${code}`;
 const BURST_COUNT = 25;
@@ -30,6 +30,7 @@ export async function readError(res: Response): Promise<string> {
 
 /** POST /api/rooms; stores the host key so the next JOIN claims host. */
 export async function createRoom(password?: string): Promise<CreateRoomResponse> {
+  if (isServerMissing()) throw new Error(NO_SERVER_MESSAGE);
   let res: Response;
   try {
     res = await fetch(`${serverUrl()}/api/rooms`, {
@@ -38,7 +39,7 @@ export async function createRoom(password?: string): Promise<CreateRoomResponse>
       body: JSON.stringify(password ? { password } : {}),
     });
   } catch {
-    throw new Error("Can't reach the SyncSound server. Check that it is running and on the same network.");
+    throw new Error(`Can't reach the SyncSound server. Check that it is running and on the same network. ${SERVER_WAKING_HINT}`);
   }
   if (!res.ok) throw new Error(`Couldn't create a room: ${await readError(res)}`);
   const parsed = CreateRoomResponse.safeParse(await res.json());
@@ -52,11 +53,12 @@ export async function createRoom(password?: string): Promise<CreateRoomResponse>
 }
 
 export async function getRoomInfo(code: string): Promise<RoomInfoResponse> {
+  if (isServerMissing()) throw new Error(NO_SERVER_MESSAGE);
   let res: Response;
   try {
     res = await fetch(`${serverUrl()}/api/rooms/${encodeURIComponent(code)}`);
   } catch {
-    throw new Error("Can't reach the SyncSound server.");
+    throw new Error(`Can't reach the SyncSound server. ${SERVER_WAKING_HINT}`);
   }
   if (res.status === 404) return { exists: false, hasPassword: false };
   if (!res.ok) throw new Error(`Couldn't look up the room: ${await readError(res)}`);

@@ -129,3 +129,23 @@ Record results in the table at the bottom.
       and the panel says so.
     - **Bluetooth phone** receiving at 150 ms: the "plays N ms late" warning appears; set the buffer to the suggested
       value and it disappears, and the phone falls into line with the others.
+
+22. **Speaker spots + 8D.** 4–5 phones/laptops around one chair, any stereo music file.
+    - Pick **5.1** on the Stage. Every speaker plays: the centre and both surrounds must not be silent.
+    - Change a speaker's spot from the Devices list (e.g. Front left → Surround right): it moves on the map, and the
+      speaker that held that spot takes the old one. Nothing goes quiet.
+    - Join one more phone: within a second it gets a spot (shown in its own screen) and plays.
+    - Drag the *Left* sound to a surround speaker on the map: it should now clearly come from that speaker alone.
+    - Turn on **8D → Medium**: the music should audibly circle you about once every 8 s, speaker to speaker, with every
+      device in step (no speaker lagging the sweep). Try Slow / Fast, then Off.
+    - Pick **Everywhere**: every speaker plays the full mix; with 8D on, the mix circles the room through all of them.
+
+23. **Phone as the listener + iOS audio (Phase 2).** An iPhone (Safari) and an Android phone, plus 2–3 other speakers.
+    - Tune from the iPhone held at your head: the wizard says to hold it at ear height. The result should place the
+      seat on the phone, and timing at your head should sound tight (Measure sync from the same spot: p95 < 1 ms).
+    - Afterwards the iPhone is muted as a speaker with a note; unmuting it in Devices works.
+    - After the tune, music on the iPhone must be at normal loudspeaker volume (not quiet, not on the earpiece).
+    - Lock the iPhone mid-tune: the tune stops with "screen locked or you switched apps". Lock a *recording* phone
+      mid-tune: the tune still finishes, without that phone's distances.
+    - Play music, then take a call / trigger Siri on a speaker iPhone. When it ends, sound returns by itself or the
+      "Turn the sound back on" banner appears and one tap brings it back in sync.

@@ -97,7 +97,8 @@ export async function startServer(
       storage,
       dataDir,
       allowedOrigins,
-      publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL,
+      // Render sets RENDER_EXTERNAL_URL (https://<service>.onrender.com), so uploads get the right public link there
+      publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL,
       maxUploadBytes: opts.maxUploadBytes ?? MAX_UPLOAD_BYTES,
       clock,
       homes,

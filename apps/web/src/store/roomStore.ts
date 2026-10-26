@@ -4,7 +4,7 @@
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
 import { dueNow, setBatterySaverFlag } from '../lib/power';
-import { autoAssign, defaultObjectsFor, isRoutedLayout, presetLayout, slotPositions, type RoomClock } from '@syncsound/audio-core';
+import { autoAssign, autoSlot, defaultObjectsFor, isRoutedLayout, LAYOUT_SLOTS, presetLayout, slotPositions, upmixActive, type RoomClock } from '@syncsound/audio-core';
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
@@ -12,6 +12,7 @@ import {
   isValidRoomCode,
   type ClientMessage,
   type DeviceCaps,
+  type DeviceRole,
   type Playback,
   type RoomState,
   type Scene,
@@ -19,7 +20,7 @@ import {
   type ServerMessage,
   type Track,
 } from '@syncsound/protocol';
-import { serverUrl } from '../lib/config';
+import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl } from '../lib/config';
 import { batteryLevel, buildCaps, getDeviceId, randomId, rememberName, storage } from '../lib/device';
 import { recallOutputCalibration, rememberOutputCalibration, routeChangeAction } from '../lib/outputMemory';
 import { AudioEngine } from '../lib/engine/audioEngine';
@@ -70,7 +71,7 @@ let session: Session | null = null;
 const activeClock = (s: Session): RoomClock => (s.link.ready ? s.link : s.client.clock);
 let joining: string | null = null;
 
-const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout'] as const;
+const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout', 'motion'] as const;
 const fin = (x: number) => (Number.isFinite(x) ? x : 0);
 const newTrackId = () => `t_${randomId(12)}`;
 
@@ -189,32 +190,59 @@ function learnTrackInfo(trackId: string, info: { durationSec: number; channels: 
  */
 function maybeAutoObjects(s: Session, room: RoomState) {
   const { isHost, deviceId } = useRoomStore.getState();
+  // standard layouts with a centre / surrounds upmix stereo by themselves, so no slot is ever silent
+  const upmix = upmixActive(room.scene);
   let channels: number;
   let key: string;
   if (room.captureHostId === deviceId) {
     channels = 2;
-    key = `capture|2|${room.scene.upmix}`;
+    key = `capture|2|${upmix}`;
   } else {
     if (!isHost) return;
     const track = room.queue.find((t) => t.id === room.playback.trackId);
     if (!track?.channels || track.sourceClass !== 'rendered') return;
     channels = track.channels;
-    key = `${track.id}|${track.channels}|${room.scene.upmix}`;
+    key = `${track.id}|${track.channels}|${upmix}`;
   }
   if (key === s.autoObjectsKey) return;
   s.autoObjectsKey = key;
   try {
-    const desired = defaultObjectsFor(channels, room.scene.upmix);
+    const desired = defaultObjectsFor(channels, upmix);
+    // sounds the user added by hand stay
+    const extras = room.scene.objects.filter((o) => o.channel === 'STEM');
     const chans = (os: { channel: string }[]) => os.map((o) => o.channel).sort().join();
-    if (chans(desired) === chans(room.scene.objects)) return;
+    if (chans([...desired, ...extras]) === chans(room.scene.objects)) return;
     const objects = desired.map((d) => {
       const ex = room.scene.objects.find((o) => o.channel === d.channel);
       return ex ? { ...d, id: ex.id, label: ex.label, position: ex.position, gainDb: ex.gainDb, muted: ex.muted } : d;
     });
-    roomActions.updateScene({ objects }, { commit: true });
+    roomActions.updateScene({ objects: [...objects, ...extras] }, { commit: true });
   } catch {
     /* audio-core not ready: keep the scene as is */
   }
+}
+
+/**
+ * host only: in a standard layout every connected speaker gets a slot. New joiners (role 'Full') and devices whose
+ * saved role isn't in this layout go to the emptiest slot. Deferred a tick so a layout switch in progress settles first.
+ */
+let autoSlotQueued = false;
+function maybeAutoSlot() {
+  if (autoSlotQueued) return;
+  autoSlotQueued = true;
+  setTimeout(() => {
+    autoSlotQueued = false;
+    const st = useRoomStore.getState();
+    const room = st.room;
+    if (!st.isHost || !room || !session) return;
+    const layout = room.scene.layout;
+    const live = room.devices.filter((d) => d.connected);
+    const fix = autoSlot(layout, live);
+    if (!isRoutedLayout(layout) || !Object.keys(fix).length) return;
+    for (const [id, role] of Object.entries(fix)) roomActions.updateDevice({ role }, id);
+    const roles = Object.fromEntries(live.map((d) => [d.id, fix[d.id] ?? d.role]));
+    roomActions.updateScene({ devices: slotPositions(layout, roles, room.scene) }, { commit: true });
+  }, 0);
 }
 
 // ---------- per-output calibration memory (Bluetooth / headphones / built-in each keep their own latency) ----------
@@ -342,6 +370,7 @@ function applyFullScene(s: Session, snapshot: Scene) {
   s.lastLocalSceneEdit = performance.now();
   const update: ScenePatch = {};
   for (const k of SCENE_KEYS) (update as Record<string, unknown>)[k] = scene[k];
+  update.motion = scene.motion ?? null; // undo back to "still" must reach the others
   send({ type: 'SCENE_UPDATE', ...update });
   useRoomStore.setState({ canUndo: s.history.canUndo, canRedo: s.history.canRedo });
 }
@@ -380,6 +409,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const displayName = name.trim().slice(0, 40);
     if (!isValidRoomCode(roomCode)) return setError("That room code doesn't look right (6 letters/numbers).");
     if (!displayName) return setError('Enter a name for this device.');
+    if (isServerMissing()) return setError(NO_SERVER_MESSAGE); // a connection that can't succeed would just spin
     if (joining === roomCode) return;
     if (session) {
       if (session.code === roomCode) {
@@ -475,6 +505,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         s.capture.onRoomChanged(st.room);
         s.remote.onRoomChanged();
         if (st.room) maybeAutoObjects(s, st.room);
+        if (st.room) maybeAutoSlot();
       }),
     );
     const statsTimer = setInterval(() => sendStats(s), 2000);
@@ -499,7 +530,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
     client.connect();
     const slow = setTimeout(() => {
-      if (useRoomStore.getState().conn !== 'open') setError("Can't reach the SyncSound server yet. Still trying…");
+      if (useRoomStore.getState().conn !== 'open') setError(`Can't reach the SyncSound server yet. Still trying… ${SERVER_WAKING_HINT}`);
       resolveJoin();
     }, 10_000);
     s.cleanup.push(() => clearTimeout(slow));
@@ -586,13 +617,23 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   },
 
   assignSlot(deviceId, role) {
-    const room = useRoomStore.getState().room;
-    if (!room) return;
-    roomActions.updateDevice({ role }, deviceId);
+    const st = useRoomStore.getState();
+    const room = st.room;
+    const dev = room?.devices.find((d) => d.id === deviceId);
+    if (!room || !dev || dev.role === role) return;
+    // with control locked a guest may only change their own speaker: no swap, no re-placing the room
+    if (!st.isHost && room.settings.hostOnlyControl) return roomActions.updateDevice({ role }, deviceId);
     const layout = room.scene.layout;
+    const live = room.devices.filter((d) => d.connected);
+    const roles: Record<string, DeviceRole> = Object.fromEntries(live.map((d) => [d.id, d.role]));
+    roles[deviceId] = role;
+    // moving into a taken spot swaps: whoever was there takes the spot this speaker leaves, so none goes empty
+    if (isRoutedLayout(layout) && role !== 'Sub' && (LAYOUT_SLOTS[layout] as DeviceRole[]).includes(dev.role))
+      for (const d of live) if (d.id !== deviceId && d.role === role) roles[d.id] = dev.role;
+    for (const d of live) if (roles[d.id] !== d.role) roomActions.updateDevice({ role: roles[d.id] }, d.id);
+    if (!live.some((d) => d.id === deviceId)) roomActions.updateDevice({ role }, deviceId);
     if (!isRoutedLayout(layout)) return;
     // re-place everyone so devices sharing a slot fan out around it
-    const roles = Object.fromEntries(room.devices.filter((d) => d.connected).map((d) => [d.id, d.id === deviceId ? role : d.role]));
     roomActions.updateScene({ devices: slotPositions(layout, roles, room.scene) }, { commit: true });
   },
 
@@ -768,6 +809,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     useRoomStore.setState({ routeChanged: false, routeRestored: null });
   },
 
+  resumeAudio() {
+    session?.engine.resume(); // synchronous: must stay inside the tap's user activation
+  },
+
   async startCapture() {
     if (!session) return setError('Join the room first.');
     await session.capture.start();
@@ -826,7 +871,8 @@ installInstrumentation({
       return null;
     }
   },
-  mix: () => useRoomStore.getState().mix,
+  // the engine's live mix: with 8D on it moves ~30×/s while the store keeps the last full recompute
+  mix: () => session?.engine.mix ?? useRoomStore.getState().mix,
   tap: () => session?.engine.readTaps() ?? null,
   liveDelay: () => session?.capture.liveDelayInfo() ?? null,
 });

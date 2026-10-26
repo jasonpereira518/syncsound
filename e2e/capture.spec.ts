@@ -93,20 +93,23 @@ test('capture mode: a guest hears a clean, steady, stereo stream aligned by a st
   expect(g.jitterTargetMs).toBe(75); // half of the 150 ms default buffer
   await guest.page.waitForTimeout(3000); // let the median window fill
   const before = (await live(guest.page))!;
-  const readings = await sample(guest.page, 16, 250);
+  const [readings, hostReadings] = await Promise.all([sample(guest.page, 16, 250), sample(host.page, 16, 250)]);
   const after = (await live(guest.page))!;
 
-  // level: the 0.2-amplitude tone (−17 dBFS per channel) lands around −27…−14 dBFS after the DBAP gains;
+  // level: the 0.2-amplitude tone (−17 dBFS per channel) lands around −27…−14 dBFS after the panning gains;
   // digital silence (unmapped objects, a dropped voice) reads ≤ −100. A 6 dB envelope rules out dropouts and pumping.
   const levels = readings.map((r) => r.out[0]!.rmsDb);
   for (const db of levels) expect(db).toBeGreaterThan(-50);
   expect(Math.max(...levels) - Math.min(...levels)).toBeLessThanOrEqual(6);
-  // both tones reach the output: the L and R objects are mapped (a leftover mono or 5.1 scene would mute one or both)
-  for (const r of readings) {
-    expect(peakDb(r.out[0]!, 440)).toBeGreaterThan(-Infinity);
-    expect(peakDb(r.out[0]!, 660)).toBeGreaterThan(-Infinity);
-  }
-  // stereo survives Opus and the channel mapping: L carries 440, R carries 660 (the output itself is a mono DBAP sum,
+  // both tones reach the room: the L and R objects are mapped (a leftover mono or 5.1 scene would mute one or both).
+  // Panning is sharp (vbapGains), so one speaker may play only its own side: each tone must come out of the host or
+  // the guest on every reading.
+  readings.forEach((r, i) => {
+    const h = hostReadings[i]!;
+    expect(Math.max(peakDb(r.out[0]!, 440), peakDb(h.out[0]!, 440))).toBeGreaterThan(-Infinity);
+    expect(Math.max(peakDb(r.out[0]!, 660), peakDb(h.out[0]!, 660))).toBeGreaterThan(-Infinity);
+  });
+  // stereo survives Opus and the channel mapping: L carries 440, R carries 660 (the output itself is a mono mix,
   // so this is only observable on the live source)
   for (const r of readings) {
     expect(r.external).not.toBeNull();

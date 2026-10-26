@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveServerUrl, toWsUrl } from './config';
+import { deriveServerUrl, serverMissing, toWsUrl } from './config';
 
 describe('server URL derivation', () => {
   it('uses the env URL (trailing slash trimmed) when set', () => {
@@ -12,5 +12,18 @@ describe('server URL derivation', () => {
   it('maps http(s) to ws(s) + /ws', () => {
     expect(toWsUrl('https://a.b:8787')).toBe('wss://a.b:8787/ws');
     expect(toWsUrl('http://localhost:8787')).toBe('ws://localhost:8787/ws');
+  });
+});
+
+describe('a public site with no server configured', () => {
+  it('is flagged on a public host without NEXT_PUBLIC_SERVER_URL', () => {
+    expect(serverMissing(undefined, { hostname: 'sync-sound.vercel.app' })).toBe(true);
+    expect(serverMissing(undefined, { hostname: 'syncsound.example.com' })).toBe(true);
+  });
+  it('is fine once the env URL is set, and on this machine or the local network', () => {
+    expect(serverMissing('https://syncsound-server.onrender.com', { hostname: 'sync-sound.vercel.app' })).toBe(false);
+    for (const hostname of ['localhost', '127.0.0.1', '[::1]', '192.168.1.20', '10.23.209.122', '172.20.0.5', 'my-laptop', 'my-laptop.local', 'app.localhost'])
+      expect(serverMissing(undefined, { hostname }), hostname).toBe(false);
+    expect(serverMissing(undefined, null)).toBe(false); // server-side render: nothing to say yet
   });
 });
