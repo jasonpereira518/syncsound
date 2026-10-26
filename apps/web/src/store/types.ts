@@ -172,7 +172,7 @@ export interface RoomActions {
   setLayout(layout: LayoutId): void;
   /** move one device to a slot ('Full' = unassigned) */
   assignSlot(deviceId: string, role: DeviceRole): void;
-  updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs'>> & {
+  updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs' | 'crossfadeSec'>> & {
     password?: string | null;
   }): void;
   identify(targetDeviceId: string): void;
