@@ -14,8 +14,8 @@ const FIGURES = [
     value: '0.69 ms',
     caption: 'How far device clocks stray from the room clock, 95th percentile, on simulated Wi-Fi with jitter and 1% packet loss.',
   },
-  { value: '3.4 ms', caption: 'Largest playback-position error over ten simulated minutes of clock drift.' },
-  { value: '0', caption: 'Hard restarts in that run. Drift is trimmed with rate nudges of at most 0.06%, too small to hear.' },
+  { value: '2.2 ms', caption: 'Largest playback-position error over ten simulated minutes of clock drift.' },
+  { value: '0', caption: 'Hard restarts in that run. Drift is trimmed with rate nudges of at most 0.04%, too small to hear.' },
 ];
 
 const FAQ = [

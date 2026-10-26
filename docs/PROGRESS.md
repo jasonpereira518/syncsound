@@ -37,4 +37,4 @@
 - [ ] S3 on real hardware (HUMAN_TEST_CHECKLIST 24)
 - [x] S4 – Simplest setup experience: one-screen setup (layout suggested and applied by the tune, "Adjust layout" folded away, auto-advance), mic asked for at join (`probeMic`, `caps.micPermission`, `CAPS_UPDATE`), prepare/ready handshake (`CALIBRATION_PREPARE`/`READY`, 8 s deadline on a room timer, 1.5 s lead), one "Tune" verb (`roomActions.tune` + `tuneStatus`), Tune card in Now Playing, names in warnings, landing → room; e2e: host 3 taps to tuned / 5 to playing, guest 1; slow, unanswering and busy recorders; `AudioClockMap` lost-lock recovery, immediate busy on a participating device (DECISIONS 80–88)
 - [ ] S4 on real hardware (HUMAN_TEST_CHECKLIST 16, 25)
-- [ ] S5 – Docs and results
+- [x] S5 – Docs and results: SYNC_RESULTS §2c–2f, §4c, §4d, §6 setup checks; stale figures fixed (landing page, LIMITATIONS EQ); superseded decisions marked; `pnpm verify` green
