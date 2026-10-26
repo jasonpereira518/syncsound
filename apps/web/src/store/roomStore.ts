@@ -20,7 +20,7 @@ import {
   type ServerMessage,
   type Track,
 } from '@syncsound/protocol';
-import { serverUrl } from '../lib/config';
+import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl } from '../lib/config';
 import { batteryLevel, buildCaps, getDeviceId, randomId, rememberName, storage } from '../lib/device';
 import { recallOutputCalibration, rememberOutputCalibration, routeChangeAction } from '../lib/outputMemory';
 import { AudioEngine } from '../lib/engine/audioEngine';
@@ -409,6 +409,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const displayName = name.trim().slice(0, 40);
     if (!isValidRoomCode(roomCode)) return setError("That room code doesn't look right (6 letters/numbers).");
     if (!displayName) return setError('Enter a name for this device.');
+    if (isServerMissing()) return setError(NO_SERVER_MESSAGE); // a connection that can't succeed would just spin
     if (joining === roomCode) return;
     if (session) {
       if (session.code === roomCode) {
@@ -529,7 +530,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
     client.connect();
     const slow = setTimeout(() => {
-      if (useRoomStore.getState().conn !== 'open') setError("Can't reach the SyncSound server yet. Still trying…");
+      if (useRoomStore.getState().conn !== 'open') setError(`Can't reach the SyncSound server yet. Still trying… ${SERVER_WAKING_HINT}`);
       resolveJoin();
     }, 10_000);
     s.cleanup.push(() => clearTimeout(slow));
