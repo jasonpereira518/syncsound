@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { roomActions, useRoomStore } from '@/store/roomStore';
-import { Badge, Button } from '../ui';
+import { Button, Icon, Select } from '../ui';
 import { act } from './shared';
 
 const DURATIONS = [10, 30, 60] as const;
@@ -17,20 +17,19 @@ export function SyncMeasurePanel() {
   const maxCount = Math.max(1, ...(m.histogram?.counts ?? [1]));
 
   return (
-    <section className="mt-6 border-t border-ink-700 pt-4" aria-labelledby="sync-measure-title">
+    <section className="mt-8" aria-labelledby="sync-measure-title">
       <h3 id="sync-measure-title" className="text-xs font-medium tracking-widest text-ink-400 uppercase">
         Measure sync
       </h3>
-      <p className="mt-1 text-sm text-ink-400">
+      <p className="mt-1 text-sm text-ink-300">
         Every speaker clicks once per second in its own frequency band; this microphone measures how far apart they
         really arrive. Run it after calibrating, from the listening position.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-sm text-ink-300">
+        <label className="flex items-center gap-2 text-sm text-ink-200">
           Duration
-          <select
+          <Select
             data-testid="sync-measure-duration"
-            className="rounded-lg border border-ink-600 bg-ink-850 px-2 py-2"
             value={duration}
             disabled={busy}
             onChange={(e) => setDuration(Number(e.target.value))}
@@ -40,25 +39,26 @@ export function SyncMeasurePanel() {
                 {d} s
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {busy ? (
-          <Button onClick={() => act(() => roomActions.cancelCalibration())}>Cancel</Button>
+          <Button variant="ghost" onClick={() => act(() => roomActions.cancelCalibration())}>
+            <Icon name="x" className="size-4" /> Cancel
+          </Button>
         ) : (
           <Button
-            variant="primary"
             data-testid="sync-measure-start"
             disabled={calRunning}
             onClick={() => act(() => roomActions.startSyncMeasurement(duration))}
           >
-            Start measurement
+            <Icon name="target" className="size-4" /> Start measurement
           </Button>
         )}
       </div>
       {m.step !== 'idle' && (
         <div data-testid="sync-measure-status" data-step={m.step} className="mt-3" aria-live="polite">
           {busy && (
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-700" role="progressbar" aria-valuenow={Math.round(m.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Measurement progress">
+            <div className="h-1 w-full overflow-hidden rounded-full bg-ink-700" role="progressbar" aria-valuenow={Math.round(m.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Measurement progress">
               <div className="h-full bg-accent transition-[width]" style={{ width: `${m.progress * 100}%` }} />
             </div>
           )}
@@ -72,7 +72,7 @@ export function SyncMeasurePanel() {
       )}
       {m.step === 'done' && m.histogram && (
         <div data-testid="sync-measure-result" className="mt-3">
-          <svg viewBox="0 0 300 90" className="w-full" role="img" aria-label="Histogram of inter-device sync error">
+          <svg viewBox="0 0 300 90" className="w-full text-ink-300" role="img" aria-label="Histogram of inter-device sync error">
             {m.histogram.counts.map((c, i) => {
               const w = 300 / m.histogram!.counts.length;
               const h = (c / maxCount) * 70;
@@ -100,17 +100,17 @@ export function SyncMeasurePanel() {
                 <th className="font-normal">p95</th>
               </tr>
             </thead>
-            <tbody className="font-mono tabular">
+            <tbody className="text-ink-200 tabular">
               {m.devices.map((d) => (
-                <tr key={d.deviceId}>
-                  <td className="py-1 font-sans">{nameOf(d.deviceId)}</td>
+                <tr key={d.deviceId} className="border-t border-ink-800">
+                  <td className="py-2 text-ink-100">{nameOf(d.deviceId)}</td>
                   <td>
                     {d.detected}/{d.total}
                   </td>
                   <td>{Number.isFinite(d.meanMs) ? `${d.meanMs.toFixed(1)} ms` : '—'}</td>
                   <td>
                     {Number.isFinite(d.p95AbsMs) ? (
-                      <Badge tone={d.p95AbsMs < 10 ? 'ok' : d.p95AbsMs < 30 ? 'warn' : 'bad'}>{d.p95AbsMs.toFixed(1)} ms</Badge>
+                      <span className={d.p95AbsMs < 10 ? 'text-ok' : d.p95AbsMs < 30 ? 'text-warn' : 'text-bad'}>{d.p95AbsMs.toFixed(1)} ms</span>
                     ) : (
                       '—'
                     )}

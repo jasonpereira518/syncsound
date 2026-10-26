@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
 import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
-import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
+import { Button, CHANNEL_COLOR, Icon, IconButton, Note, Panel, RangeField, ROLE_COLOR, Select, Toggle, inputClass } from '../ui';
 import { act, isTypingTarget, useCanControl } from './shared';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
@@ -254,15 +254,13 @@ export function Stage() {
       {/* desktop: the map takes whatever height the controls leave */}
       <div className="flex flex-col gap-3 lg:h-full">
         {!canControl && (
-          <p className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
-            <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> The host has locked the stage. You can look, not move.
-          </p>
+          <Note icon="lock">The host has locked the stage. You can look, not move.</Note>
         )}
         <p id="stage-help" className="sr-only">
           Top-down map of the room, front stage at the top. Drag items, or focus one with Tab and use the arrow keys to move it by 0.1 metres (Shift
           for 0.5). Delete removes a selected sound object.
         </p>
-        <div className="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-950 lg:min-h-48 lg:flex-1">
+        <div className="relative overflow-hidden rounded-row bg-ink-950 lg:min-h-48 lg:flex-1">
           <svg
             ref={svgRef}
             data-testid="stage-svg"
@@ -279,7 +277,7 @@ export function Stage() {
                 <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
               </radialGradient>
             </defs>
-            <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={u * 0.3} fill="var(--color-ink-900)" stroke="var(--color-ink-600)" strokeWidth={u * 0.05} />
+            <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={u * 0.3} fill="var(--color-ink-900)" stroke="var(--color-ink-700)" strokeWidth={u * 0.04} />
             {gridX.map((x) => (
               <line key={`gx${x}`} x1={x} x2={x} y1={-D / 2} y2={D / 2} stroke="var(--color-ink-700)" strokeWidth={x === 0 ? u * 0.04 : u * 0.02} />
             ))}
@@ -290,10 +288,10 @@ export function Stage() {
             <text x={0} y={-D / 2 - pad * 0.35} textAnchor="middle" fontSize={fs} fill="var(--color-ink-400)" letterSpacing={u * 0.1} className="font-mono">
               FRONT · STAGE
             </text>
-            <text x={W / 2} y={D / 2 + pad * 0.3} textAnchor="end" fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
+            <text x={W / 2} y={D / 2 + pad * 0.3} textAnchor="end" fontSize={fs * 0.8} fill="var(--color-ink-400)" className="font-mono">
               {W} × {D} m
             </text>
-            <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
+            <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-400)" className="font-mono">
               {Object.keys(tray).length > 0 ? 'unplaced: drag into the room ↑' : canControl ? 'drag to move · click to inspect' : 'click to inspect'}
             </text>
 
@@ -441,12 +439,12 @@ export function Stage() {
                     key={l}
                     data-testid={`layout-${l}`}
                     aria-pressed={(scene.layout ?? 'custom') === l}
-                    variant={(scene.layout ?? 'custom') === l ? 'primary' : undefined}
-                    className="!min-h-9 rounded-full !px-3 text-xs"
+                    size="sm"
+                    className={`!px-3 text-xs ${(scene.layout ?? 'custom') === l ? '!bg-ink-100 !text-ink-950' : ''}`}
                     onClick={() => applyLayout(l)}
                   >
                     {layoutLabel(l, hasSub)}
-                    {l === suggested && <span className="ml-1 text-[10px] opacity-70">suggested</span>}
+                    {l === suggested && <span className="text-[10px] font-normal opacity-70">suggested</span>}
                   </Button>
                 ))}
               </div>
@@ -463,12 +461,13 @@ export function Stage() {
             />
           </div>
           {/* secondary settings stay folded so the map keeps the height */}
-          <details className="group rounded-xl border border-ink-700">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-medium tracking-widest text-ink-400 uppercase hover:text-ink-100">
+          <details className="group">
+            <summary className="-mx-1 flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-full px-3 text-xs font-medium tracking-widest text-ink-400 uppercase transition hover:bg-ink-800 hover:text-ink-100">
+              <Icon name="settings" className="size-4" />
               Rendering &amp; room size
-              <span aria-hidden className="text-base transition group-open:rotate-90">›</span>
+              <Icon name="chevron-down" className="ml-auto size-4 transition-transform group-open:rotate-180" />
             </summary>
-            <div className="grid gap-3 px-3 pb-3 md:grid-cols-2">
+            <div className="grid gap-x-4 gap-y-2 px-1 pt-2 pb-1 md:grid-cols-2">
               <Toggle
                 label="Time-align to listener"
                 description="Delay nearer speakers so sound arrives together"
@@ -638,9 +637,9 @@ function Inspector({
   const mix = dev ? mixes?.[dev.id] : undefined;
   return (
     // desktop: floats over the map so selecting never resizes it; phones: sits under the map
-    <div className="border-t border-ink-700 bg-ink-850/95 p-3 text-sm backdrop-blur lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto lg:rounded-xl lg:border lg:shadow-xl">
+    <div className="rounded-row bg-ink-800 p-4 text-sm max-lg:mt-2 lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto">
       <div className="flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate font-medium">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
+        <p className="min-w-0 truncate font-medium text-ink-100">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
         <div className="flex shrink-0 items-center gap-1">
           {obj && (
             <Button variant="danger" size="sm" disabled={!canControl} onClick={() => onDelete(obj.id)}>
@@ -650,7 +649,7 @@ function Inspector({
           <IconButton icon="x" label="Close inspector" variant="ghost" size="sm" onClick={onClose} />
         </div>
       </div>
-      <p className="mt-1 font-mono text-xs text-ink-400">{pos ? fmtPos(pos) : 'not placed'}</p>
+      <p className="mt-0.5 text-xs text-ink-400 tabular">{pos ? fmtPos(pos) : 'not placed'}</p>
       {obj && gains && (
         <ul className="mt-2 space-y-1">
           {devices
@@ -659,24 +658,23 @@ function Inspector({
               const g = gains[d.id] ?? 0;
               return (
                 <li key={d.id} className="flex items-center gap-2">
-                  <span className="w-24 truncate text-xs">{d.name}</span>
+                  <span className="w-24 truncate text-xs text-ink-200">{d.name}</span>
                   <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-700">
                     <span className="block h-full rounded-full" style={{ width: `${Math.round(g * 100)}%`, background: CHANNEL_COLOR[obj.channel] }} />
                   </span>
-                  <span className="w-14 text-right font-mono text-xs text-ink-400 tabular">{(20 * Math.log10(Math.max(g, 1e-4))).toFixed(1)} dB</span>
+                  <span className="w-14 text-right text-xs text-ink-400 tabular">{(20 * Math.log10(Math.max(g, 1e-4))).toFixed(1)} dB</span>
                 </li>
               );
             })}
         </ul>
       )}
-      {obj && !gains && <p className="mt-2 text-xs text-ink-500">Place connected speakers in the room to see this object&rsquo;s gains.</p>}
+      {obj && !gains && <p className="mt-2 text-xs text-ink-400">Place connected speakers in the room to see this object&rsquo;s gains.</p>}
       {mix && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Badge>out {(20 * Math.log10(Math.max(totalGain(mix), 1e-4))).toFixed(1)} dB</Badge>
-          <Badge>delay {(mix.delaySec * 1000).toFixed(2)} ms</Badge>
-          <Badge>HP {mix.highpassHz ? `${Math.round(mix.highpassHz)} Hz` : 'none'}</Badge>
-          {mix.bassGain > 0 && <Badge tone="accent">bass bus</Badge>}
-        </div>
+        <p className="mt-2 text-xs text-ink-300 tabular">
+          out {(20 * Math.log10(Math.max(totalGain(mix), 1e-4))).toFixed(1)} dB · delay {(mix.delaySec * 1000).toFixed(2)} ms · HP{' '}
+          {mix.highpassHz ? `${Math.round(mix.highpassHz)} Hz` : 'none'}
+          {mix.bassGain > 0 && ' · bass bus'}
+        </p>
       )}
     </div>
   );
@@ -698,18 +696,18 @@ function AddObject({ onAdd, disabled }: { onAdd: (o: Omit<AudioObject, 'position
         <label htmlFor="obj-label" className="sr-only">Object label</label>
         <input id="obj-label" maxLength={40} placeholder="Stem: vocals" value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass} />
         <label htmlFor="obj-channel" className="sr-only">Source channel</label>
-        <select
+        <Select
           id="obj-channel"
           value={channel}
           onChange={(e) => setChannel(e.target.value as ObjectChannel)}
-          className="h-11 shrink-0 rounded-xl border border-ink-600 bg-ink-850 px-2 font-mono text-sm"
+          className="!h-11"
         >
           {CHANNELS.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
-        </select>
+        </Select>
         <IconButton icon="plus" label="Add object" type="submit" disabled={disabled} />
       </div>
     </form>
