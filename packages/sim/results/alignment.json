@@ -10,37 +10,37 @@
       5.93,
       5.1
     ],
-    "maxPairwiseMisalignmentMs": 0.6854,
+    "maxPairwiseMisalignmentMs": 0.6633,
     "pairs": [
       {
         "a": "phone",
         "b": "laptop",
-        "lagMs": 0.6854
+        "lagMs": 0.6633
       },
       {
         "a": "phone",
         "b": "bt-speaker",
-        "lagMs": 0.0841
+        "lagMs": 0.0643
       },
       {
         "a": "phone",
         "b": "tablet",
-        "lagMs": 0.1796
+        "lagMs": 0.1625
       },
       {
         "a": "laptop",
         "b": "bt-speaker",
-        "lagMs": -0.5999
+        "lagMs": -0.5963
       },
       {
         "a": "laptop",
         "b": "tablet",
-        "lagMs": -0.5045
+        "lagMs": -0.5008
       },
       {
         "a": "bt-speaker",
         "b": "tablet",
-        "lagMs": 0.0924
+        "lagMs": 0.0951
       }
     ],
     "devices": [
@@ -58,9 +58,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.990207,
-        "errorVsIdealMs": 0.5212,
-        "clockErrMsAtDecision": -0.374,
+        "when": 19.99023,
+        "errorVsIdealMs": 0.543,
+        "clockErrMsAtDecision": -0.397,
         "calibrationErrMs": -0.177,
         "acmRatePpm": 22.4
       },
@@ -98,9 +98,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.820191,
-        "errorVsIdealMs": 0.6054,
-        "clockErrMsAtDecision": -0.224,
+        "when": 19.820194,
+        "errorVsIdealMs": 0.6078,
+        "clockErrMsAtDecision": -0.198,
         "calibrationErrMs": -0.423,
         "acmRatePpm": 71.9
       },
@@ -118,9 +118,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.976326,
-        "errorVsIdealMs": 0.6992,
-        "clockErrMsAtDecision": -0.471,
+        "when": 19.976331,
+        "errorVsIdealMs": 0.7047,
+        "clockErrMsAtDecision": -0.476,
         "calibrationErrMs": -0.306,
         "acmRatePpm": 1.5
       }
@@ -134,37 +134,37 @@
       30
     ],
     "budgetBoundMs": 7,
-    "maxPairwiseMisalignmentMs": 2.4983,
+    "maxPairwiseMisalignmentMs": 2.5302,
     "pairs": [
       {
         "a": "phone",
         "b": "laptop",
-        "lagMs": 0.9603
+        "lagMs": 0.9569
       },
       {
         "a": "phone",
         "b": "bt-speaker",
-        "lagMs": -0.955
+        "lagMs": -0.9783
       },
       {
         "a": "phone",
         "b": "tablet",
-        "lagMs": -1.5378
+        "lagMs": -1.5714
       },
       {
         "a": "laptop",
         "b": "bt-speaker",
-        "lagMs": -1.9138
+        "lagMs": -1.9342
       },
       {
         "a": "laptop",
         "b": "tablet",
-        "lagMs": -2.4983
+        "lagMs": -2.5302
       },
       {
         "a": "bt-speaker",
         "b": "tablet",
-        "lagMs": -0.5843
+        "lagMs": -0.5973
       }
     ],
     "devices": [
@@ -182,9 +182,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.991206,
-        "errorVsIdealMs": 1.5208,
-        "clockErrMsAtDecision": -1.367,
+        "when": 19.991235,
+        "errorVsIdealMs": 1.546,
+        "clockErrMsAtDecision": -1.397,
         "calibrationErrMs": -0.177,
         "acmRatePpm": 22.4
       },
@@ -202,9 +202,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.963215,
-        "errorVsIdealMs": 2.4798,
-        "clockErrMsAtDecision": -1.529,
+        "when": 19.963238,
+        "errorVsIdealMs": 2.5034,
+        "clockErrMsAtDecision": -1.553,
         "calibrationErrMs": -0.474,
         "acmRatePpm": 0
       },
@@ -222,9 +222,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.820152,
-        "errorVsIdealMs": 0.5656,
-        "clockErrMsAtDecision": -0.186,
+        "when": 19.820155,
+        "errorVsIdealMs": 0.5694,
+        "clockErrMsAtDecision": -0.158,
         "calibrationErrMs": -0.423,
         "acmRatePpm": 71.9
       },
@@ -242,46 +242,46 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.975613,
-        "errorVsIdealMs": -0.0183,
-        "clockErrMsAtDecision": 0.169,
+        "when": 19.975602,
+        "errorVsIdealMs": -0.0244,
+        "clockErrMsAtDecision": 0.179,
         "calibrationErrMs": -0.306,
         "acmRatePpm": 1.5
       }
     ]
   },
   "uncompensated": {
-    "maxPairwiseMisalignmentMs": 169.846,
+    "maxPairwiseMisalignmentMs": 169.8212,
     "pairs": [
       {
         "a": "phone",
         "b": "laptop",
-        "lagMs": 30.388
+        "lagMs": 30.3616
       },
       {
         "a": "phone",
         "b": "bt-speaker",
-        "lagMs": 169.846
+        "lagMs": 169.8212
       },
       {
         "a": "phone",
         "b": "tablet",
-        "lagMs": 15.0488
+        "lagMs": 15.0271
       },
       {
         "a": "laptop",
         "b": "bt-speaker",
-        "lagMs": 139.4552
+        "lagMs": 139.457
       },
       {
         "a": "laptop",
         "b": "tablet",
-        "lagMs": -15.3365
+        "lagMs": -15.334
       },
       {
         "a": "bt-speaker",
         "b": "tablet",
-        "lagMs": -154.7921
+        "lagMs": -154.7913
       }
     ],
     "devices": [
@@ -299,9 +299,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 20.000029,
-        "errorVsIdealMs": 10.3413,
-        "clockErrMsAtDecision": -0.374,
+        "when": 20.000053,
+        "errorVsIdealMs": 10.3694,
+        "clockErrMsAtDecision": -0.397,
         "calibrationErrMs": -0.177,
         "acmRatePpm": 22.4
       },
@@ -339,9 +339,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 19.999768,
-        "errorVsIdealMs": 180.1872,
-        "clockErrMsAtDecision": -0.224,
+        "when": 19.999771,
+        "errorVsIdealMs": 180.1883,
+        "clockErrMsAtDecision": -0.198,
         "calibrationErrMs": -0.423,
         "acmRatePpm": 71.9
       },
@@ -359,9 +359,9 @@
           "lossProb": 0.01
         },
         "joinT": 1700000000000,
-        "when": 20.00102,
-        "errorVsIdealMs": 25.3925,
-        "clockErrMsAtDecision": -0.471,
+        "when": 20.001025,
+        "errorVsIdealMs": 25.3949,
+        "clockErrMsAtDecision": -0.476,
         "calibrationErrMs": -0.306,
         "acmRatePpm": 1.5
       }
@@ -371,13 +371,13 @@
     "joinedAfterStartSec": 7.3,
     "decidedAfterJoinMs": 1500,
     "late": true,
-    "latenessSec": 8.9288,
-    "startOffsetSec": 8.9288,
-    "misalignmentVsPhoneMs": -1.0362,
-    "phoneErrorVsIdealMs": 0.6603,
-    "lateErrorVsIdealMs": -0.3829,
-    "lateAcmRatePpm": -60.9,
-    "clockErrMsAtDecision": -0.332,
+    "latenessSec": 8.9295,
+    "startOffsetSec": 8.9295,
+    "misalignmentVsPhoneMs": -1.7811,
+    "phoneErrorVsIdealMs": 0.6828,
+    "lateErrorVsIdealMs": -1.0936,
+    "lateAcmRatePpm": -633.1,
+    "clockErrMsAtDecision": -0.322,
     "calibrationErrMs": 0.47,
     "spec": {
       "name": "late-joiner",

@@ -26,6 +26,15 @@ describe('fitLine', () => {
     expect(f.slope).toBeCloseTo(2e-6, 9);
     expect(f.n).toBe(49);
   });
+
+  it('rejects a high-leverage outlier at the end of a short window (a late timestamp in the first 8 observations)', () => {
+    const xs = Array.from({ length: 8 }, (_, i) => 1.7e12 + i * 250);
+    const ys = xs.map((x) => 3 + 1e-3 * (1 + 80e-6) * (x - 1.7e12));
+    xs[7]! += 24; // the perf stamp came 24 ms late: the point sits 24 ms right of the line
+    const f = fitLine(xs, ys, 3, 1e-5);
+    expect(f.n).toBe(7);
+    expect(Math.abs(f.slope / 1e-3 - 1) * 1e6).toBeLessThan(100); // within 100 ppm, not bent by 8000
+  });
 });
 
 describe('ClockSync', () => {
@@ -93,5 +102,89 @@ describe('ClockSync', () => {
     const ppm = 50;
     for (let i = 0; i < 120; i++) c.addSample(sample(i * 1000, 100 + ppm * 1e-6 * i * 1000, 20));
     expect(c.estimate().driftPpm).toBeCloseTo(ppm, 1);
+  });
+});
+
+describe('ClockSync re-acquisition after a gap', () => {
+  const ppm = 50;
+  const off = (t: number) => 100 + ppm * 1e-6 * t;
+
+  it('bounds the window by age, not by count (one ping a minute keeps ≤ 5 min of samples)', () => {
+    const c = new ClockSync();
+    for (let i = 0; i < 10; i++) c.addSample(sample(i * 60_000, 100, 10));
+    expect(c.estimate().samples).toBe(6); // 240 s … 540 s
+  });
+
+  it('a burst after a silence that agrees with the mapping forgets nothing', () => {
+    const c = new ClockSync();
+    let t = 0;
+    for (; t < 60_000; t += 1000) c.addSample(sample(t, off(t), 20));
+    const drift0 = c.estimate().driftPpm;
+    expect(Math.abs(drift0 - ppm)).toBeLessThan(1);
+    t = 90_000; // 30 s without pings, then a burst
+    for (let i = 0; i < 25; i++, t += 40) c.addSample(sample(t, off(t), 20));
+    const e = c.estimate();
+    expect(e.samples).toBe(64);
+    expect(Math.abs(e.driftPpm - drift0)).toBeLessThan(0.5);
+    expect(Math.abs(e.pendingSlewMs)).toBeLessThan(0.05);
+    expect(Math.abs(c.toRoomTime(t) - (t + off(t)))).toBeLessThan(0.05);
+  });
+
+  it('a burst that disagrees steps onto it, drops the old window and carries the drift over', () => {
+    const c = new ClockSync();
+    let t = 0;
+    for (; t < 60_000; t += 1000) c.addSample(sample(t, off(t), 20));
+    t = 100_000; // the server (or the device) clock jumped +4 s while no pings flowed
+    for (let i = 0; i < 8; i++, t += 40) c.addSample(sample(t, off(t) + 4000, 20));
+    const e = c.estimate();
+    expect(e.samples).toBe(8); // stepped at the 8th post-gap sample, pre-gap window gone
+    expect(e.pendingSlewMs).toBe(0);
+    expect(e.ageMs).toBeLessThan(500);
+    expect(Math.abs(c.toRoomTime(t) - (t + off(t) + 4000))).toBeLessThan(0.1);
+    expect(Math.abs(e.driftPpm - ppm)).toBeLessThan(2); // carried over as the prior for the new history
+    for (let i = 0; i < 120; i++, t += 1000) c.addSample(sample(t, off(t) + 4000, 20));
+    expect(Math.abs(c.estimate().driftPpm - ppm)).toBeLessThan(1);
+    expect(c.estimate().resets).toBe(0);
+  });
+
+  it('rebase() re-acquires without a reset; shiftSince reports how far the mapping moved', () => {
+    const c = new ClockSync();
+    let t = 0;
+    for (; t < 30_000; t += 1000) c.addSample(sample(t, 500, 20));
+    const before = c.mapping()!;
+    c.rebase();
+    for (let i = 0; i < 25; i++, t += 40) c.addSample(sample(t, 500, 20));
+    expect(Math.abs(c.shiftSince(before, t))).toBeLessThan(0.01);
+    expect(c.estimate().samples).toBe(55);
+    c.rebase();
+    for (let i = 0; i < 25; i++, t += 40) c.addSample(sample(t, 520, 20)); // +20 ms: between the 3 ms gap and 50 ms step thresholds
+    expect(c.shiftSince(before, t)).toBeCloseTo(20, 1);
+    expect(c.estimate().samples).toBe(25);
+  });
+
+  it('frozenAt is the de-slewed mapping anchored at the applied offset', () => {
+    const c = new ClockSync();
+    for (let i = 0; i < 10; i++) c.addSample(sample(i * 50, 2000, 10));
+    // two lower-RTT samples at +10 ms take over the best subset → slewing at 1 ms/s for 10 s
+    c.addSample(sample(1000, 2010, 5));
+    c.addSample(sample(1001, 2010, 5));
+    expect(c.estimate().pendingSlewMs).toBeCloseTo(10, 3);
+    const f = c.frozenAt(1020);
+    expect(f.toRoomTime(1020)).toBeCloseTo(c.toRoomTime(1020), 6);
+    const live = (c.toRoomTime(2020) - c.toRoomTime(1020)) / 1000 - 1;
+    const frozen = (f.toRoomTime(2020) - f.toRoomTime(1020)) / 1000 - 1;
+    expect(live).toBeCloseTo(1e-3, 6);
+    expect(Math.abs(frozen)).toBeLessThan(5e-6);
+    expect(f.toLocalTime(f.toRoomTime(777))).toBeCloseTo(777, 9);
+  });
+
+  it('reset counts and clears the re-acquisition state', () => {
+    const c = new ClockSync();
+    for (let i = 0; i < 10; i++) c.addSample(sample(i * 50, 777, 10));
+    c.rebase();
+    c.reset();
+    expect(c.estimate().resets).toBe(1);
+    expect(c.estimate().ageMs).toBe(0);
+    expect(c.estimate().driftSePpm).toBe(Infinity);
   });
 });

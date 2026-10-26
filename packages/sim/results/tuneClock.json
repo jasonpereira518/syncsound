@@ -1,0 +1,2027 @@
+{
+  "name": "tuneClock",
+  "seeds": 6,
+  "wan": {
+    "new": {
+      "settleWaitMs": {
+        "n": 6,
+        "mean": 18375,
+        "rms": 18633.807,
+        "p50": 20000,
+        "p95": 20000,
+        "max": 20000
+      },
+      "settleTimedOut": 0,
+      "recorderRateErrorPpm": {
+        "n": 30,
+        "mean": -3.232,
+        "rms": 19.322,
+        "p50": 14.336,
+        "p95": 38.785,
+        "max": 45.566
+      },
+      "headAlignmentMs": {
+        "p50": 0.624,
+        "p95": 1.857,
+        "max": 3.35
+      },
+      "distanceErrorM": {
+        "p95": 0.148,
+        "max": 0.178
+      },
+      "allHeard": true,
+      "perSeed": [
+        {
+          "settleWaitMs": 20000,
+          "arrivals": [
+            32.081,
+            33.454,
+            33.748,
+            35.431,
+            33.916
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -1.616,
+              "wanErrAtFreezeMs": 1.977,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 8.026,
+              "acmLong": true,
+              "pendingSlewMs": 0.045,
+              "rateErrPpm": -15.401,
+              "playErrMs": 3.371
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.506,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -2.991,
+              "acmLong": true,
+              "pendingSlewMs": 0,
+              "rateErrPpm": -8.809,
+              "emitErrMs": -2.562,
+              "playErrMs": 2.971
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.932,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.665,
+              "acmLong": true,
+              "pendingSlewMs": 0.024,
+              "rateErrPpm": 5.729,
+              "emitErrMs": -2.515,
+              "playErrMs": 2.631
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.767,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.75,
+              "acmLong": true,
+              "pendingSlewMs": -0.012,
+              "rateErrPpm": 12.768,
+              "emitErrMs": -4.085,
+              "playErrMs": 2.68
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.69,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -9.27,
+              "acmLong": true,
+              "pendingSlewMs": 0.347,
+              "rateErrPpm": 4.986,
+              "emitErrMs": -3.002,
+              "playErrMs": 2.927
+            }
+          }
+        },
+        {
+          "settleWaitMs": 11500,
+          "arrivals": [
+            34.438,
+            33.652,
+            32.853,
+            33.461,
+            33.538
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.601,
+              "wanErrAtFreezeMs": 3.741,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 8.544,
+              "acmLong": true,
+              "pendingSlewMs": -0.018,
+              "rateErrPpm": 9.883,
+              "playErrMs": 3.242
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.769,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 4.991,
+              "acmLong": false,
+              "pendingSlewMs": -0.003,
+              "rateErrPpm": -15.682,
+              "emitErrMs": -2.845,
+              "playErrMs": 3.312
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.149,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 22.519,
+              "acmLong": false,
+              "pendingSlewMs": 0.085,
+              "rateErrPpm": -45.566,
+              "emitErrMs": -1.809,
+              "playErrMs": 2.967
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.233,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 6.233,
+              "acmLong": false,
+              "pendingSlewMs": 0.012,
+              "rateErrPpm": -8.204,
+              "emitErrMs": -2.934,
+              "playErrMs": 3.549
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.716,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 17.53,
+              "acmLong": false,
+              "pendingSlewMs": 0.007,
+              "rateErrPpm": -23.786,
+              "emitErrMs": -2.854,
+              "playErrMs": 3.282
+            }
+          }
+        },
+        {
+          "settleWaitMs": 20000,
+          "arrivals": [
+            34.276,
+            33.218,
+            33.212,
+            33.533,
+            33.496
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.405,
+              "wanErrAtFreezeMs": 3.43,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 0.572,
+              "acmLong": true,
+              "pendingSlewMs": -0.051,
+              "rateErrPpm": 2.313,
+              "playErrMs": 2.635
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.245,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 7.347,
+              "acmLong": true,
+              "pendingSlewMs": -0.015,
+              "rateErrPpm": -24.208,
+              "emitErrMs": -2.337,
+              "playErrMs": 2.725
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.967,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -5.04,
+              "acmLong": true,
+              "pendingSlewMs": -0.002,
+              "rateErrPpm": 25.467,
+              "emitErrMs": -3.266,
+              "playErrMs": 3.429
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.217,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.985,
+              "acmLong": true,
+              "pendingSlewMs": 0.135,
+              "rateErrPpm": 5.558,
+              "emitErrMs": -3.217,
+              "playErrMs": 3.102
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.298,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 5.493,
+              "acmLong": true,
+              "pendingSlewMs": -0.002,
+              "rateErrPpm": 1.784,
+              "emitErrMs": -2.508,
+              "playErrMs": 2.526
+            }
+          }
+        },
+        {
+          "settleWaitMs": 20000,
+          "arrivals": [
+            33.169,
+            33.527,
+            33.148,
+            33.534,
+            33.682
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.768,
+              "wanErrAtFreezeMs": 2.893,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 20.928,
+              "acmLong": false,
+              "pendingSlewMs": 0.063,
+              "rateErrPpm": -38.785,
+              "playErrMs": 3.074
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.697,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 4.687,
+              "acmLong": true,
+              "pendingSlewMs": 0.024,
+              "rateErrPpm": -26.222,
+              "emitErrMs": -2.636,
+              "playErrMs": 2.702
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.258,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -12.978,
+              "acmLong": true,
+              "pendingSlewMs": 0.074,
+              "rateErrPpm": -14.336,
+              "emitErrMs": -2.39,
+              "playErrMs": 2.768
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.358,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -8.16,
+              "acmLong": true,
+              "pendingSlewMs": 0.043,
+              "rateErrPpm": 28.636,
+              "emitErrMs": -3.407,
+              "playErrMs": 3.574
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.209,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -1.535,
+              "acmLong": true,
+              "pendingSlewMs": -0.015,
+              "rateErrPpm": 20.525,
+              "emitErrMs": -3.75,
+              "playErrMs": 3.757
+            }
+          }
+        },
+        {
+          "settleWaitMs": 19000,
+          "arrivals": [
+            33.428,
+            31.571,
+            33.065,
+            32.4,
+            31.897
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.053,
+              "wanErrAtFreezeMs": 3.01,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -12.29,
+              "acmLong": true,
+              "pendingSlewMs": 0.139,
+              "rateErrPpm": 12.023,
+              "playErrMs": 1.999
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.338,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -3.337,
+              "acmLong": true,
+              "pendingSlewMs": -0.254,
+              "rateErrPpm": -6.31,
+              "emitErrMs": -2.114,
+              "playErrMs": 3.007
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.504,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.077,
+              "acmLong": true,
+              "pendingSlewMs": 0.098,
+              "rateErrPpm": 25.994,
+              "emitErrMs": -3.554,
+              "playErrMs": 2.72
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.762,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -24.469,
+              "acmLong": false,
+              "pendingSlewMs": 0.044,
+              "rateErrPpm": 29.918,
+              "emitErrMs": -3.334,
+              "playErrMs": 3.196
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.214,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.383,
+              "acmLong": true,
+              "pendingSlewMs": -0.039,
+              "rateErrPpm": -12.57,
+              "emitErrMs": -2.557,
+              "playErrMs": 2.94
+            }
+          }
+        },
+        {
+          "settleWaitMs": 19750,
+          "arrivals": [
+            31.842,
+            32.466,
+            33.213,
+            32.519,
+            33.089
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.139,
+              "wanErrAtFreezeMs": 2.517,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 1.806,
+              "acmLong": true,
+              "pendingSlewMs": 0.343,
+              "rateErrPpm": -10.91,
+              "playErrMs": 3.725
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.286,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 8.772,
+              "acmLong": true,
+              "pendingSlewMs": -0.01,
+              "rateErrPpm": -19.308,
+              "emitErrMs": -2.098,
+              "playErrMs": 3.148
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.131,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 6.784,
+              "acmLong": true,
+              "pendingSlewMs": 0.025,
+              "rateErrPpm": 1.156,
+              "emitErrMs": -2.988,
+              "playErrMs": 3.187
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.591,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -6.723,
+              "acmLong": false,
+              "pendingSlewMs": -0.074,
+              "rateErrPpm": -16.82,
+              "emitErrMs": -2.167,
+              "playErrMs": 3.163
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.937,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -2.702,
+              "acmLong": true,
+              "pendingSlewMs": 0.185,
+              "rateErrPpm": 3.206,
+              "emitErrMs": -2.797,
+              "playErrMs": 3.279
+            }
+          }
+        }
+      ]
+    },
+    "old": {
+      "settleWaitMs": {
+        "n": 6,
+        "mean": 0,
+        "rms": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0
+      },
+      "settleTimedOut": 0,
+      "recorderRateErrorPpm": {
+        "n": 30,
+        "mean": -14.965,
+        "rms": 76.536,
+        "p50": 29.203,
+        "p95": 127.45,
+        "max": 326.438
+      },
+      "headAlignmentMs": {
+        "p50": 0.968,
+        "p95": 3.651,
+        "max": 4.713
+      },
+      "distanceErrorM": {
+        "p95": 0.273,
+        "max": 0.451
+      },
+      "allHeard": true,
+      "perSeed": [
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            31.598,
+            32.865,
+            34.247,
+            36.311,
+            33.833
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.136,
+              "wanErrAtFreezeMs": 2.552,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 74.56,
+              "acmLong": false,
+              "pendingSlewMs": -0.81,
+              "rateErrPpm": -326.438,
+              "playErrMs": 2.913
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.723,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -14.01,
+              "acmLong": false,
+              "pendingSlewMs": -0.289,
+              "rateErrPpm": -8.809,
+              "emitErrMs": -2.657,
+              "playErrMs": 2.739
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.288,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -16.412,
+              "acmLong": false,
+              "pendingSlewMs": 0.298,
+              "rateErrPpm": 29.411,
+              "emitErrMs": -3.435,
+              "playErrMs": 2.557
+            },
+            "C": {
+              "wanErrAtFreezeMs": 4.087,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 35.685,
+              "acmLong": false,
+              "pendingSlewMs": 0,
+              "rateErrPpm": 78.745,
+              "emitErrMs": -4.705,
+              "playErrMs": 2.555
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.254,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 46.2,
+              "acmLong": false,
+              "pendingSlewMs": 0.072,
+              "rateErrPpm": -127.45,
+              "emitErrMs": -2.324,
+              "playErrMs": 2.897
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            33.529,
+            32.614,
+            33.092,
+            33.399,
+            33.935
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.641,
+              "wanErrAtFreezeMs": 2.989,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 27.293,
+              "acmLong": false,
+              "pendingSlewMs": -0.041,
+              "rateErrPpm": -26.098,
+              "playErrMs": 3.252
+            },
+            "A": {
+              "wanErrAtFreezeMs": 1.63,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 6.347,
+              "acmLong": false,
+              "pendingSlewMs": -0.185,
+              "rateErrPpm": -105.156,
+              "emitErrMs": -1.672,
+              "playErrMs": 3.298
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.858,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 26.992,
+              "acmLong": false,
+              "pendingSlewMs": -0.148,
+              "rateErrPpm": -24.755,
+              "emitErrMs": -1.71,
+              "playErrMs": 2.79
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.234,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 6.484,
+              "acmLong": false,
+              "pendingSlewMs": 0.017,
+              "rateErrPpm": -28.285,
+              "emitErrMs": -2.682,
+              "playErrMs": 3.59
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.459,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 23.573,
+              "acmLong": false,
+              "pendingSlewMs": 0.287,
+              "rateErrPpm": 19.851,
+              "emitErrMs": -2.869,
+              "playErrMs": 3.196
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            34.588,
+            34.009,
+            33.249,
+            32.707,
+            34.538
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.485,
+              "wanErrAtFreezeMs": 3.546,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -16.345,
+              "acmLong": false,
+              "pendingSlewMs": 0.436,
+              "rateErrPpm": 72.278,
+              "playErrMs": 2.882
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.967,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 9.996,
+              "acmLong": false,
+              "pendingSlewMs": 0.133,
+              "rateErrPpm": -23.109,
+              "emitErrMs": -2.496,
+              "playErrMs": 2.454
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.393,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.864,
+              "acmLong": false,
+              "pendingSlewMs": 0.028,
+              "rateErrPpm": 26.81,
+              "emitErrMs": -2.904,
+              "playErrMs": 3.296
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.979,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -10.275,
+              "acmLong": false,
+              "pendingSlewMs": 0.238,
+              "rateErrPpm": 7.206,
+              "emitErrMs": -2.63,
+              "playErrMs": 3.468
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.467,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.967,
+              "acmLong": false,
+              "pendingSlewMs": 0.187,
+              "rateErrPpm": 24.459,
+              "emitErrMs": -3.823,
+              "playErrMs": 2.822
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            32.496,
+            33.188,
+            33.239,
+            31.601,
+            31.409
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.957,
+              "wanErrAtFreezeMs": 2.948,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -2.823,
+              "acmLong": false,
+              "pendingSlewMs": -0.077,
+              "rateErrPpm": -12.294,
+              "playErrMs": 2.892
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.859,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 12.699,
+              "acmLong": false,
+              "pendingSlewMs": 0.006,
+              "rateErrPpm": -42.364,
+              "emitErrMs": -2.62,
+              "playErrMs": 1.93
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.073,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -16.861,
+              "acmLong": false,
+              "pendingSlewMs": -0.131,
+              "rateErrPpm": -31.883,
+              "emitErrMs": -3.445,
+              "playErrMs": 2.617
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.753,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -22.365,
+              "acmLong": false,
+              "pendingSlewMs": -0.001,
+              "rateErrPpm": 16.703,
+              "emitErrMs": -2.68,
+              "playErrMs": 3.597
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.843,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -7.018,
+              "acmLong": false,
+              "pendingSlewMs": -0.005,
+              "rateErrPpm": 95.809,
+              "emitErrMs": -3.109,
+              "playErrMs": 4.192
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            32.129,
+            33.069,
+            32.971,
+            33.591,
+            32.888
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.237,
+              "wanErrAtFreezeMs": 2.405,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 4.337,
+              "acmLong": false,
+              "pendingSlewMs": -0.108,
+              "rateErrPpm": -29.203,
+              "playErrMs": 3.035
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.637,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -44.569,
+              "acmLong": false,
+              "pendingSlewMs": 0.058,
+              "rateErrPpm": 36.328,
+              "emitErrMs": -2.911,
+              "playErrMs": 2.924
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.946,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 9.166,
+              "acmLong": false,
+              "pendingSlewMs": -0.128,
+              "rateErrPpm": 11.377,
+              "emitErrMs": -2.934,
+              "playErrMs": 2.866
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.891,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -29.634,
+              "acmLong": false,
+              "pendingSlewMs": 0.023,
+              "rateErrPpm": 22.045,
+              "emitErrMs": -3.411,
+              "playErrMs": 2.85
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.964,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 9.962,
+              "acmLong": false,
+              "pendingSlewMs": 0,
+              "rateErrPpm": -6.131,
+              "emitErrMs": -2.452,
+              "playErrMs": 2.659
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            31.133,
+            33.019,
+            33.335,
+            34.784,
+            35.819
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -0.947,
+              "wanErrAtFreezeMs": 1.232,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 27.212,
+              "acmLong": false,
+              "pendingSlewMs": 0.304,
+              "rateErrPpm": -59.032,
+              "playErrMs": 3.661
+            },
+            "A": {
+              "wanErrAtFreezeMs": 1.885,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -21.41,
+              "acmLong": false,
+              "pendingSlewMs": 0.076,
+              "rateErrPpm": -36.001,
+              "emitErrMs": -1.698,
+              "playErrMs": 2.694
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.564,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 8.849,
+              "acmLong": false,
+              "pendingSlewMs": -0.006,
+              "rateErrPpm": -7.237,
+              "emitErrMs": -2.473,
+              "playErrMs": 3.108
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.176,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -41.693,
+              "acmLong": false,
+              "pendingSlewMs": -0.308,
+              "rateErrPpm": -47.982,
+              "emitErrMs": -3.583,
+              "playErrMs": 2.966
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.912,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 5.86,
+              "acmLong": false,
+              "pendingSlewMs": 0.152,
+              "rateErrPpm": 52.245,
+              "emitErrMs": -4.469,
+              "playErrMs": 2.939
+            }
+          }
+        }
+      ]
+    }
+  },
+  "lan": {
+    "new": {
+      "settleWaitMs": {
+        "n": 6,
+        "mean": 16041.667,
+        "rms": 16283.619,
+        "p50": 17750,
+        "p95": 20000,
+        "max": 20000
+      },
+      "settleTimedOut": 0,
+      "recorderRateErrorPpm": {
+        "n": 30,
+        "mean": -4.452,
+        "rms": 22.208,
+        "p50": 19.326,
+        "p95": 41.085,
+        "max": 46.348
+      },
+      "headAlignmentMs": {
+        "p50": 0.245,
+        "p95": 0.735,
+        "max": 1.083
+      },
+      "distanceErrorM": {
+        "p95": 0.144,
+        "max": 0.146
+      },
+      "allHeard": true,
+      "perSeed": [
+        {
+          "settleWaitMs": 20000,
+          "arrivals": [
+            32.672,
+            33.288,
+            33.408,
+            33.641,
+            33.756
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -1.301,
+              "wanErrAtFreezeMs": 1.85,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 25.519,
+              "acmLong": false,
+              "pendingSlewMs": 0.067,
+              "rateErrPpm": -46.348,
+              "playErrMs": 3.282
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.511,
+              "lanErrAtFreezeMs": -0.041,
+              "acmSlopeErrPpm": -2.552,
+              "acmLong": true,
+              "pendingSlewMs": 0,
+              "rateErrPpm": -21.049,
+              "emitErrMs": -1.64,
+              "playErrMs": 3.105
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.894,
+              "lanErrAtFreezeMs": 0.007,
+              "acmSlopeErrPpm": -3.426,
+              "acmLong": true,
+              "pendingSlewMs": -0.113,
+              "rateErrPpm": -16.208,
+              "emitErrMs": -1.596,
+              "playErrMs": 2.974
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.477,
+              "lanErrAtFreezeMs": -0.073,
+              "acmSlopeErrPpm": 1.342,
+              "acmLong": true,
+              "pendingSlewMs": -0.584,
+              "rateErrPpm": -24.232,
+              "emitErrMs": -1.631,
+              "playErrMs": 2.998
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.913,
+              "lanErrAtFreezeMs": 0.028,
+              "acmSlopeErrPpm": -5.27,
+              "acmLong": true,
+              "pendingSlewMs": -0.073,
+              "rateErrPpm": -12.144,
+              "emitErrMs": -1.805,
+              "playErrMs": 2.931
+            }
+          }
+        },
+        {
+          "settleWaitMs": 18250,
+          "arrivals": [
+            32.741,
+            33.128,
+            32.612,
+            32.906,
+            33.18
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.641,
+              "wanErrAtFreezeMs": 3.796,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 6.58,
+              "acmLong": true,
+              "pendingSlewMs": -0.019,
+              "rateErrPpm": 18.573,
+              "playErrMs": 3.248
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.994,
+              "lanErrAtFreezeMs": -0.059,
+              "acmSlopeErrPpm": -18.287,
+              "acmLong": false,
+              "pendingSlewMs": 0.084,
+              "rateErrPpm": 41.085,
+              "emitErrMs": -3.935,
+              "playErrMs": 3.181
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.142,
+              "lanErrAtFreezeMs": 0.048,
+              "acmSlopeErrPpm": 1.428,
+              "acmLong": false,
+              "pendingSlewMs": -0.009,
+              "rateErrPpm": 21.538,
+              "emitErrMs": -3.661,
+              "playErrMs": 3.284
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.086,
+              "lanErrAtFreezeMs": 0.041,
+              "acmSlopeErrPpm": -0.171,
+              "acmLong": false,
+              "pendingSlewMs": 0.018,
+              "rateErrPpm": 32.285,
+              "emitErrMs": -3.803,
+              "playErrMs": 3.211
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.888,
+              "lanErrAtFreezeMs": -0.015,
+              "acmSlopeErrPpm": -3.254,
+              "acmLong": true,
+              "pendingSlewMs": -0.071,
+              "rateErrPpm": 29.534,
+              "emitErrMs": -4.094,
+              "playErrMs": 3.102
+            }
+          }
+        },
+        {
+          "settleWaitMs": 12500,
+          "arrivals": [
+            33.753,
+            34.062,
+            33.793,
+            33.958,
+            33.998
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.43,
+              "wanErrAtFreezeMs": 3.379,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 1.824,
+              "acmLong": true,
+              "pendingSlewMs": -0.012,
+              "rateErrPpm": 3.686,
+              "playErrMs": 2.842
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.566,
+              "lanErrAtFreezeMs": 0.184,
+              "acmSlopeErrPpm": 4.774,
+              "acmLong": false,
+              "pendingSlewMs": -0.403,
+              "rateErrPpm": 5.401,
+              "emitErrMs": -3.63,
+              "playErrMs": 2.838
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.424,
+              "lanErrAtFreezeMs": -0.076,
+              "acmSlopeErrPpm": -15.09,
+              "acmLong": false,
+              "pendingSlewMs": 0.239,
+              "rateErrPpm": 18.935,
+              "emitErrMs": -3.59,
+              "playErrMs": 2.844
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.447,
+              "lanErrAtFreezeMs": -0.023,
+              "acmSlopeErrPpm": -20.179,
+              "acmLong": false,
+              "pendingSlewMs": 0.058,
+              "rateErrPpm": 24.416,
+              "emitErrMs": -3.752,
+              "playErrMs": 2.884
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.502,
+              "lanErrAtFreezeMs": 0.075,
+              "acmSlopeErrPpm": -10.867,
+              "acmLong": false,
+              "pendingSlewMs": 0.285,
+              "rateErrPpm": 8.397,
+              "emitErrMs": -3.621,
+              "playErrMs": 2.79
+            }
+          }
+        },
+        {
+          "settleWaitMs": 17750,
+          "arrivals": [
+            32.919,
+            32.668,
+            32.951,
+            33.147,
+            32.951
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.613,
+              "wanErrAtFreezeMs": 2.592,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -2.43,
+              "acmLong": true,
+              "pendingSlewMs": 0.027,
+              "rateErrPpm": -19.326,
+              "playErrMs": 3.007
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.837,
+              "lanErrAtFreezeMs": 0.209,
+              "acmSlopeErrPpm": 4.573,
+              "acmLong": false,
+              "pendingSlewMs": 0.005,
+              "rateErrPpm": -21.142,
+              "emitErrMs": -2.389,
+              "playErrMs": 3.132
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.431,
+              "lanErrAtFreezeMs": -0.055,
+              "acmSlopeErrPpm": -4.871,
+              "acmLong": true,
+              "pendingSlewMs": 0.021,
+              "rateErrPpm": -19.417,
+              "emitErrMs": -2.559,
+              "playErrMs": 2.942
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.42,
+              "lanErrAtFreezeMs": -0.019,
+              "acmSlopeErrPpm": -14.082,
+              "acmLong": true,
+              "pendingSlewMs": 0.114,
+              "rateErrPpm": -3.663,
+              "emitErrMs": -2.708,
+              "playErrMs": 3.009
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.393,
+              "lanErrAtFreezeMs": -0.138,
+              "acmSlopeErrPpm": -29.301,
+              "acmLong": false,
+              "pendingSlewMs": -0.01,
+              "rateErrPpm": 4.373,
+              "emitErrMs": -2.471,
+              "playErrMs": 2.939
+            }
+          }
+        },
+        {
+          "settleWaitMs": 13000,
+          "arrivals": [
+            34.39,
+            34.068,
+            33.719,
+            34.081,
+            34.197
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.968,
+              "wanErrAtFreezeMs": 3.024,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -13.289,
+              "acmLong": true,
+              "pendingSlewMs": 0.128,
+              "rateErrPpm": 4.654,
+              "playErrMs": 2.002
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.653,
+              "lanErrAtFreezeMs": -0.095,
+              "acmSlopeErrPpm": -1.425,
+              "acmLong": true,
+              "pendingSlewMs": -0.056,
+              "rateErrPpm": -9.331,
+              "emitErrMs": -2.651,
+              "playErrMs": 2.111
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.017,
+              "lanErrAtFreezeMs": 0.074,
+              "acmSlopeErrPpm": 25.597,
+              "acmLong": false,
+              "pendingSlewMs": -0.105,
+              "rateErrPpm": -35.187,
+              "emitErrMs": -2.438,
+              "playErrMs": 2.021
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.132,
+              "lanErrAtFreezeMs": -0.005,
+              "acmSlopeErrPpm": -9.322,
+              "acmLong": true,
+              "pendingSlewMs": 0.027,
+              "rateErrPpm": 1.227,
+              "emitErrMs": -2.826,
+              "playErrMs": 2.093
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.727,
+              "lanErrAtFreezeMs": -0.067,
+              "acmSlopeErrPpm": -4.366,
+              "acmLong": true,
+              "pendingSlewMs": 0.034,
+              "rateErrPpm": -7.641,
+              "emitErrMs": -2.81,
+              "playErrMs": 1.994
+            }
+          }
+        },
+        {
+          "settleWaitMs": 14750,
+          "arrivals": [
+            33.035,
+            32.942,
+            32.671,
+            32.987,
+            33.142
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.372,
+              "wanErrAtFreezeMs": 2.591,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -0.231,
+              "acmLong": true,
+              "pendingSlewMs": 0.395,
+              "rateErrPpm": -19.289,
+              "playErrMs": 3.728
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.176,
+              "lanErrAtFreezeMs": -0.033,
+              "acmSlopeErrPpm": 7.891,
+              "acmLong": true,
+              "pendingSlewMs": -0.006,
+              "rateErrPpm": -26.784,
+              "emitErrMs": -2.118,
+              "playErrMs": 3.644
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.843,
+              "lanErrAtFreezeMs": -0.216,
+              "acmSlopeErrPpm": 12.397,
+              "acmLong": true,
+              "pendingSlewMs": 0.055,
+              "rateErrPpm": -33.116,
+              "emitErrMs": -1.994,
+              "playErrMs": 3.7
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.489,
+              "lanErrAtFreezeMs": -0.044,
+              "acmSlopeErrPpm": 9.029,
+              "acmLong": false,
+              "pendingSlewMs": 0.036,
+              "rateErrPpm": -29.943,
+              "emitErrMs": -2.291,
+              "playErrMs": 3.808
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 4.279,
+              "lanErrAtFreezeMs": 0.031,
+              "acmSlopeErrPpm": -18.432,
+              "acmLong": false,
+              "pendingSlewMs": -0.111,
+              "rateErrPpm": -2.828,
+              "emitErrMs": -2.238,
+              "playErrMs": 3.647
+            }
+          }
+        }
+      ]
+    },
+    "old": {
+      "settleWaitMs": {
+        "n": 6,
+        "mean": 0,
+        "rms": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0
+      },
+      "settleTimedOut": 0,
+      "recorderRateErrorPpm": {
+        "n": 30,
+        "mean": 147.88,
+        "rms": 403.801,
+        "p50": 33.264,
+        "p95": 1025.081,
+        "max": 1032.013
+      },
+      "headAlignmentMs": {
+        "p50": 0.32,
+        "p95": 3.272,
+        "max": 5.562
+      },
+      "distanceErrorM": {
+        "p95": 0.169,
+        "max": 0.22
+      },
+      "allHeard": true,
+      "perSeed": [
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            32.862,
+            33.631,
+            33.699,
+            34.023,
+            33.992
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -1.654,
+              "wanErrAtFreezeMs": 2.115,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 83.681,
+              "acmLong": false,
+              "pendingSlewMs": 0.046,
+              "rateErrPpm": -132,
+              "playErrMs": 2.797
+            },
+            "A": {
+              "wanErrAtFreezeMs": 3.102,
+              "lanErrAtFreezeMs": 0.155,
+              "acmSlopeErrPpm": -9.895,
+              "acmLong": false,
+              "pendingSlewMs": -0.324,
+              "rateErrPpm": -5.333,
+              "emitErrMs": -2.239,
+              "playErrMs": 2.844
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.284,
+              "lanErrAtFreezeMs": 0.137,
+              "acmSlopeErrPpm": -15.688,
+              "acmLong": false,
+              "pendingSlewMs": -0.011,
+              "rateErrPpm": -1.497,
+              "emitErrMs": -2.099,
+              "playErrMs": 2.794
+            },
+            "C": {
+              "wanErrAtFreezeMs": 4.632,
+              "lanErrAtFreezeMs": 0.1,
+              "acmSlopeErrPpm": -13.799,
+              "acmLong": false,
+              "pendingSlewMs": 0.039,
+              "rateErrPpm": -12.392,
+              "emitErrMs": -1.934,
+              "playErrMs": 2.697
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.049,
+              "lanErrAtFreezeMs": 0.075,
+              "acmSlopeErrPpm": -13.479,
+              "acmLong": false,
+              "pendingSlewMs": 0.042,
+              "rateErrPpm": -9.366,
+              "emitErrMs": -1.884,
+              "playErrMs": 2.677
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            33.287,
+            33.461,
+            33.233,
+            33.552,
+            33.231
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.046,
+              "wanErrAtFreezeMs": 2.992,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -0.309,
+              "acmLong": false,
+              "pendingSlewMs": -0.014,
+              "rateErrPpm": 16.345,
+              "playErrMs": 2.681
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.016,
+              "lanErrAtFreezeMs": -0.199,
+              "acmSlopeErrPpm": 37.193,
+              "acmLong": false,
+              "pendingSlewMs": -0.024,
+              "rateErrPpm": -34.792,
+              "emitErrMs": -3.08,
+              "playErrMs": 2.551
+            },
+            "B": {
+              "wanErrAtFreezeMs": 4.242,
+              "lanErrAtFreezeMs": 0.004,
+              "acmSlopeErrPpm": 38.744,
+              "acmLong": false,
+              "pendingSlewMs": 0.268,
+              "rateErrPpm": -5.836,
+              "emitErrMs": -3.03,
+              "playErrMs": 2.606
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.829,
+              "lanErrAtFreezeMs": -0.347,
+              "acmSlopeErrPpm": 21.051,
+              "acmLong": false,
+              "pendingSlewMs": 0.137,
+              "rateErrPpm": -45.203,
+              "emitErrMs": -3.355,
+              "playErrMs": 2.687
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.548,
+              "lanErrAtFreezeMs": 0.143,
+              "acmSlopeErrPpm": 23.461,
+              "acmLong": false,
+              "pendingSlewMs": 0.025,
+              "rateErrPpm": -0.403,
+              "emitErrMs": -3.077,
+              "playErrMs": 2.603
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            33.156,
+            33.834,
+            33.471,
+            33.62,
+            34.415
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.647,
+              "wanErrAtFreezeMs": 2.482,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 3.518,
+              "acmLong": false,
+              "pendingSlewMs": 0.186,
+              "rateErrPpm": -33.264,
+              "playErrMs": 3.04
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.813,
+              "lanErrAtFreezeMs": 0.027,
+              "acmSlopeErrPpm": 14.177,
+              "acmLong": false,
+              "pendingSlewMs": 0.198,
+              "rateErrPpm": -26.738,
+              "emitErrMs": -3.237,
+              "playErrMs": 3.12
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.34,
+              "lanErrAtFreezeMs": 0.054,
+              "acmSlopeErrPpm": -15.095,
+              "acmLong": false,
+              "pendingSlewMs": 0.019,
+              "rateErrPpm": -12.648,
+              "emitErrMs": -3.095,
+              "playErrMs": 3.173
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.577,
+              "lanErrAtFreezeMs": -0.031,
+              "acmSlopeErrPpm": -24.652,
+              "acmLong": false,
+              "pendingSlewMs": -0.039,
+              "rateErrPpm": -17.454,
+              "emitErrMs": -2.908,
+              "playErrMs": 2.935
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.481,
+              "lanErrAtFreezeMs": 0.133,
+              "acmSlopeErrPpm": -15.232,
+              "acmLong": false,
+              "pendingSlewMs": -0.105,
+              "rateErrPpm": -12.693,
+              "emitErrMs": -3.707,
+              "playErrMs": 3.083
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            35.167,
+            35.007,
+            32.877,
+            31.936,
+            29.605
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -1.521,
+              "wanErrAtFreezeMs": 0.624,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -10.42,
+              "acmLong": false,
+              "pendingSlewMs": 2.457,
+              "rateErrPpm": 984.62,
+              "playErrMs": 2.924
+            },
+            "A": {
+              "wanErrAtFreezeMs": 3.412,
+              "lanErrAtFreezeMs": 0.139,
+              "acmSlopeErrPpm": 73.516,
+              "acmLong": false,
+              "pendingSlewMs": 0.04,
+              "rateErrPpm": 930.867,
+              "emitErrMs": -2.819,
+              "playErrMs": 2.876
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.498,
+              "lanErrAtFreezeMs": -0.087,
+              "acmSlopeErrPpm": 20.636,
+              "acmLong": false,
+              "pendingSlewMs": -0.019,
+              "rateErrPpm": 947.429,
+              "emitErrMs": -2.394,
+              "playErrMs": 2.982
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.649,
+              "lanErrAtFreezeMs": -0.117,
+              "acmSlopeErrPpm": -45.448,
+              "acmLong": false,
+              "pendingSlewMs": -0.001,
+              "rateErrPpm": 1032.013,
+              "emitErrMs": -2.859,
+              "playErrMs": 2.917
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 4.058,
+              "lanErrAtFreezeMs": 0.091,
+              "acmSlopeErrPpm": -48.248,
+              "acmLong": false,
+              "pendingSlewMs": 0.18,
+              "rateErrPpm": 1025.081,
+              "emitErrMs": -2.289,
+              "playErrMs": 2.984
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            32.127,
+            32.633,
+            32.97,
+            32.32,
+            32.202
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.238,
+              "wanErrAtFreezeMs": 2.319,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 12.267,
+              "acmLong": false,
+              "pendingSlewMs": 0.006,
+              "rateErrPpm": -48.808,
+              "playErrMs": 2.948
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.698,
+              "lanErrAtFreezeMs": 0.006,
+              "acmSlopeErrPpm": -5.898,
+              "acmLong": false,
+              "pendingSlewMs": 0.045,
+              "rateErrPpm": -31.795,
+              "emitErrMs": -2.386,
+              "playErrMs": 2.782
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.828,
+              "lanErrAtFreezeMs": 0.097,
+              "acmSlopeErrPpm": -78.793,
+              "acmLong": false,
+              "pendingSlewMs": 0.123,
+              "rateErrPpm": 57.265,
+              "emitErrMs": -3.018,
+              "playErrMs": 2.927
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.978,
+              "lanErrAtFreezeMs": 0.015,
+              "acmSlopeErrPpm": 33.676,
+              "acmLong": false,
+              "pendingSlewMs": 0.11,
+              "rateErrPpm": -70.113,
+              "emitErrMs": -2.248,
+              "playErrMs": 2.979
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.959,
+              "lanErrAtFreezeMs": -0.037,
+              "acmSlopeErrPpm": 13.556,
+              "acmLong": false,
+              "pendingSlewMs": 0.303,
+              "rateErrPpm": -56.19,
+              "emitErrMs": -2.144,
+              "playErrMs": 3.079
+            }
+          }
+        },
+        {
+          "settleWaitMs": 0,
+          "arrivals": [
+            32.52,
+            32.459,
+            32.554,
+            32.704,
+            32.456
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.646,
+              "wanErrAtFreezeMs": 2.572,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -4.428,
+              "acmLong": false,
+              "pendingSlewMs": 0.009,
+              "rateErrPpm": -15.931,
+              "playErrMs": 3.778
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.844,
+              "lanErrAtFreezeMs": -0.042,
+              "acmSlopeErrPpm": 10.122,
+              "acmLong": false,
+              "pendingSlewMs": 0,
+              "rateErrPpm": -35.023,
+              "emitErrMs": -2.47,
+              "playErrMs": 3.743
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.618,
+              "lanErrAtFreezeMs": 0.296,
+              "acmSlopeErrPpm": 2.851,
+              "acmLong": false,
+              "pendingSlewMs": 0.149,
+              "rateErrPpm": -11.42,
+              "emitErrMs": -2.74,
+              "playErrMs": 3.897
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.692,
+              "lanErrAtFreezeMs": -0.092,
+              "acmSlopeErrPpm": -68.932,
+              "acmLong": false,
+              "pendingSlewMs": 0.109,
+              "rateErrPpm": 41.822,
+              "emitErrMs": -2.697,
+              "playErrMs": 3.741
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.072,
+              "lanErrAtFreezeMs": 0.089,
+              "acmSlopeErrPpm": -31.892,
+              "acmLong": false,
+              "pendingSlewMs": 0.196,
+              "rateErrPpm": 19.847,
+              "emitErrMs": -2.479,
+              "playErrMs": 3.83
+            }
+          }
+        }
+      ]
+    },
+    "noHold": {
+      "settleWaitMs": {
+        "n": 6,
+        "mean": 16041.667,
+        "rms": 16283.619,
+        "p50": 17750,
+        "p95": 20000,
+        "max": 20000
+      },
+      "settleTimedOut": 0,
+      "recorderRateErrorPpm": {
+        "n": 30,
+        "mean": 1,
+        "rms": 17.519,
+        "p50": 14.483,
+        "p95": 35.576,
+        "max": 40.23
+      },
+      "headAlignmentMs": {
+        "p50": 0.325,
+        "p95": 1.212,
+        "max": 1.348
+      },
+      "distanceErrorM": {
+        "p95": 0.14,
+        "max": 0.142
+      },
+      "allHeard": true,
+      "perSeed": [
+        {
+          "settleWaitMs": 20000,
+          "arrivals": [
+            32.576,
+            33.237,
+            33.402,
+            33.788,
+            33.924
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -1.374,
+              "wanErrAtFreezeMs": 1.85,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 25.519,
+              "acmLong": false,
+              "pendingSlewMs": 0.067,
+              "rateErrPpm": -35.576,
+              "playErrMs": 3.282
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.511,
+              "lanErrAtFreezeMs": -0.041,
+              "acmSlopeErrPpm": -2.552,
+              "acmLong": true,
+              "pendingSlewMs": 0,
+              "rateErrPpm": -12.657,
+              "emitErrMs": -1.799,
+              "playErrMs": 3.105
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.894,
+              "lanErrAtFreezeMs": 0.007,
+              "acmSlopeErrPpm": -3.426,
+              "acmLong": true,
+              "pendingSlewMs": -0.113,
+              "rateErrPpm": -7.815,
+              "emitErrMs": -1.803,
+              "playErrMs": 2.974
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.477,
+              "lanErrAtFreezeMs": -0.073,
+              "acmSlopeErrPpm": 1.342,
+              "acmLong": true,
+              "pendingSlewMs": -0.584,
+              "rateErrPpm": -15.84,
+              "emitErrMs": -2.02,
+              "playErrMs": 2.998
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.913,
+              "lanErrAtFreezeMs": 0.028,
+              "acmSlopeErrPpm": -5.27,
+              "acmLong": true,
+              "pendingSlewMs": -0.073,
+              "rateErrPpm": -3.751,
+              "emitErrMs": -2.221,
+              "playErrMs": 2.931
+            }
+          }
+        },
+        {
+          "settleWaitMs": 18250,
+          "arrivals": [
+            32.949,
+            33.301,
+            32.624,
+            32.948,
+            31.998
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.699,
+              "wanErrAtFreezeMs": 3.796,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 6.58,
+              "acmLong": true,
+              "pendingSlewMs": -0.019,
+              "rateErrPpm": 14.483,
+              "playErrMs": 3.248
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.994,
+              "lanErrAtFreezeMs": -0.059,
+              "acmSlopeErrPpm": -18.287,
+              "acmLong": false,
+              "pendingSlewMs": 0.084,
+              "rateErrPpm": 40.23,
+              "emitErrMs": -3.964,
+              "playErrMs": 3.181
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.142,
+              "lanErrAtFreezeMs": 0.048,
+              "acmSlopeErrPpm": 1.428,
+              "acmLong": false,
+              "pendingSlewMs": -0.009,
+              "rateErrPpm": 20.683,
+              "emitErrMs": -3.508,
+              "playErrMs": 3.284
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.086,
+              "lanErrAtFreezeMs": 0.041,
+              "acmSlopeErrPpm": -0.171,
+              "acmLong": false,
+              "pendingSlewMs": 0.018,
+              "rateErrPpm": 31.431,
+              "emitErrMs": -3.675,
+              "playErrMs": 3.211
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.888,
+              "lanErrAtFreezeMs": -0.015,
+              "acmSlopeErrPpm": -3.254,
+              "acmLong": true,
+              "pendingSlewMs": -0.071,
+              "rateErrPpm": 28.68,
+              "emitErrMs": -2.747,
+              "playErrMs": 3.102
+            }
+          }
+        },
+        {
+          "settleWaitMs": 12500,
+          "arrivals": [
+            33.728,
+            34.021,
+            33.779,
+            33.971,
+            34.079
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.325,
+              "wanErrAtFreezeMs": 3.379,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": 1.824,
+              "acmLong": true,
+              "pendingSlewMs": -0.012,
+              "rateErrPpm": 0.055,
+              "playErrMs": 2.842
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.566,
+              "lanErrAtFreezeMs": 0.184,
+              "acmSlopeErrPpm": 4.774,
+              "acmLong": false,
+              "pendingSlewMs": -0.403,
+              "rateErrPpm": 1.769,
+              "emitErrMs": -3.501,
+              "playErrMs": 2.838
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.424,
+              "lanErrAtFreezeMs": -0.076,
+              "acmSlopeErrPpm": -15.09,
+              "acmLong": false,
+              "pendingSlewMs": 0.239,
+              "rateErrPpm": 15.304,
+              "emitErrMs": -3.499,
+              "playErrMs": 2.844
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.447,
+              "lanErrAtFreezeMs": -0.023,
+              "acmSlopeErrPpm": -20.179,
+              "acmLong": false,
+              "pendingSlewMs": 0.058,
+              "rateErrPpm": 20.754,
+              "emitErrMs": -3.677,
+              "playErrMs": 2.884
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.502,
+              "lanErrAtFreezeMs": 0.075,
+              "acmSlopeErrPpm": -10.867,
+              "acmLong": false,
+              "pendingSlewMs": 0.285,
+              "rateErrPpm": 4.765,
+              "emitErrMs": -3.594,
+              "playErrMs": 2.79
+            }
+          }
+        },
+        {
+          "settleWaitMs": 17750,
+          "arrivals": [
+            32.897,
+            32.623,
+            32.944,
+            33.244,
+            33.044
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.61,
+              "wanErrAtFreezeMs": 2.592,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -2.43,
+              "acmLong": true,
+              "pendingSlewMs": 0.027,
+              "rateErrPpm": -17.617,
+              "playErrMs": 3.007
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.837,
+              "lanErrAtFreezeMs": 0.209,
+              "acmSlopeErrPpm": 4.573,
+              "acmLong": false,
+              "pendingSlewMs": 0.005,
+              "rateErrPpm": -19.433,
+              "emitErrMs": -2.371,
+              "playErrMs": 3.132
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.431,
+              "lanErrAtFreezeMs": -0.055,
+              "acmSlopeErrPpm": -4.871,
+              "acmLong": true,
+              "pendingSlewMs": 0.021,
+              "rateErrPpm": -17.739,
+              "emitErrMs": -2.587,
+              "playErrMs": 2.942
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.42,
+              "lanErrAtFreezeMs": -0.019,
+              "acmSlopeErrPpm": -14.082,
+              "acmLong": true,
+              "pendingSlewMs": 0.114,
+              "rateErrPpm": -1.954,
+              "emitErrMs": -2.823,
+              "playErrMs": 3.009
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 3.393,
+              "lanErrAtFreezeMs": -0.138,
+              "acmSlopeErrPpm": -29.301,
+              "acmLong": false,
+              "pendingSlewMs": -0.01,
+              "rateErrPpm": 6.082,
+              "emitErrMs": -2.589,
+              "playErrMs": 2.939
+            }
+          }
+        },
+        {
+          "settleWaitMs": 13000,
+          "arrivals": [
+            34.256,
+            34.087,
+            33.722,
+            34.135,
+            34.129
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -3.091,
+              "wanErrAtFreezeMs": 3.024,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -13.289,
+              "acmLong": true,
+              "pendingSlewMs": 0.128,
+              "rateErrPpm": 14.114,
+              "playErrMs": 2.002
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.653,
+              "lanErrAtFreezeMs": -0.095,
+              "acmSlopeErrPpm": -1.425,
+              "acmLong": true,
+              "pendingSlewMs": -0.056,
+              "rateErrPpm": 0.131,
+              "emitErrMs": -2.939,
+              "playErrMs": 2.111
+            },
+            "B": {
+              "wanErrAtFreezeMs": 3.017,
+              "lanErrAtFreezeMs": 0.074,
+              "acmSlopeErrPpm": 25.597,
+              "acmLong": false,
+              "pendingSlewMs": -0.105,
+              "rateErrPpm": -25.725,
+              "emitErrMs": -2.715,
+              "playErrMs": 2.021
+            },
+            "C": {
+              "wanErrAtFreezeMs": 3.132,
+              "lanErrAtFreezeMs": -0.005,
+              "acmSlopeErrPpm": -9.322,
+              "acmLong": true,
+              "pendingSlewMs": 0.027,
+              "rateErrPpm": 10.686,
+              "emitErrMs": -3.184,
+              "playErrMs": 2.093
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 2.727,
+              "lanErrAtFreezeMs": -0.067,
+              "acmSlopeErrPpm": -4.366,
+              "acmLong": true,
+              "pendingSlewMs": 0.034,
+              "rateErrPpm": 1.818,
+              "emitErrMs": -3.054,
+              "playErrMs": 1.994
+            }
+          }
+        },
+        {
+          "settleWaitMs": 14750,
+          "arrivals": [
+            32.643,
+            32.942,
+            32.667,
+            33.193,
+            33.693
+          ],
+          "detail": {
+            "L": {
+              "emitErrMs": -2.265,
+              "wanErrAtFreezeMs": 2.591,
+              "lanErrAtFreezeMs": null,
+              "acmSlopeErrPpm": -0.231,
+              "acmLong": true,
+              "pendingSlewMs": 0.395,
+              "rateErrPpm": -3.754,
+              "playErrMs": 3.728
+            },
+            "A": {
+              "wanErrAtFreezeMs": 2.176,
+              "lanErrAtFreezeMs": -0.033,
+              "acmSlopeErrPpm": 7.891,
+              "acmLong": true,
+              "pendingSlewMs": -0.006,
+              "rateErrPpm": -8.384,
+              "emitErrMs": -2.427,
+              "playErrMs": 3.644
+            },
+            "B": {
+              "wanErrAtFreezeMs": 2.843,
+              "lanErrAtFreezeMs": -0.216,
+              "acmSlopeErrPpm": 12.397,
+              "acmLong": true,
+              "pendingSlewMs": 0.055,
+              "rateErrPpm": -14.716,
+              "emitErrMs": -2.329,
+              "playErrMs": 3.7
+            },
+            "C": {
+              "wanErrAtFreezeMs": 2.489,
+              "lanErrAtFreezeMs": -0.044,
+              "acmSlopeErrPpm": 9.029,
+              "acmLong": false,
+              "pendingSlewMs": 0.036,
+              "rateErrPpm": -11.575,
+              "emitErrMs": -2.851,
+              "playErrMs": 3.808
+            },
+            "bt": {
+              "wanErrAtFreezeMs": 4.279,
+              "lanErrAtFreezeMs": 0.031,
+              "acmSlopeErrPpm": -18.432,
+              "acmLong": false,
+              "pendingSlewMs": -0.111,
+              "rateErrPpm": 15.544,
+              "emitErrMs": -3.167,
+              "playErrMs": 3.647
+            }
+          }
+        }
+      ]
+    }
+  },
+  "leadMs": 3500,
+  "playAfterMs": 60000,
+  "settleSoftMs": 20000,
+  "settleHardMs": 30000
+}

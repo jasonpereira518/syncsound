@@ -409,3 +409,38 @@ describe('server origin check', () => {
     }
   });
 });
+
+describe('prepared tune: the adapter timer plans at the deadline', () => {
+  it('a recorder that never answers READY is skipped when the (shortened) deadline passes', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'syncsound-'));
+    const srv = await startServer({ port: 0, dataDir, allowedOrigins: [], prepareDeadlineMs: 300 });
+    const base = `http://127.0.0.1:${srv.port}`;
+    try {
+      const created = (await (await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()) as CreateRoomResponse;
+      const [h, g] = await Promise.all([Client.open(srv.port), Client.open(srv.port)]);
+      h.send({ type: 'JOIN', roomCode: created.code, deviceId: 'h', name: 'H', caps: { ...caps, micPermission: 'granted' }, hostKey: created.hostKey });
+      g.send({ type: 'JOIN', roomCode: created.code, deviceId: 'g', name: 'G', caps: { ...caps, micPermission: 'granted' } });
+      await h.waitFor('WELCOME');
+      await g.waitFor('WELCOME');
+      const slots = [
+        { deviceId: 'h', deviceIndex: 0, signal: 'tune', offsetMs: 500, durationMs: 1100 },
+        { deviceId: 'g', deviceIndex: 1, signal: 'tune', offsetMs: 2050, durationMs: 1100 },
+      ];
+      const t0 = Date.now();
+      h.send({ type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true });
+      const prep = await g.waitFor('CALIBRATION_PREPARE');
+      expect(prep.recorderIds).toEqual(['g']);
+      // g never answers: the room's timer plans the run at the deadline, nobody had to send anything
+      const plan = await h.waitFor('CALIBRATION_PLAN');
+      const elapsed = Date.now() - t0;
+      expect(plan.plan.id).toBe(prep.planId);
+      expect(elapsed).toBeGreaterThanOrEqual(250);
+      expect(elapsed).toBeLessThan(2500);
+      h.ws.terminate();
+      g.ws.terminate();
+    } finally {
+      await srv.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+});

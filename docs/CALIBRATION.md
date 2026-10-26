@@ -10,11 +10,24 @@ listener's head**. Any phone or laptop can be the listener: a phone is held at t
 
 ### Run
 
-1. The listener opens its mic, settles 1.5 s, and sends `CALIBRATION_START` with `recorders: 'all'`. The server
-   stamps `startRoomTime = now + max(lead, 3.5 s)` and broadcasts the plan.
-2. Every other device with a usable mic opens it as soon as the plan arrives (never a Bluetooth-headset mic, which
-   would flip the headset into its hands-free profile) and records until the plan ends. No mic / no permission →
-   it still plays, it just isn't ranged.
+1. The listener opens its mic, settles 1.5 s, waits for its clocks to settle (`clockSettled`, below) and sends
+   `CALIBRATION_START` with `recorders: 'all', prepare: true`. The server refuses a second run while one is active
+   (`calibration_busy`) and broadcasts `CALIBRATION_PREPARE` naming the recorders it expects: every connected device
+   with a mic whose permission is known and not denied (`caps.micPermission`, asked for at join) and that does not
+   play through Bluetooth. Each of them opens its mic now (never a Bluetooth-headset mic, which would flip the
+   headset into its hands-free profile), lets the output step that can cause settle for 1.5 s, and answers
+   `CALIBRATION_READY` (ok, or why not: "no microphone", "busy with its own measurement"…); the listener shows
+   "Waiting for <name>'s microphone…". At the last answer, or at the deadline (8 s, `CALIBRATION_PREPARE_DEADLINE_MS`),
+   the server stamps `startRoomTime = now + max(lead, 1.5 s)` and broadcasts the plan; a recorder that never
+   answered is skipped and named in the result, one that declined is named with its reason. The lead is 3.5 s
+   only when a tab on older code (no `micPermission` in its caps) is in the room, because it will open its mic
+   when the plan arrives; a `CALIBRATION_START` without `prepare` (older tabs, sync checks) keeps that one-shot
+   path. The LAN clock master pins its mapping for the whole run (`holdMapping`): every device then times the run
+   on one snapshot of the WAN estimate, so its movement cancels between every emitter and every recorder.
+2. A prepared recorder records through the mic it already holds; a recorder that was not asked (older code)
+   opens its mic as soon as the plan arrives. Either way it records until the plan ends. No mic / no permission →
+   it still plays, it just isn't ranged. A prepared mic that never sees its plan (the run was cancelled, the
+   listener gave up) is released 4 s after the deadline.
 3. Each device plays **one 1.1 s swoosh → chime** (`tuneSignalParts`) in its own 1.55 s slot (`buildTuneSlots`): a
    0.6 s exponential sweep, 20 Hz–20 kHz, −12 dBFS peak (30 ms fade-in; above 14 kHz tapered to −10 dB at 20 kHz,
    which takes the shrill edge off without touching the 1–12 kHz arrival band), landing on a 0.5 s bell chime (C6
@@ -22,10 +35,30 @@ listener's head**. Any phone or laptop can be the listener: a phone is held at t
    readout comes from the manual sync check. Emissions are scheduled lazily (~1 s ahead) with only the browser-reported part of the
    compensation, so the measurement captures the unreported residual (e.g. Bluetooth) and any output step from
    opening a mic is already in the audio-clock mapping.
-4. Every recorder maps sample index → room time through its audio clock (`ctxToRoom(startCtx + idx/sr)`, so ppm
-   error is included) and analyzes locally (`analyzeRecording`). Only numbers travel: one row per emitter,
-   `{emitterId, mMs, levelDb, snrDb, clipped}`, via `CALIBRATION_ROWS` to the listener. A recorder whose clock
-   source or audio clock moved mid-run marks its rows invalid.
+4. Every recorder maps sample index → room time through `frozenRoomMap`: the audio clock's long-baseline rate
+   (256 s window, ≈ 3 ppm after a minute) times the room clock's drift slope, frozen 300 ms before the first slot
+   and anchored at the first recorded sample — never a finite difference over the live clocks, whose pending slew
+   (1 ms/s) would read as up to ±1000 ppm (0.3 ms per slot). It analyzes locally (`analyzeRecording`). Only
+   numbers travel: one row per emitter, `{emitterId, mMs, levelDb, snrDb, clipped}`, via `CALIBRATION_ROWS` to the
+   listener. A recorder whose clocks moved mid-run (see validity) marks its rows invalid.
+
+### Preconditions and validity
+
+- **Settled clocks** (`clockSettled`): the listener waits, up to 30 s, until its room clock has converged and
+  wasn't just re-acquired (≥ 3 s), the in-room clock link is up when there is a master, and no slew is pending
+  (≤ 0.3 ms) — else the run errors ("The room clock hasn't settled yet"). It also waits, up to 20 s, for the drift
+  fit (SE ≤ 30 ppm), the network (jitter ≤ 3 ms) and the audio clock's long-baseline rate (SE ≤ 15 ppm) — else it
+  proceeds with the warning "The clocks were still settling". A tune started within ~30 s of joining typically
+  waits 10–20 s ("Letting the clocks settle…"). A recorder that fails a hard criterion sends invalid rows.
+- **Validity** (`runValidity`): every device snapshots its clock path, `ClockSync` reset count, audio-clock step
+  count and a frozen copy of its mapping at the freeze (recorders, the listener) or its first emission. At the end
+  the run is invalid if any changed, or if the live mapping moved more than 1 ms from the frozen one (a slew or a
+  step during the run). The listener discards and retries once, then errors. A recorder's rows carry
+  `emissionValid`; a device that only emitted reports a fault with `CALIBRATION_ROWS { emissionValid: false }`.
+  Faulted devices are left untimed, with a named warning ("X wasn't timed: the clock path changed during the run").
+- **One run at a time**: the server answers a second `CALIBRATION_START` with `calibration_busy` until the result
+  arrives, the listener cancels (`CALIBRATION_CANCEL` → `CALIBRATION_CANCELLED` to all, which stops every chime
+  and recording) or leaves, or the recording's end plus 5 s has passed.
 
 ### Arrival (per recorder, per emitter)
 
@@ -62,11 +95,22 @@ laptop's own speaker → mic.
 3. **Head.** `listener = polar(mic, 180°, headOffsetFor(class))` — 0.4 m behind a tuning laptop/tablet; a phone is
    held at the head, so the head *is* its mic (0 m) and the mic→head step disappears. Draggable. After a full tune a
    held phone mutes itself as a speaker (it would play at the ear) when other speakers were heard.
-4. **Timing, from the listener row only.** `cal_i = M(L,i) − |p_i − mic|/c`, minus the minimum → stored as
-   `calibratedLatencyMs` (slower devices start earlier). `propagationDelays()` then delays nearer speakers by
-   `(d_max − d_i,head)/c`. At the mic every distance error cancels exactly; only the short mic→head step depends on
-   geometry. Every constant — Wi-Fi path asymmetry, unreported Bluetooth latency, mic latency, speaker DSP — is
-   absorbed.
+4. **Timing, from the listener row only.** The run stores, per heard device, its raw arrival at the listener's mic
+   relative to the earliest device of the run (`Device.tuneArrivalMs` = `M(L,i) − min`), the run's id
+   (`Device.tuneId`), and in the room's `scene.tune` the mic position, the positions the arrivals were measured at
+   and the run's id. The server derives the compensation (`deriveCalibratedLatency`, re-evaluated on every scene
+   edit, join, result and profile restore):
+
+   `cal_i = A_i − |q_i − mic|/c − (|p_i − L| − |q_i − L|)/c`, minus the minimum → `calibratedLatencyMs`
+
+   with `q_i` the device's position at tune time, `p_i` its position now and `L` the listener now (the listener's
+   own path is the 0.1 m prior). `propagationDelays()` then delays nearer speakers by `(d_max − d_i,head)/c`. The
+   first term is the device's latency as the tune measured it: at the mic every distance error cancels exactly, and
+   every constant — Wi-Fi path asymmetry, unreported Bluetooth latency, mic latency, speaker DSP — is absorbed. The
+   second term moves exactly as the engine's propagation delay moves when the picture is edited, so a layout
+   change, a drag or an auto-placement never changes when a tuned device's sound reaches the head
+   (`tuneInvariant.test.ts`: 0.000 ms change; the previous frozen value missed by p95 2.96 ms after a 1 m drag).
+   Only the short mic→head step depends on geometry.
 5. **Loudness.** The listener's level per device, corrected by 1/r from mic to head and by each device's EQ level
    shift, → `loudnessTrims` / `volumeHints`: everyone meets at the **median** — loud devices are cut, soft ones
    boosted by up to +6 dB (`MAX_BOOST_DB`); a device still short after that gets "turn it up by ~X dB". With two
@@ -89,9 +133,33 @@ Not budgeted (LIMITATIONS): laptop L/R speaker spread (±0.4 ms off-axis), Bluet
 
 ### Staying in tune
 
-Nothing re-tunes on its own (it would pause music and open a mic unattended). A device whose clock path changes
-(LAN clock master ↔ server clock) or whose output route changes raises the "audio delay changed" banner with a
-one-tap quick tune; a known Bluetooth output restores its remembered value at once.
+Nothing re-tunes on its own (it would pause music and open a mic unattended). Instead every device carries a
+**tune identity** and the room shows a **sync state** per device:
+
+| `syncState` | Meaning | Timing used |
+|---|---|---|
+| `tuned` | `tuneId` is the room's current run and the device reported nothing since | derived compensation |
+| `stale` | tuned, but the device reported its timing may be off (`tuneStale`: a new output route, a clock-path change, an audio-output step) | derived compensation, flagged "needs tuning again" on every screen |
+| `untuned` | never tuned, tuned in an earlier run, or not heard / not timed in the current one | none (0 + the manual nudge) |
+
+- **Every run is a new tune.** Arrivals are relative to the earliest device *of that run*, so a value from another
+  run cannot be compared; devices the run did not hear (or could not time) become `untuned` and the host sees
+  "N speakers, 1 needs tuning". A quick (timing-only) run keeps positions, levels, EQ and the previous ranging.
+- **The picture is free.** Layout changes keep ranged devices where the tune measured them (`placeForLayout`) and
+  move only hand-placed ones to their slot; either way the derived compensation follows the edit (step 4), so
+  nothing has to be re-tuned after rearranging the stage. A **speaker that physically moved** needs a new tune: its
+  arrival was measured where it was (sim: 2.9 ms off per metre until the next tap). The listener icon is where the
+  sound is aimed; moving it re-aims the engine's delays (the tune puts it 0.4 m behind a tuning laptop, or at a phone held at the head).
+- **Late joiners** in a laid-out room take the next free slot and its canonical spot (nobody else moves) and are
+  `untuned` until the next tune.
+- **Route changes.** A device whose output route changes, or whose clock path changes (LAN clock master ↔ server
+  clock), reports `tuneStale` to the room (so the host sees "needs tuning again (output changed)") and raises the
+  "audio delay changed" banner with a one-tap quick tune. A known Bluetooth output restores its remembered
+  `{ tuneId, tuneArrivalMs }` at once, which counts only while that tune is still the room's; a new output clears
+  the timing, the level trim and the EQ (they belonged to the previous output).
+- **Profiles** carry `tuneArrivalMs` / `tuneId` / `tuneStale` (never the derived value); a legacy profile with only
+  `calibratedLatencyMs` joins `untuned`.
+- A tune started from any screen shows its progress, result, warnings and error there (`TuneStatus`).
 
 ## Frequency response and EQ
 

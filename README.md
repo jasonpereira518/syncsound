@@ -28,9 +28,11 @@ sound objects around the **Stage**.
 - **Spatial stage:** draggable devices, listener and audio objects (L/C/R/SL/SR/LFE/ambience/stems); DBAP panning
   with constant power; LR4 bass management to bass-capable devices; propagation time-alignment; presets;
   undo/redo; snap; keyboard control.
-- **Calibration wizard:** one phone at the listening position records device-unique chirps (latency + "which
-  speaker is which"), log sweeps (frequency response → auto-EQ toward a common target with safety rails) and
-  pink noise (loudness matching). Device-class presets cover the no-mic case. Includes EQ A/B, a click-test mode
+- **One-tap tune:** from the seat, every speaker plays one swoosh → chime while every laptop listens (each asked
+  for its mic once, at join): distances → positions, timing aligned at the head, loudness matched to the median,
+  frequency response → auto-EQ toward a common target with safety rails. The compensation is re-derived by the
+  server from the raw arrivals, so rearranging the picture never breaks the timing; every screen says who is tuned,
+  who needs tuning again and why. Device-class presets cover the no-mic case. Includes EQ A/B, a click-test mode
   for tuning by ear, and a **sync-measurement tool** with a histogram.
 - **Debug drawer:** clock offset, RTT, jitter, drift ppm, per-device error and buffer states.
 - PWA, dark accessible UI (Lighthouse a11y 100), responsive down to 360 px.

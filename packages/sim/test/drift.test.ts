@@ -40,7 +40,7 @@ describe('drift control loop (10 simulated minutes)', () => {
       client.advanceTo(T);
       if (T >= audio.createdT && t % TICK_MS === 0) {
         const o = audio.observe(T, rng);
-        acm.addObservation(o.perfMs, o.ctxSec);
+        if (o) acm.addObservation(o.perfMs, o.ctxSec);
       }
       if (t === 3000) schedule(T);
       if (!tracker.active) continue;

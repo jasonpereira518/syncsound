@@ -17,7 +17,8 @@ const lan: NetParams = { baseRttMs: 6, jitterMs: 2, spikeProb: 0.02, spikeMaxMs:
 /**
  * Pairwise spread (max − min room-time error across devices) per probe after settling, ms.
  * viaMaster: peers sync to the master's raw perf clock over the LAN, and the master shares its local → room
- * mapping (a ClockMapping snapshot, re-sent every second), so every device applies the *same* WAN estimate.
+ * mapping (a ClockMapping snapshot, re-sent every 500 ms like the app's ClockLink), so every device applies the
+ * *same* WAN estimate.
  */
 function run(viaMaster: boolean): number[] {
   const rng = makeRng(99);
@@ -35,7 +36,7 @@ function run(viaMaster: boolean): number[] {
     master.advanceTo(T);
     for (const p of peers) p.advanceTo(T);
     // the snapshot reaches peers ~one LAN leg later; at 100 ms probes that's "next probe"
-    const next = t % 1000 === 0 ? ClockMapping.of(master.sync) : null;
+    const next = t % 500 === 0 ? ClockMapping.of(master.sync) : null;
     if (t >= SETTLE_MS && mapping) {
       const errs = [master.roomError(T)];
       // peer room time = master mapping applied to the peer's estimate of the master's clock

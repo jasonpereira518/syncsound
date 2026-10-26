@@ -1,5 +1,5 @@
 {
-  "description": "calibration v3 end-to-end sim (see tune.test.ts header)",
+  "description": "calibration v3 end-to-end sim (see tuneRoom.ts)",
   "seeds": 6,
   "distanceErrorM": {
     "p95": 0.137,

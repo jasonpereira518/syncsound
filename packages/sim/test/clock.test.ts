@@ -140,15 +140,17 @@ describe('ClockSync over a simulated network', () => {
     for (const s of [lan, wifi120, wifi300]) expect(s.stepsAfterConverged).toBe(0);
   });
 
-  it('reconnect (server clock jumps +4 s, client resets + re-bursts) re-converges', { timeout: 20_000 }, () => {
+  it('reconnect (server clock jumps +4 s, client re-bursts without a reset) re-acquires and keeps its drift', { timeout: 20_000 }, () => {
     const net: NetParams = { baseRttMs: 50, jitterMs: 10, spikeProb: 0.01, spikeMaxMs: 200, lossProb: 0.01 };
     const c = new SimClient({ clock: { offsetMs: 2500, driftPpm: 60 }, net, seed: 55, joinT: ROOM_T0 });
     const before: number[] = [];
     const after: number[] = [];
-    let reconvergedAfterMs = NaN;
+    let reacquiredAfterMs = NaN;
+    let driftBefore = NaN;
     for (let t = 0; t <= 90_000; t += PROBE_MS) {
       const T = ROOM_T0 + t;
       if (t === 60_000) {
+        driftBefore = c.sync.estimate().driftPpm;
         c.clock.p.offsetMs += 4000;
         c.rejoin(T);
       }
@@ -156,19 +158,25 @@ describe('ClockSync over a simulated network', () => {
       if (!c.sync.estimate().converged) continue;
       const e = c.roomError(T);
       if (t < 60_000) before.push(e);
-      else {
-        if (Number.isNaN(reconvergedAfterMs)) reconvergedAfterMs = t - 60_000;
+      else if (!Number.isNaN(reacquiredAfterMs)) after.push(e);
+      else if (Math.abs(e) < 10) {
+        reacquiredAfterMs = t - 60_000;
         after.push(e);
       }
     }
+    const driftAfter = c.sync.estimate().driftPpm;
     results.reconnect = {
-      params: 'baseRtt 50, jitter σ 10, 1% spikes, 1% loss; at t=60 s server clock +4000 ms, rejoin()',
-      reconvergedAfterMs,
+      params: 'baseRtt 50, jitter σ 10, 1% spikes, 1% loss; at t=60 s server clock +4000 ms, rejoin() (rebase, no reset)',
+      reacquiredAfterMs,
       errorBeforeMs: stats(before),
       errorAfterMs: stats(after),
+      driftPpmBefore: +driftBefore.toFixed(2),
+      driftPpmAfter: +driftAfter.toFixed(2),
     };
-    expect(reconvergedAfterMs).toBeLessThan(1500);
+    expect(reacquiredAfterMs).toBeLessThan(1500);
     expect(stats(after).max).toBeLessThan(10);
+    // the drift history was carried across the jump, not thrown away
+    expect(Math.abs(driftAfter - driftBefore)).toBeLessThan(3);
   });
 
   it('writes results', () => {

@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react';
 import type { Device, HomeView } from '@syncsound/protocol';
 import { isRoutedLayout, layoutLabel, positionAt } from '@syncsound/audio-core';
 import { getHome, groupControl, savedHome } from '@/lib/home';
+import { tuneStatus } from '@/lib/tuneStatus';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon, IconButton, StatusDot } from '../ui';
 import { Library, MasterVolume } from './Player';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
 import { act, currentTrack, errMsg, roomNowMs, syncStatusOf, toast, useCanControl } from './shared';
 
-/** the room's one-line health summary: how many speakers, and whether they're all locked together */
+/** the room's one-line health summary: how many speakers, whether they're all locked together, and who needs tuning */
 function useRoomHealth() {
   const devices = useRoomStore((s) => s.room?.devices);
   const selfId = useRoomStore((s) => s.deviceId);
@@ -17,9 +18,18 @@ function useRoomHealth() {
   const live = (devices ?? []).filter((d) => d.connected);
   const statuses = live.map((d) => syncStatusOf(d, selfId, clock));
   const behind = statuses.filter((s) => s !== 'ok').length;
-  const status = behind === 0 ? 'ok' : statuses.includes('bad') ? 'bad' : 'warn';
-  const label = `${live.length} speaker${live.length === 1 ? '' : 's'}, ${behind === 0 ? 'in sync' : `${behind} catching up`}`;
-  return { live, status, label } as const;
+  const needs = live.filter((d) => d.syncState !== 'tuned');
+  const status = behind === 0 && needs.length === 0 ? 'ok' : statuses.includes('bad') ? 'bad' : 'warn';
+  const tail = needs.length ? `${needs.length} need${needs.length === 1 ? 's' : ''} tuning` : behind === 0 ? 'in sync' : `${behind} catching up`;
+  const label = `${live.length} speaker${live.length === 1 ? '' : 's'}, ${tail}`;
+  return { live, status, label, needs } as const;
+}
+
+/** one line per speaker about its tune */
+export function tuneLine(d: Device): string {
+  if (d.syncState === 'tuned') return '';
+  if (d.syncState === 'stale') return d.tuneStale === 'output' || d.tuneStale === 'route' ? ', needs tuning again (output changed)' : ', needs tuning again';
+  return ', not tuned yet';
 }
 
 /** Controller's everyday screen: one volume, the speakers at a glance, and what to play. */
@@ -46,17 +56,43 @@ export function NowPlaying({ onSetup }: { onSetup: () => void }) {
           <span className="text-sm text-ink-400">{showSpeakers ? 'Hide' : 'Show'}</span>
         </button>
         {showSpeakers && <SpeakerList devices={health.live} />}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button data-testid="change-setup" onClick={onSetup}>
-            <Icon name="stage" className="size-4" /> Change speaker setup
-          </Button>
-          <Button variant="ghost" data-testid="quick-resync" onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
-            <Icon name="target" className="size-4" /> Re-sync speakers
-          </Button>
-        </div>
+        <TuneCard devices={health.live} onSetup={onSetup} />
       </section>
       <OtherRooms />
       <Library />
+    </div>
+  );
+}
+
+/** the room's tune at a glance, the one thing to do about it, and the picture to check */
+function TuneCard({ devices, onSetup }: { devices: Device[]; onSetup: () => void }) {
+  const scene = useRoomStore((s) => s.room?.scene);
+  const busy = useRoomStore((s) => (s.calibration.running && s.calibration.step !== 'done' && s.calibration.step !== 'error') || s.syncMeasure.running);
+  const canControl = useCanControl();
+  if (!scene) return null;
+  const view = tuneStatus(devices, scene.tune);
+  const layout = scene.layout;
+  return (
+    <div className="mt-4">
+      <p data-testid="tune-label" className={`text-sm ${view.state === 'tuned' ? 'text-ok' : 'text-warn'}`}>
+        {view.label}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {canControl && (
+          <Button variant={view.state === 'tuned' ? 'ghost' : 'primary'} data-testid="tune-room" disabled={busy} onClick={() => act(() => roomActions.tune())}>
+            <Icon name="mic" className="size-4" /> {view.action}
+          </Button>
+        )}
+        <Button variant="ghost" data-testid="change-setup" onClick={onSetup}>
+          <Icon name="stage" className="size-4" /> Adjust layout
+        </Button>
+      </div>
+      {isRoutedLayout(layout) && (
+        <div className="mt-3 rounded-2xl border border-ink-700 bg-ink-950 p-2">
+          <RoomDiagram layout={layout} scene={scene} devices={devices} />
+          <p className="px-1 pb-1 text-xs text-ink-400">Check the picture matches your room; if a speaker sits elsewhere, drag it under Adjust layout.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -156,6 +192,7 @@ function SpeakerList({ devices }: { devices: Device[] }) {
               <span className="block text-xs text-ink-400">
                 {SLOT_NAME[d.role]}
                 {bt && (jitter !== undefined ? `, Bluetooth ±${jitter.toFixed(1)} ms` : ', Bluetooth')}
+                {tuneLine(d)}
                 {d.volumeUpDb ? ', needs its volume turned up' : ''}
               </span>
             </span>
@@ -185,12 +222,24 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
   const devices = useRoomStore((s) => s.room?.devices);
   const clock = useRoomStore((s) => s.clock);
   const wakeLock = useRoomStore((s) => s.engine.wakeLock);
+  const recorderStep = useRoomStore((s) => s.calibration.recorderStep);
   const canControl = useCanControl();
   if (!self || !scene || !devices) return null;
   const layout = scene.layout;
   const routed = isRoutedLayout(layout);
   const status = syncStatusOf(self, self.id, clock);
   const title = routed && self.role === 'Full' ? 'Waiting for a spot' : routed || self.role === 'Sub' ? SLOT_NAME[self.role] : 'Playing along';
+  const placedByHand = self.syncState === 'tuned' && !!scene.tune && !scene.tune.ranged.includes(self.id);
+  const tuned =
+    recorderStep !== 'idle'
+      ? 'Listening for the tune…'
+      : self.syncState === 'tuned'
+        ? placedByHand
+          ? 'Tuned · placed by hand'
+          : 'Tuned'
+        : self.syncState === 'stale'
+          ? 'Needs tuning again'
+          : 'Not tuned yet';
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5 px-4 pb-6" data-testid="speaker-screen">
@@ -200,6 +249,8 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
         <p className="mt-2 flex items-center gap-2 text-sm text-ink-300">
           <StatusDot status={status} label="" testid="self-sync-status" />
           {status === 'ok' ? 'In sync with the room' : 'Locking on to the room clock'}
+          <span className="text-ink-500">·</span>
+          <span data-testid="self-tune-state">{tuned}</span>
         </p>
       </div>
       {routed && (
@@ -207,7 +258,7 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
           <RoomDiagram layout={layout} scene={scene} devices={devices} highlight={self.id} />
         </div>
       )}
-      {self.calibratedLatencyMs === null && !self.volumeUpDb && (
+      {self.syncState === 'untuned' && !self.volumeUpDb && (
         <p role="status" data-testid="volume-max-hint" className="rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-sm">
           <strong>Turn this device&rsquo;s volume all the way up.</strong> Tuning then matches every speaker&rsquo;s loudness from the listening
           seat, and the room&rsquo;s master volume does the rest.

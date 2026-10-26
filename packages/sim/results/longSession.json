@@ -1,0 +1,51 @@
+{
+  "name": "longSession",
+  "params": {
+    "net": {
+      "baseRttMs": 40,
+      "jitterMs": 5,
+      "spikeProb": 0.01,
+      "spikeMaxMs": 200,
+      "lossProb": 0.01
+    },
+    "perfDriftPpm": -50,
+    "perfWander": {
+      "ppm": 3,
+      "periodMs": 1200000
+    },
+    "audioVsPerfPpm": 80,
+    "audioWander": {
+      "ppm": 2,
+      "periodMs": 900000
+    },
+    "durationMs": 3600000
+  },
+  "trueErrorMs": {
+    "n": 35800,
+    "mean": 0.015,
+    "rms": 0.36,
+    "p50": 0.201,
+    "p95": 0.721,
+    "max": 1.95
+  },
+  "reschedules": 0,
+  "rateNudges": 7192,
+  "maxRateDeviation": 0.000248,
+  "acmRateErrorPpm": {
+    "n": 330,
+    "mean": -0.118,
+    "rms": 1.197,
+    "p50": 1.095,
+    "p95": 1.928,
+    "max": 2.511
+  },
+  "clockDriftErrorPpm": {
+    "n": 330,
+    "mean": 0.253,
+    "rms": 2.476,
+    "p50": 2.263,
+    "p95": 3.772,
+    "max": 4.233
+  },
+  "learnedBiasPpm": 129.66
+}

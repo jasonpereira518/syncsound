@@ -64,10 +64,19 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   );
   expect(new Set(pauses.map((p) => p.trackOffset.toFixed(6))).size).toBe(1);
 
-  // --- resume, then seek to ~20 s ---
+  // --- resume: one start time, the paused position, every device on the same heard instant, nobody late ---
   const before2 = await Promise.all(all.map(({ page }) => schedules(page).then((s) => s.length)));
   await host.page.getByTestId('play-pause').click();
-  await Promise.all(all.map(({ page }, i) => waitForSchedule(page, (s) => s.action === 'play', before2[i])));
+  const resumes = await Promise.all(all.map(({ page }, i) => waitForSchedule(page, (s) => s.action === 'play', before2[i])));
+  expect(new Set(resumes.map((r) => r.startRoomTime)).size).toBe(1);
+  for (const r of resumes) expect(r.trackOffset).toBeCloseTo(pauses[0]!.trackOffset, 6);
+  const resumeHeard = resumes.map((r) => r.expectedHeardEpochMs);
+  console.log('resume: predicted heard-instant spread (ms) =', spread(resumeHeard).toFixed(3));
+  expect(spread(resumeHeard)).toBeLessThan(MAX_START_DEVIATION_MS);
+  expect(resumes.every((r) => !r.late)).toBe(true);
+  // every device's audio-clock map is current (a frozen map once made one guest start ~0.5 s late on every schedule)
+  for (const r of resumes) expect(Math.abs(r.mapSkewMs)).toBeLessThan(150);
+  // --- then seek to ~20 s ---
   const before3 = await Promise.all(all.map(({ page }) => schedules(page).then((s) => s.length)));
   const seek = host.page.getByTestId('seek-bar');
   await seek.fill('20');

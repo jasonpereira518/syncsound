@@ -107,9 +107,44 @@ async function mediaInfo(): Promise<{ hasMic: boolean; outputLabel?: string }> {
   }
 }
 
+export type MicPermission = NonNullable<DeviceCaps['micPermission']>;
+
+/** a Permissions API state (or anything else) → the caps value */
+export const micPermissionOf = (state: string | null | undefined): MicPermission =>
+  state === 'granted' || state === 'denied' || state === 'prompt' ? state : 'unknown';
+
+/** the page's microphone permission without prompting ('unknown' where the browser won't say, e.g. Safari) */
+export async function micPermissionState(): Promise<MicPermission> {
+  try {
+    const q = await navigator.permissions?.query?.({ name: 'microphone' as PermissionName });
+    return micPermissionOf(q?.state);
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** kill switch for asking for the mic at join (`?noMicProbe`): the tune then prompts mid-run as before */
+export const PROBE_MIC_AT_JOIN = true;
+export const probeMicEnabled = (): boolean => PROBE_MIC_AT_JOIN && !(typeof location !== 'undefined' && new URLSearchParams(location.search).has('noMicProbe'));
+
+/**
+ * Ask for the microphone once, inside the join tap (iOS needs the gesture), so a tune never has to prompt mid-run
+ * and output labels become readable; the stream is stopped at once. Resolves to the permission it got.
+ */
+export function probeMic(): Promise<MicPermission> {
+  if (!navigator.mediaDevices?.getUserMedia) return Promise.resolve('unknown');
+  return navigator.mediaDevices.getUserMedia({ audio: true }).then(
+    (s) => {
+      s.getTracks().forEach((t) => t.stop());
+      return 'granted' as const;
+    },
+    (e: unknown) => (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? 'denied' : 'unknown'),
+  );
+}
+
 export async function buildCaps(ctx: AudioContext | null): Promise<DeviceCaps> {
   const ua = navigator.userAgent;
-  const { hasMic, outputLabel } = await mediaInfo();
+  const [{ hasMic, outputLabel }, micPermission] = await Promise.all([mediaInfo(), micPermissionState()]);
   const ms = (s: number | undefined) => (typeof s === 'number' && Number.isFinite(s) ? s * 1000 : null);
   const outputLatencyMs = ms(ctx?.outputLatency);
   return {
@@ -122,6 +157,7 @@ export async function buildCaps(ctx: AudioContext | null): Promise<DeviceCaps> {
     hasOutputTimestamp: typeof ctx?.getOutputTimestamp === 'function',
     hasMic,
     ...(outputLabel ? { outputLabel } : {}),
+    micPermission,
   };
 }
 

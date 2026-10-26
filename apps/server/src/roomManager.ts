@@ -41,6 +41,7 @@ export class RoomManager {
       profiles?: RoomDeps['profiles'];
       clock?: () => number;
       homes?: HomeStore;
+      prepareDeadlineMs?: number;
     } = {},
   ) {
     this.ttlMs = (opts.ttlMinutes ?? Number(process.env.ROOM_TTL_MINUTES ?? 60)) * 60_000;
@@ -66,6 +67,7 @@ export class RoomManager {
         passwords,
         profiles: this.opts.profiles,
         clock: this.opts.clock ?? perfClock,
+        ...(this.opts.prepareDeadlineMs !== undefined ? { prepareDeadlineMs: this.opts.prepareDeadlineMs } : {}),
       }),
     );
     return { code, hostKey };
@@ -92,6 +94,7 @@ export class RoomManager {
       passwords,
       profiles: this.opts.profiles,
       clock: this.opts.clock ?? perfClock,
+      ...(this.opts.prepareDeadlineMs !== undefined ? { prepareDeadlineMs: this.opts.prepareDeadlineMs } : {}),
     });
     this.rooms.set(stored.id, room);
     return room;
@@ -130,6 +133,18 @@ export class RoomManager {
       else updates.push({ room, out: r.out });
     }
     return { startRoomTime, errors, updates };
+  }
+
+  /** time-driven calibration work (a prepared tune's deadline): what each room has to broadcast now */
+  calibrationTick(now: number): { updates: Array<{ room: Room; out: Outbound[] }> } {
+    const updates: Array<{ room: Room; out: Outbound[] }> = [];
+    for (const room of this.rooms.values()) {
+      const due = room.calibrationDue();
+      if (due === null || now < due) continue;
+      const out = room.calibrationTick(now);
+      if (out.length) updates.push({ room, out });
+    }
+    return { updates };
   }
 
   /** expire rooms empty for longer than the TTL (home rooms are only unloaded; their config is stored), prune long-disconnected devices; returns broadcasts to deliver */

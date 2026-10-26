@@ -49,6 +49,26 @@ describe('AudioClockMap output-path steps', () => {
     expect(Math.abs(m.perfToCtx(future) - truth) * 1000).toBeLessThan(1);
   });
 
+  it('recovers when a step lands inside its first observations (the fit is bent, residuals keep growing)', () => {
+    // seen in a real browser: a mic probe at join re-opens the output path while the map has ~6 observations;
+    // the bent fit then rejected every later observation as a step that never "confirmed" (each residual grew
+    // past the last by more than the agreement window), so the map froze and every schedule landed late
+    const m = new AudioClockMap();
+    const obs = (perf: number, lat: number) => {
+      const ctx = Math.floor((((perf - lat) / 1000) * 48000) / 128) * 128 / 48000;
+      m.addObservation(ctx * 1000 + lat, ctx);
+    };
+    let perf = 3000;
+    for (let i = 0; i < 4; i++) obs((perf += 250), 40);
+    for (let i = 0; i < 4; i++) obs((perf += 250), 120); // +80 ms while the map is still young
+    for (let i = 0; i < 40; i++) obs((perf += 250), 120); // 10 s steady in the new regime
+    expect(m.ready()).toBe(true);
+    const future = perf + 1500;
+    const truth = (future - 120) / 1000;
+    expect(Math.abs(m.perfToCtx(future) - truth) * 1000).toBeLessThan(1);
+    expect(m.pendingSteps()).toBe(0);
+  });
+
   it('ignores a single spike', () => {
     const m = new AudioClockMap();
     let perf = 1000;
@@ -57,5 +77,40 @@ describe('AudioClockMap output-path steps', () => {
     for (let i = 0; i < 4; i++) m.addObservation((perf += 250), (perf - 50) / 1000);
     expect(m.steps).toBe(0);
     expect(Math.abs(m.ratePpm())).toBeLessThan(10);
+  });
+});
+
+describe('AudioClockMap long-baseline rate', () => {
+  it('reaches the true rate within a few ppm over 60–256 s and keeps it across a latency step', () => {
+    const m = new AudioClockMap();
+    const rate = 1 + 80e-6;
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    let lat = 304;
+    const obs = (i: number) => {
+      // getOutputTimestamp pair: ctx jitters ±½ render quantum; 2 % of perf stamps are taken 5–30 ms late
+      const perf = 1e6 + i * 250 + (rnd() < 0.02 ? 5 + rnd() * 25 : 0);
+      const ctx = ((1e6 + i * 250 - lat) / 1000) * rate + (rnd() - 0.5) * 0.00267;
+      m.addObservation(perf, ctx);
+    };
+    let i = 0;
+    for (; i < 100; i++) obs(i); // 25 s: long window not yet in use
+    expect(m.longRate()).toBeNull();
+    for (; i < 240; i++) obs(i); // 60 s (slope SE ≈ 2.9 ppm)
+    expect(m.longRate()).not.toBeNull();
+    expect(Math.abs(m.ratePpm() - 80)).toBeLessThan(8);
+    for (; i < 480; i++) obs(i); // 120 s
+    lat = 348; // the output path's latency jumps +44 ms
+    for (let k = 0; k < 6; k++) obs(i++);
+    expect(m.steps).toBe(1);
+    for (; i < 1100; i++) obs(i); // 275 s: the long window is full (256 s, SE ≈ 0.3 ppm)
+    const r = m.longRate()!;
+    expect(r.spanMs).toBeGreaterThan(250_000);
+    expect(Math.abs(m.ratePpm() - 80)).toBeLessThan(2);
+    expect(r.sePpm).toBeLessThan(1);
+    const future = 1e6 + i * 250 + 1500;
+    expect(Math.abs(m.perfToCtx(future) - ((future - lat) / 1000) * rate) * 1000).toBeLessThan(1);
+    m.reset();
+    expect(m.longRate()).toBeNull();
   });
 });

@@ -37,8 +37,8 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Per-output calibration memory** needs readable output labels: desktop Chromium/Firefox after mic permission
   was granted on that device. On iOS, and on Android where output devices aren't listed, a route change still
   only prompts to recalibrate. A device that never granted mic permission (calibrated from another listener)
-  has no labels either. Calibrated latencies are relative to the fastest device *in that run*, so values from
-  runs with different device sets are not strictly comparable.
+  has no labels either. The memory keeps the output's timing (`tuneId` + arrival) only: a level trim or EQ
+  measured through a Bluetooth speaker is cleared when the route changes and is not restored with it.
 - **The tune's search window is −0.4…+1.0 s around each slot** (every device plays the same sweep, so windows
   can't overlap the next slot). A speaker more than ~1 s late (AirPlay-class outputs, ~2 s) is not heard; use the
   manual slider for it.
@@ -54,6 +54,15 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Headphones can't be tuned** (no mic hears them): they keep the browser-reported latency plus the manual slider.
 - **Clock asymmetry:** NTP-style sync can't observe asymmetric network paths. The bias (asymmetry/2, e.g.
   15 ms for a 30 ms asymmetry) gets absorbed by acoustic calibration; without calibration it remains.
+- **A tune waits for the clocks to settle** (S2): started within ~30 s of joining it shows "Letting the clocks
+  settle…" for up to 20 s (the audio clock's long-baseline rate needs 30 s of observations); on a bad network the
+  hard criteria can hold it up to 30 s and then refuse ("The room clock hasn't settled yet"). A device that joined
+  a minute earlier waits ~3 s.
+- **A room without a LAN clock master is clock-limited** (every device on the server clock, e.g. client isolation
+  on guest Wi-Fi): each device's WAN estimate moves by about a millisecond per minute at σ 5 ms jitter, so a tune
+  holds p95 ≈ 1.9 ms there (`tuneClock.test.ts`), not < 1 ms.
+- **A USB or external microphone on its own clock** (not the device's audio context) adds its own rate error to
+  the recorder map; the sims model the built-in path only.
 
 ## Verified only in simulation or headlessly (needs real devices; see HUMAN_TEST_CHECKLIST.md)
 
@@ -74,15 +83,26 @@ An honest list of what is not done, what can't be verified without hardware, and
 
 ## Known gaps and simplifications
 
-- **EQ convergence below 280 Hz:** the 200 Hz–8 kHz pairwise spread drops 37 % (spec target 40 %). Over
-  280 Hz–8 kHz, where every device's EQ may act, it drops 80 %. Below 280 Hz the phone (300 Hz high-pass) may not
+- **EQ convergence below 280 Hz:** the 200 Hz–8 kHz pairwise spread drops 41 % (spec target 40 %). Over
+  275 Hz–8 kHz, where every device's EQ may act, it drops 83 %. Below 280 Hz the phone (300 Hz high-pass) may not
   be boosted by rule, so in the app that band goes through bass management to bass-capable devices instead.
 - **Clock drift estimate under heavy jitter:** with σ ≥ 5 ms jitter and 1 Hz pings, drift is within ±5 ppm only
   after ~300 s (at 120 s: 5.0 ppm with σ 5 ms, up to 44.5 ppm with σ 30 ms). The offset error stays < 6 ms max
   regardless. Harsh-jitter alignment is 2.5 ms vs < 2 ms for normal Wi-Fi.
-- **LAN clock master (R1)** is verified in simulation (`lanMaster.test.ts`) and by unit tests, not yet on real
-  hardware. If WebRTC can't connect between two devices (e.g. client isolation on guest Wi-Fi), they silently fall
-  back to the server clock, which keeps the old ~1–2 ms device-to-device spread over a WAN.
+- **LAN clock master (R1)** is verified in simulation (`lanMaster.test.ts`, `lanFailover.test.ts`) and by unit
+  tests, not yet on real hardware. If WebRTC can't connect between two devices (e.g. client isolation on guest
+  Wi-Fi), they fall back to the server clock, which keeps the old ~1–2 ms device-to-device spread over a WAN; a
+  dropped link is retried with backoff (1…30 s).
+- **Background-tab throttling** is countered by running the sync loops on a Worker (S1), whose exemption from
+  Chrome's intensive throttling is documented policy but verifiable only on hardware (HUMAN_TEST_CHECKLIST 24). The
+  loops are correct at any tick rate either way; without the Worker a paused room's clock just has fewer samples
+  (and the debug drawer's "syncing" badge can show until the resume burst).
+- **A suspended AudioContext (iOS background, device sleep)** leaves ≈ 0.75–1 s of silence on resume: the
+  audio-clock map needs four fresh observations before the source is rebuilt. Before S1 the old source kept playing
+  minutes-old audio for about as long.
+- **Clock-rate wander** (crystal temperature) is followed, not averaged: the audio-clock slope lags a ±2 ppm /
+  15 min wander by up to ≈ 2 ppm and the drift fit lags ±3 ppm / 20 min by up to ≈ 4 ppm (`longSession.test.ts`);
+  position error stays p95 0.7 ms over an hour.
 - **Capture transport** is a WebRTC mesh: host uplink = N × ~256 kbps Opus. Fine for ~8 devices. LiveKit (an SFU)
   is recommended beyond that but not integrated. The capture pipeline-delay estimate uses `getStats`
   (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), median-filtered over 2.5 s and applied only
@@ -110,8 +130,17 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Spotify tokens** aren't refreshed (they expire after 1 h; reconnect). Apple Music has no reliable
   missing-subscription check.
 - **Profiles persist** (server `profiles.json`, keyed by the device id in localStorage): name, role, trim, latency,
-  calibrated latency, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to
-  see curves again.
+  tune arrival + tune id, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to
+  see curves again. A profile written before S3 (a bare `calibratedLatencyMs`) is ignored for timing: the device
+  joins untuned and one tap fixes it.
+- **A speaker that physically moved needs a new tune.** The tune stores each device's arrival where it was; a
+  drag of the picture keeps the sound aligned (that is what it is for), so a laptop carried 1 m across the room
+  and dragged to match plays 2.9 ms off until the next tune (`tuneInvariant.test.ts`; a quick tune is one tap).
+  No silent fix exists: nothing can tell a moved speaker from a corrected picture.
+- **Unheard devices drop out of the tune.** Every run is a new reference, so a device the run did not hear (a
+  phone whose output was muted, a tab on older code) is untuned afterwards rather than kept on its old value;
+  the host is told ("1 needs tuning") and the device plays without compensation until the next tune. Bluetooth
+  outputs included: a stale hint would hide the untuned state.
 - **Calibration auto-pauses only when the calibrating device may control playback** (host, or open control). A
   guest under host-only control is still told to ask the host to pause.
 - **Loudness matching boosts a soft speaker by at most +6 dB.** Everyone meets at the median; a boosted device's
@@ -124,7 +153,17 @@ An honest list of what is not done, what can't be verified without hardware, and
   hears a stereo laptop's two speakers separately (≈ ±3 dB bias), which would add error where the prior is right.
   Phase 2 (a phone held at the head as the listener) removes the near-field step.
 - **Tabs on older code can't take part in a chime tune.** They reject the `'tune'` plan and are reported "not
-  heard"; reload them.
+  heard"; reload them. Tabs from before S4 (no `micPermission` in their caps) are not waited for in the prepare
+  phase: they open their mic when the plan arrives, so a room with one keeps the old 3.5 s start lead.
+- **The microphone is asked for at join** (one prompt, inside the join tap; `?noMicProbe` turns it off). On iOS
+  Safari a `getUserMedia` grant lives with the page's audio session: the probe is stopped at once, and whether
+  that leaves playback and the later tune untouched on every iOS version is a hardware item (checklist 29). A
+  device that denies the mic still plays; it is just never asked to record and is placed by hand.
+- **Distances fix the shape of the room, not its mirror image.** The tune fits the measured distances onto the
+  host's rough picture, so left and right can come out swapped when the picture had them swapped; "Adjust layout"
+  (tap the spots again) fixes it, and the timing is unaffected either way (it is aligned at the head, not by name).
+- **A tune started from the setup screen moves on to Now Playing by itself** when it finishes; its result lingers
+  there for 20 s. A tune that fails stays on the setup screen with the error and a retry.
 - **Room creation and uploads** are rate-limited per remote address in-process. Behind a proxy, use a trusted
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked

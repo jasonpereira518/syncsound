@@ -161,20 +161,26 @@ export function JoinGate({ code }: { code: string }) {
         </button>
       </form>
 
-      <ul className="mt-8 space-y-3 text-sm text-ink-400">
-        <li className="flex gap-3">
-          <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-accent" />
-          Tapping the button turns on audio. Your screen stays awake while you&rsquo;re in the room.
-        </li>
-        <li className="flex gap-3">
-          <Icon name="phone" className="mt-0.5 size-4 shrink-0 text-accent" />
-          Keep this tab open and in the foreground. iPhones pause audio from background tabs and locked screens.
-        </li>
-        <li className="flex gap-3">
-          <Icon name="bluetooth" className="mt-0.5 size-4 shrink-0 text-accent" />
-          Bluetooth speakers add delay. Tuning the room fixes it once everyone has joined.
-        </li>
-      </ul>
+      <p className="mt-6 text-sm text-ink-300" data-testid="join-mic-note">
+        Your microphone helps tune the room; this device never records anything else.
+      </p>
+      <details className="mt-3 text-sm text-ink-400">
+        <summary className="cursor-pointer hover:text-ink-100">Good to know</summary>
+        <ul className="mt-3 space-y-3">
+          <li className="flex gap-3">
+            <Icon name="sparkle" className="mt-0.5 size-4 shrink-0 text-accent" />
+            Tapping the button turns on audio and asks for the microphone once. Your screen stays awake while you&rsquo;re in the room.
+          </li>
+          <li className="flex gap-3">
+            <Icon name="phone" className="mt-0.5 size-4 shrink-0 text-accent" />
+            Keep this tab open and in the foreground. iPhones pause audio from background tabs and locked screens.
+          </li>
+          <li className="flex gap-3">
+            <Icon name="bluetooth" className="mt-0.5 size-4 shrink-0 text-accent" />
+            Bluetooth speakers add delay. Tuning the room fixes it once everyone has joined.
+          </li>
+        </ul>
+      </details>
     </main>
   );
 }

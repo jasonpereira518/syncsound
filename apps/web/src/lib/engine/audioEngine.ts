@@ -5,17 +5,21 @@
  */
 import { setAudioSession } from '../audioSession';
 import { batterySaver, dueNow } from '../power';
+import { startTicker } from '../ticker';
 import {
   AudioClockMap,
   DriftController,
   PlaybackTracker,
+  ReconcileGate,
   clickTrack,
+  tickDt,
   computeDeviceMix,
   computeStart,
   sceneAt,
   type RoomClock,
   type DeviceMix,
   type StartDecision,
+  type TimeMap,
 } from '@syncsound/audio-core';
 import type { Playback, RoomState, Track } from '@syncsound/protocol';
 import { errMsg, me, patch, setError, useRoomStore } from '../../store/state';
@@ -56,6 +60,8 @@ export interface EngineDeps {
   clockReady: () => boolean;
   /** media devices changed outside a calibration run; default: prompt to recalibrate */
   onRouteChange?: () => void;
+  /** the audio output's latency stepped outside a run: this device's tune timing may be off */
+  onStale?: (kind: 'output') => void;
   /** a queued track was fetched and decoded on this device (lets the room learn durations it did not know) */
   onDecoded?: (trackId: string, info: { durationSec: number; channels: number }) => void;
 }
@@ -78,7 +84,11 @@ export class AudioEngine {
   private taps: ReturnType<OutputChain['enableTaps']> | null = null;
   private readonly assets: AssetCache;
   private readonly drift = new DriftController();
-  private intervals: Array<ReturnType<typeof setInterval>> = [];
+  private readonly gate = new ReconcileGate();
+  private stops: Array<() => void> = [];
+  private lastTickCtx: number | null = null;
+  /** drift-tick gaps (ctx s, gap ms) over the last minute: the debug drawer's "tick gap" */
+  private tickGaps: Array<[number, number]> = [];
   private orbitTimer: ReturnType<typeof setInterval> | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private click: { src: AudioBufferSourceNode; startedCtx: number } | null = null;
@@ -126,16 +136,8 @@ export class AudioEngine {
 
     this.chain = new OutputChain(ctx);
     if (new URLSearchParams(location.search).has('tap')) this.taps = this.chain.enableTaps();
-    ctx.onstatechange = () => {
-      // a suspension freezes ctx time while perf time runs on → the mapping is no longer linear
-      this.audioClock.reset();
-      // iOS 'interrupted' (a call, Siri, another app's audio): try to come back by ourselves once it ends; if the
-      // browser wants a tap for that, the room shows a "turn the sound back on" button (resume()).
-      if (ctx.state !== 'running' && ctx.state !== 'closed' && document.visibilityState === 'visible') void ctx.resume().catch(() => {});
-      this.publish();
-    };
-    this.intervals.push(setInterval(() => this.observeClock(), 250));
-    this.intervals.push(setInterval(() => this.tick(), 500));
+    ctx.onstatechange = () => this.onCtxStateChange();
+    this.stops.push(startTicker(250, () => this.observeClock()), startTicker(500, () => this.tick()));
     navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
     void this.acquireWakeLock();
     this.onRoomChanged();
@@ -144,8 +146,8 @@ export class AudioEngine {
 
   dispose(): void {
     this.disposed = true;
-    for (const i of this.intervals) clearInterval(i);
-    this.intervals = [];
+    for (const stop of this.stops) stop();
+    this.stops = [];
     this.stopOrbit();
     navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange);
     void this.wakeLock?.release().catch(() => {});
@@ -169,14 +171,39 @@ export class AudioEngine {
     const ctx = this.ctx;
     if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
     setAudioSession('playback');
+    // the rebuild waits in the gate until the audio clock has re-converged after the resume
     void ctx.resume().then(() => this.reconcile(true), () => {});
   }
 
-  /** tab visible again: resume audio + wake lock; the caller re-bursts the clock then calls reconcile(true) */
+  /** tab visible again: resume audio + wake lock; the caller re-bursts the clock, then reconciles (forced only if it moved) */
   onVisible(): void {
     const ctx = this.ctx;
     if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {});
     void this.acquireWakeLock();
+  }
+
+  /**
+   * The context was suspended/interrupted (iOS background, device sleep) or came back. A suspension freezes ctx
+   * time while perf time runs on, so the audio-clock mapping is no longer linear: reset it. A source that was
+   * playing would otherwise resume minutes-old audio on `running`: fade it out now and rebuild once the mapping
+   * is ready again (the forced rebuild waits in the gate).
+   */
+  private onCtxStateChange(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state !== 'running') {
+      const pv = this.voice;
+      if (pv && pv.stopAt === null) {
+        this.fadeOut(pv, ctx.currentTime);
+        this.gate.request(true);
+      }
+    }
+    // a suspension freezes ctx time while perf time runs on → the mapping is no longer linear
+    this.audioClock.reset();
+    // iOS 'interrupted' (a call, Siri, another app's audio): try to come back by ourselves once it ends; if the
+    // browser wants a tap for that, the room shows a "turn the sound back on" button (resume())
+    if (ctx.state !== 'running' && ctx.state !== 'closed' && document.visibilityState === 'visible') void ctx.resume().catch(() => {});
+    this.publish();
   }
 
   private onDeviceChange = () => {
@@ -214,6 +241,14 @@ export class AudioEngine {
   // ---------- clocks ----------
 
   private measuringUntil = 0;
+  /** instrumentation: lead the last schedule was acted on with, and the audio map's skew against now, ms */
+  private lastLeadMs = 0;
+  private lastSkewMs = 0;
+
+  /** an output step or devicechange in the next `ms` is expected (a mic probe at join), not a route change */
+  quietRouteStepsFor(ms: number): void {
+    this.measuringUntil = Math.max(this.measuringUntil, performance.now() + ms);
+  }
 
   private observeClock() {
     const ctx = this.ctx;
@@ -236,9 +271,12 @@ export class AudioEngine {
       // Opening/closing a measurement's recorder causes such a step too, so steps during one (+5 s) don't count.
       const st = useRoomStore.getState();
       if (st.calibration.running || st.calibration.emitting || st.syncMeasure.running) this.measuringUntil = performance.now() + 5000;
-      else if (this.audioClock.steps > steps && performance.now() > this.measuringUntil) useRoomStore.setState({ routeChanged: true });
+      else if (this.audioClock.steps > steps && performance.now() > this.measuringUntil) {
+        useRoomStore.setState({ routeChanged: true });
+        this.deps.onStale?.('output');
+      }
       const ready = this.timingReady();
-      if (ready && !this.clockWasReady) this.reconcile();
+      if (ready && !this.clockWasReady) this.reconcile(this.gate.pending);
       this.clockWasReady = ready;
     } catch (e) {
       setError(`Audio clock error: ${errMsg(e)}`);
@@ -364,8 +402,9 @@ export class AudioEngine {
 
   /** Bring audio in line with room.playback. Idempotent; `force` rebuilds the source even if unchanged. */
   reconcile(force = false): void {
+    this.gate.request(force);
     try {
-      this.reconcileInner(force);
+      this.reconcileInner(this.gate.pending);
     } catch (e) {
       setError(`Playback error: ${errMsg(e)}`);
     }
@@ -379,24 +418,30 @@ export class AudioEngine {
     const pb = room.playback;
     const track = this.currentTrack(room);
     if (pb.status !== 'playing' || !track || track.sourceClass !== 'rendered') {
+      this.gate.take(); // nothing to rebuild
       this.stopForPlayback(pb);
       return;
     }
-    if (!this.timingReady()) return; // resumes on clock sync / audio clock ready
+    if (!this.timingReady()) return; // resumes on clock sync / audio clock ready (a forced rebuild stays pending)
     const key = playbackKey(pb);
     if (!force && this.voice && this.voice.key === key && this.voice.stopAt === null) return;
     const buffer = this.assets.buffer(track.id);
     if (!buffer) return; // resumes when the asset is ready
     const comp = this.compensationSec();
+    // one clock snapshot per decision: a LAN ↔ server path flip must not split one computation
+    const clock = this.deps.clock()!;
+    this.lastLeadMs = clock.toLocalTime(pb.startRoomTime) - performance.now();
+    this.lastSkewMs = this.audioClock.ctxToPerf(ctx.currentTime) - performance.now();
     const d = computeStart({
       startRoomTime: pb.startRoomTime,
       trackOffset: pb.trackOffset,
-      roomToCtx: this.roomToCtx,
+      roomToCtx: (r) => this.audioClock.perfToCtx(clock.toLocalTime(r)),
       nowCtx: ctx.currentTime,
       compensationSec: comp,
       durationSec: buffer.duration,
     });
     if (!d) {
+      this.gate.take();
       this.stopVoice(ctx.currentTime);
       return;
     }
@@ -445,9 +490,14 @@ export class AudioEngine {
       voice.fade.gain.value = 1;
     }
     const g = snapToSampleGrid(d.when, d.offset, ctx.sampleRate);
+    // start at the learned clock-rate correction, not at 1: the integral is this device's, not the track's
+    const rate = this.drift.hold().rate;
+    src.playbackRate.value = rate;
     src.start(g.when, g.offset);
     const tracker = new PlaybackTracker();
-    tracker.start(g.when, g.offset);
+    tracker.start(g.when, g.offset, rate);
+    this.lastTickCtx = null;
+    this.gate.take();
     const pv: PlayingVoice = { voice, src, key, trackId, when: d.when, tracker, stopAt: null, fadeUntil };
     src.onended = () => {
       voice.dispose();
@@ -466,6 +516,10 @@ export class AudioEngine {
       offset: d.offset,
       compensationSec: comp,
       late: d.late,
+      arrivedLeadMs: Math.round(this.lastLeadMs),
+      audioSteps: this.audioClock.steps,
+      mapSkewMs: Math.round(this.lastSkewMs),
+      pendingSteps: this.audioClock.pendingSteps(),
       expectedHeardEpochMs: expectedHeardEpochMs({
         timeOrigin: performance.timeOrigin,
         ctxToPerf: (c) => this.audioClock.ctxToPerf(c),
@@ -560,6 +614,10 @@ export class AudioEngine {
       offset: pb.trackOffset,
       compensationSec: this.compensationSec(),
       late: false,
+      arrivedLeadMs: 0,
+      audioSteps: this.audioClock.steps,
+      mapSkewMs: 0,
+      pendingSteps: this.audioClock.pendingSteps(),
       expectedHeardEpochMs: expectedHeardEpochMs({
         timeOrigin: performance.timeOrigin,
         ctxToPerf: (c) => this.audioClock.ctxToPerf(c),
@@ -583,31 +641,48 @@ export class AudioEngine {
     try {
       // (re)start the click once timing is ready, and re-align it to the room clock every 30 s
       if (this.clickOn && ctx && (!this.click || ctx.currentTime - this.click.startedCtx > 30)) this.startClick();
-      if (!ctx || !room || !pv || pv.stopAt !== null || !this.timingReady()) return;
+      if (!ctx || !room || !pv || pv.stopAt !== null) return;
+      const now = ctx.currentTime;
+      if (!this.timingReady()) {
+        // no measurement right now (clock re-acquiring, audio clock reset): hold the learned rate rather than
+        // freezing in whatever proportional nudge was applied last
+        this.applyRate(pv, now, this.drift.hold().rate, false);
+        return;
+      }
       const pb = room.playback;
       if (pb.status !== 'playing' || playbackKey(pb) !== pv.key) return;
-      const now = ctx.currentTime;
       if (now < pv.when + 0.2) return;
-      const expected = expectedPositionAtCtx(pb, now, this.ctxToRoom, this.compensationSec());
+      const dt = tickDt(this.lastTickCtx, now, batterySaver() ? 1.5 : 0.5);
+      this.lastTickCtx = now;
+      this.noteTickGap(now, dt);
+      const clock = this.deps.clock()!;
+      const expected = expectedPositionAtCtx(pb, now, (c) => clock.toRoomTime(this.audioClock.ctxToPerf(c)), this.compensationSec());
       const err = driftErrorMs(pv.tracker.positionAt(now), expected);
       this.syncErrorMs = Math.abs(err);
-      const dec = this.drift.update(err, batterySaver() ? 1.5 : 0.5);
+      const dec = this.drift.update(err, dt);
       if (dec.action === 'reschedule') {
         this.corrections = { ...this.corrections, reschedule: this.corrections.reschedule + 1 };
         this.reconcile(true);
         return;
       }
-      const rate = dec.rate;
-      if (rate !== pv.tracker.rate) {
-        if (dec.action === 'rate') this.corrections = { ...this.corrections, rate: this.corrections.rate + 1 };
-        pv.src.playbackRate.setTargetAtTime(rate, now, 0.02);
-        pv.tracker.setRate(now, rate);
-      }
+      this.applyRate(pv, now, dec.rate, dec.action === 'rate');
     } catch (e) {
       setError(`Sync loop error: ${errMsg(e)}`);
     } finally {
       this.publish();
     }
+  }
+
+  private applyRate(pv: PlayingVoice, now: number, rate: number, counted: boolean) {
+    if (rate === pv.tracker.rate) return;
+    if (counted) this.corrections = { ...this.corrections, rate: this.corrections.rate + 1 };
+    pv.src.playbackRate.setTargetAtTime(rate, now, 0.02);
+    pv.tracker.setRate(now, rate);
+  }
+
+  private noteTickGap(nowCtx: number, dtSec: number) {
+    this.tickGaps.push([nowCtx, dtSec * 1000]);
+    while (this.tickGaps.length && this.tickGaps[0]![0] < nowCtx - 60) this.tickGaps.shift();
   }
 
   // ---------- extras ----------
@@ -664,9 +739,10 @@ export class AudioEngine {
   }
 
   /** room time → ctx start time for a one-shot that bypasses the mix (identify / calibration) */
-  private oneShotWhen(roomMs: number, comp: number): number {
+  private oneShotWhen(roomMs: number, comp: number, clock?: TimeMap): number {
     const ctx = this.ctx!;
-    const when = this.timingReady() ? this.roomToCtx(roomMs) - comp : ctx.currentTime;
+    // `clock` (a calibration run's clock: the LAN link, or the master's pinned mapping) overrides the live room clock
+    const when = this.timingReady() ? (clock ? this.audioClock.perfToCtx(clock.toLocalTime(roomMs)) : this.roomToCtx(roomMs)) - comp : ctx.currentTime;
     return Math.max(when, ctx.currentTime + 0.005);
   }
 
@@ -693,7 +769,7 @@ export class AudioEngine {
    * Calibration emission: auto-only compensation, raw to the destination (no EQ/spatial). `viaChain` (sync check):
    * through the click-test input of the output chain (limiter, output delay and gain, like playback's tail; not EQ/crossover).
    */
-  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto', viaChain = false): { startCtx: number; endCtx: number } | null {
+  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto', viaChain = false, clock?: TimeMap): { startCtx: number; endCtx: number } | null {
     const ctx = this.ctx;
     if (!ctx) return null;
     const src = ctx.createBufferSource();
@@ -702,7 +778,7 @@ export class AudioEngine {
     const lb = this.loopback();
     if (lb) src.connect(lb);
     const c = comp === 'full' ? this.compensationSec() : this.autoCompensationSec();
-    const when = snapToSampleGrid(this.oneShotWhen(roomMs, c), 0, ctx.sampleRate).when;
+    const when = snapToSampleGrid(this.oneShotWhen(roomMs, c, clock), 0, ctx.sampleRate).when;
     src.start(when);
     return { startCtx: when, endCtx: when + src.buffer.duration };
   }
@@ -813,6 +889,8 @@ export class AudioEngine {
       playbackRate: pv?.tracker.rate ?? 1,
       corrections: this.corrections,
       compensationMs: Math.round(comp * 10) / 10,
+      tickGapMs: Math.round(Math.max(0, ...this.tickGaps.map((g) => g[1]))),
+      audioSteps: this.audioClock.steps,
     });
   }
 }

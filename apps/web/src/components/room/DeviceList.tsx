@@ -140,7 +140,8 @@ function DeviceRow({ d }: { d: Device }) {
             <Icon name="battery" className="size-3.5" /> {pct(st.battery)}
           </Badge>
         )}
-        {d.calibratedLatencyMs != null && <Badge tone="ok">calibrated {fmtSigned(d.calibratedLatencyMs, 1)} ms</Badge>}
+        {d.syncState === 'tuned' && d.calibratedLatencyMs != null && <Badge tone="ok">tuned {fmtSigned(d.calibratedLatencyMs, 1)} ms</Badge>}
+        {d.syncState === 'stale' && <Badge tone="warn">tune again</Badge>}
         {d.eq.source !== 'none' && <Badge>EQ: {d.eq.source}{d.eq.enabled ? '' : ' (off)'}</Badge>}
         <Badge>{d.caps.deviceClass}</Badge>
       </div>
