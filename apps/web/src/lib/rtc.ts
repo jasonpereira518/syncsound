@@ -45,6 +45,7 @@ export interface MeshOptions {
 export class RtcMesh {
   private peers = new Map<string, Peer>();
   private local: { track: MediaStreamTrack; stream: MediaStream } | null = null;
+  private jitterTargetMs: number | null = null;
 
   constructor(private readonly o: MeshOptions) {}
 
@@ -54,6 +55,27 @@ export class RtcMesh {
 
   setLocalTrack(track: MediaStreamTrack, stream: MediaStream) {
     this.local = { track, stream };
+  }
+
+  /**
+   * receivers: jitter-buffer (NetEq) target for every current and future track. Network jitter is absorbed here,
+   * where late packets are concealed, instead of by the output delay, which can't conceal anything.
+   */
+  setJitterTargetMs(ms: number) {
+    this.jitterTargetMs = ms;
+    for (const peer of this.peers.values()) for (const r of peer.pc.getReceivers()) this.applyJitterTarget(r);
+  }
+
+  private applyJitterTarget(receiver: RTCRtpReceiver) {
+    const ms = this.jitterTargetMs;
+    if (ms === null) return;
+    const r = receiver as RTCRtpReceiver & { jitterBufferTarget?: number | null; playoutDelayHint?: number };
+    try {
+      if ('jitterBufferTarget' in r) r.jitterBufferTarget = ms;
+      if ('playoutDelayHint' in r) r.playoutDelayHint = ms / 1000; // legacy Chrome
+    } catch {
+      /* unsupported value */
+    }
   }
 
   /** host: offer to new peers, close peers that left */
@@ -138,13 +160,7 @@ export class RtcMesh {
         this.o.send(id, { kind: 'ice', candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex });
     };
     pc.ontrack = (e) => {
-      const r = e.receiver as RTCRtpReceiver & { jitterBufferTarget?: number | null; playoutDelayHint?: number };
-      try {
-        if ('jitterBufferTarget' in r) r.jitterBufferTarget = 40; // ms
-        if ('playoutDelayHint' in r) r.playoutDelayHint = 0.04; // s (legacy Chrome)
-      } catch {
-        /* unsupported value */
-      }
+      this.applyJitterTarget(e.receiver);
       this.o.onRemoteStream?.(id, e.streams[0] ?? new MediaStream([e.track]));
     };
     pc.onconnectionstatechange = () => {

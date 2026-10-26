@@ -31,6 +31,9 @@ import {
   snapToSampleGrid,
 } from './timing';
 
+/** live-capture voice fade in/out, s */
+const EXTERNAL_FADE_SEC = 0.02;
+
 interface PlayingVoice {
   voice: Voice;
   src: AudioBufferSourceNode;
@@ -61,6 +64,8 @@ export class AudioEngine {
   private chain: OutputChain | null = null;
   private voice: PlayingVoice | null = null;
   private external: Voice | null = null;
+  /** `?tap=1` e2e instrumentation: analysers on the output and the live source */
+  private taps: ReturnType<OutputChain['enableTaps']> | null = null;
   private readonly assets: AssetCache;
   private readonly drift = new DriftController();
   private intervals: Array<ReturnType<typeof setInterval>> = [];
@@ -108,6 +113,7 @@ export class AudioEngine {
     if (session) session.type = 'playback';
 
     this.chain = new OutputChain(ctx);
+    if (new URLSearchParams(location.search).has('tap')) this.taps = this.chain.enableTaps();
     ctx.onstatechange = () => {
       // a suspension freezes ctx time while perf time runs on → the mapping is no longer linear
       this.audioClock.reset();
@@ -135,6 +141,7 @@ export class AudioEngine {
     this.loopbackNode = null;
     this.voice = null;
     this.external = null;
+    this.taps = null;
     this.chain?.dispose();
     this.chain = null;
     void ctx?.close().catch(() => {});
@@ -603,20 +610,57 @@ export class AudioEngine {
     }
   }
 
-  /** capture mode: route a live stream (2 ch) through the same spatial graph */
-  attachExternal(node: AudioNode | null) {
-    this.external?.dispose();
-    this.external = null;
+  /**
+   * capture mode: route a live stream (2 ch) through the same spatial graph. The voice starts silent; `fadeIn`
+   * brings it up now, otherwise the caller does once the stream is aligned (fadeExternalIn).
+   */
+  attachExternal(node: AudioNode | null, opts: { fadeIn: boolean } = { fadeIn: true }) {
+    this.detachExternal();
     if (!node || !this.ctx || !this.chain) return;
     const v = new Voice(this.ctx, node, 2, this.chain);
     const room = useRoomStore.getState().room;
     if (room && this.mix) v.apply(room.scene, this.mix);
-    v.fade.gain.value = 1;
     this.external = v;
+    this.taps?.setExternal(node);
+    if (opts.fadeIn) this.fadeExternalIn();
   }
 
-  setOutputDelayMs(ms: number) {
-    this.chain?.setDelayMs(ms);
+  fadeExternalIn(sec = EXTERNAL_FADE_SEC) {
+    const v = this.external;
+    const ctx = this.ctx;
+    if (!v || !ctx) return;
+    const g = v.fade.gain;
+    g.cancelScheduledValues(ctx.currentTime);
+    g.setValueAtTime(g.value, ctx.currentTime);
+    g.linearRampToValueAtTime(1, ctx.currentTime + sec);
+  }
+
+  /** fade the live voice out and drop it once the fade is over (the caller keeps its stream alive that long) */
+  detachExternal(sec = EXTERNAL_FADE_SEC) {
+    const v = this.external;
+    const ctx = this.ctx;
+    this.external = null;
+    this.taps?.setExternal(null);
+    if (!v) return;
+    if (!ctx || ctx.state === 'closed') {
+      v.dispose();
+      return;
+    }
+    const g = v.fade.gain;
+    g.cancelScheduledValues(ctx.currentTime);
+    g.setValueAtTime(g.value, ctx.currentTime);
+    g.linearRampToValueAtTime(0, ctx.currentTime + sec);
+    setTimeout(() => v.dispose(), (sec + 0.02) * 1000);
+  }
+
+  /** live-capture alignment delay; true when the chain actually switched (see OutputChain.setDelayMs) */
+  setOutputDelayMs(ms: number): boolean {
+    return this.chain?.setDelayMs(ms) ?? false;
+  }
+
+  /** `?tap=1` instrumentation: what this device plays (per channel) and what the live source carries */
+  readTaps() {
+    return this.taps?.read() ?? null;
   }
 
   // ---------- store ----------

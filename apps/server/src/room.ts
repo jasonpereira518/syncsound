@@ -434,9 +434,15 @@ export class Room {
       case 'CAPTURE': {
         const cur = this.state.captureHostId;
         if (msg.active) {
+          // the stream plays on every device: a playback-control action
+          if (!this.canControl(sender)) throw new RoomError('forbidden', 'only the host may share audio');
           if (cur !== null && cur !== sender.id && this.deviceConn.has(cur))
             throw new RoomError('capture_busy', 'another device is already capturing');
           this.state.captureHostId = sender.id;
+          // a file track can't share the output chain with a live stream (it would be shifted by the alignment
+          // delay, differently on every device): pause it at the next schedulable instant
+          if (this.state.playback.status === 'playing')
+            return this.control({ type: 'pause' }, sender, connId, now, now + this.lead());
         } else if (cur === sender.id) {
           this.state.captureHostId = null;
         }
@@ -518,6 +524,9 @@ export class Room {
 
     switch (cmd.type) {
       case 'play': {
+        const capturing = this.state.captureHostId;
+        if (capturing !== null && this.deviceConn.has(capturing))
+          throw new RoomError('capture_active', 'stop sharing audio first');
         const trackId = cmd.trackId ?? p.trackId ?? this.state.queue[0]?.id;
         if (trackId === undefined || trackId === null) throw new RoomError('no_track', 'queue is empty');
         if (!this.state.queue.some((t) => t.id === trackId))
