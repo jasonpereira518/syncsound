@@ -13,6 +13,7 @@ import type {
   ServerMessage,
   UploadResponse,
 } from '@syncsound/protocol';
+import { QUEUE_END_STOP_MS } from '@syncsound/protocol';
 import { originAllowed } from '../src/http.ts';
 import { MAX_DROPS, RATE_BURST, startServer } from '../src/index.ts';
 import { perfClock } from '../src/room.ts';
@@ -255,6 +256,27 @@ describe('server integration', () => {
       const seqs = c.msgs.filter((m) => m.type !== 'PONG').map((m) => m.seq);
       for (let i = 1; i < seqs.length; i++) expect(seqs[i]!).toBeGreaterThan(seqs[i - 1]!);
     }
+  });
+
+  it('auto-advances on its own: the next track starts exactly when the current one ends, then the room stops', async () => {
+    const created = (await (
+      await fetch(`${base}/api/rooms`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    ).json()) as CreateRoomResponse;
+    const c = await Client.open(srv.port);
+    clients.push(c);
+    c.send({ type: 'JOIN', roomCode: created.code, deviceId: 'adv', name: 'Adv', caps, hostKey: created.hostKey });
+    await c.waitFor('WELCOME');
+    const t = (id: string) => ({ id, title: id, kind: 'file', sourceClass: 'rendered', url: `${base}/assets/demo/tone.wav`, durationSec: 0.4 });
+    c.send({ type: 'CONTROL', command: { type: 'queue', track: t('a') } });
+    c.send({ type: 'CONTROL', command: { type: 'queue', track: t('b') } });
+    await c.waitFor('STATE', (m) => m.roomState.queue.length === 2);
+    c.send({ type: 'CONTROL', command: { type: 'play' } });
+    const first = await c.waitFor('SCHEDULE', (m) => m.trackId === 'a');
+    const second = await c.waitFor('SCHEDULE', (m) => m.trackId === 'b'); // no further client command
+    expect(second).toMatchObject({ action: 'play', trackOffset: 0, crossfadeSec: 0, startRoomTime: first.startRoomTime + 400 });
+    const stop = await c.waitFor('SCHEDULE', (m) => m.action === 'stop');
+    expect(stop).toMatchObject({ trackId: 'b', startRoomTime: second.startRoomTime + 400 + QUEUE_END_STOP_MS });
+    expect(stop).not.toHaveProperty('crossfadeSec');
   });
 
   it('first message must be JOIN; bad JSON is rejected', async () => {

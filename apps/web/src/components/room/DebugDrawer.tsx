@@ -94,6 +94,10 @@ function DebugBody() {
           <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular">
             <Row k="capture" v={capture.active ? `sending (${capture.peers})` : capture.receiving ? 'receiving' : 'off'} />
             <Row k="pipeline delay" v={fmtMs(capture.pipelineDelayMs, 0)} />
+            <Row k="jb target" v={fmtMs(capture.jitterTargetMs, 0)} />
+            <Row k="align delay" v={`${fmtMs(capture.appliedDelayMs, 1)} · ${capture.delayChanges} switch${capture.delayChanges === 1 ? '' : 'es'}`} />
+            <Row k="host plays" v={capture.active ? (capture.hostPlayback ?? '—') : '—'} />
+            <Row k="shortfall" v={fmtMs(capture.shortfallMs, 0)} />
             <Row k="silent" v={capture.silent ? 'YES' : 'no'} />
             <Row k="remote error" v={fmtMs(remote.errorMs, 1)} />
             <Row k="remote |err| mean" v={fmtMs(remote.meanAbsErrorMs, 1)} />

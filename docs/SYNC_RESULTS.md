@@ -77,7 +77,7 @@ top of the constant mismatch.
 
 The 60-minute sim found a latent bug: a late timestamp among the first eight audio-clock observations bent the
 least-squares fit by thousands of ppm and the step detector then rejected every good observation for ever
-(DECISIONS #61). With the robust initial line the map is within 1.3 ppm (p50) for the whole hour.
+(DECISIONS #78). With the robust initial line the map is within 1.3 ppm (p50) for the whole hour.
 
 ### 2e. Tab switches while playing (`resync.test.ts`)
 

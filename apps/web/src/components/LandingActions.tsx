@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode } from '@syncsound/protocol';
 import Link from 'next/link';
+import { isServerMissing, NO_SERVER_MESSAGE } from '@/lib/config';
 import { addRoom, createHome, getHome, lastRoom, savedHome } from '@/lib/home';
 import { createRoom } from '@/lib/roomClient';
 import { Icon } from './ui';
@@ -24,9 +25,11 @@ export function LandingActions() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [home, setHome] = useState<string | null>(null);
   const [rejoin, setRejoin] = useState<{ code: string; name?: string } | null>(null);
+  const [noServer, setNoServer] = useState(false);
   useEffect(() => {
     setHome(savedHome()?.homeId ?? null);
     setRejoin(lastRoom());
+    setNoServer(isServerMissing()); // client-only: the server render can't see the page's host
   }, []);
 
   const onHome = async () => {
@@ -71,6 +74,11 @@ export function LandingActions() {
 
   return (
     <div className="acts" id="start">
+      {noServer && (
+        <p role="alert" data-testid="no-server" className="acts-error">
+          {NO_SERVER_MESSAGE}
+        </p>
+      )}
       <div className="acts-row">
         <button type="button" data-testid="create-home" onClick={onHome} disabled={creating} className="btn btn-primary">
           {creating ? 'Setting up…' : home ? 'Open my home' : 'Set up my home'}

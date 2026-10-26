@@ -29,9 +29,10 @@ Record results in the table at the bottom.
    the L object across the room slowly and quickly. The sound should move between the physical devices with no
    zipper noise or clicks. Then try *5.1 ring* with *5.1 channel test*; each channel should come from the
    expected device, and LFE only from bass-capable devices.
-8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open YouTube in the app's YouTube
-   tab and start Capture (share this tab with audio). Every device should play the audio. Use the lip-sync nudge
-   to get perceived lip-sync within ±40 ms, and note the buffer value that gives dropout-free audio.
+8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open a YouTube video in its own tab,
+   then in the app's YouTube panel start capture and pick that tab (share tab audio on). Every device, the laptop
+   included, should play the audio. Use the lip-sync nudge to get perceived lip-sync within ±40 ms, and note the
+   buffer value that gives dropout-free audio.
 9. **DRM detection.** Capture a Netflix/Disney+ tab. The "This tab is silent / DRM" explanation should appear
    within ~3 s.
 10. **Spotify sync-only, two Premium accounts.** Configure `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`, connect Spotify on
@@ -70,8 +71,8 @@ Record results in the table at the bottom.
     and that device's screen should show its new spot name at once. Close everything and tap "Open my home" on the
     landing page: it should open the room, straight to Now Playing with the same layout and tune state.
 17. **Gap pass (real devices).**
-    - **YouTube:** paste a link and tap "Play on all speakers", pick this tab with tab audio on, and every speaker
-      should play it.
+    - **YouTube:** paste a link, tap "Open on YouTube", start the video there, come back and tap "Start capture",
+      pick the YouTube tab with tab audio on, and every speaker should play it.
     - **Bluetooth:** with a Bluetooth speaker in the room, finish tuning; it should show "Bluetooth timing varies by
       ±X ms".
     - **Re-sync banner:** switch a phone's output to Bluetooth mid-song; the "audio delay changed" banner should
@@ -118,23 +119,59 @@ DevTools console for the per-device row table (`console.table`).
       distort.
     - The Bluetooth "timing varies by ±X ms" line should appear only after **Measure sync**, not after the tune.
 
-20. **Hidden tab while paused (S1).** Chrome desktop and Android Chrome: pause the room, switch the tab to the
+20. **Auto-advance: gapless and crossfade.** Queue two demo tracks (better: upload two tracks of a gapless album) and
+    play the first to its end. With *Crossfade* at *Gapless* (Library → below the queue, host only) the second should
+    start on every device the instant the first ends: no gap, no double audio, no click; the title switches shortly
+    before the sound does. Set *Crossfade* to 4 s and repeat: the tracks should overlap for ~4 s at an even loudness
+    (no dip in the middle), starting at the same instant on every device. Paste a web link with no known length as
+    the first track: it should still advance once a device has decoded it. Pause during a crossfade: both tracks must
+    stop. Let the last track run out: the player should read *stopped*, not keep "playing" at the end.
+
+21. **Live share quality (capture rework).** Laptop host (Chrome) + two phones on the same Wi-Fi.
+    - **YouTube tab shared** to the phones: no echo or "wash", no periodic pitch wobble over 5 minutes, and the laptop
+      plays in time with the phones. Debug drawer on a phone: "align delay" switches stay ≤ 2 after the first minute.
+    - **Move the Stream buffer slider** while sharing: one brief dip on each device, no pitch bend, no click.
+    - **Entire screen + system audio** (a desktop player): no echo loop on the phones; the laptop plays the original
+      and the panel says so.
+    - **Bluetooth phone** receiving at 150 ms: the "plays N ms late" warning appears; set the buffer to the suggested
+      value and it disappears, and the phone falls into line with the others.
+
+22. **Speaker spots + 8D.** 4–5 phones/laptops around one chair, any stereo music file.
+    - Pick **5.1** on the Stage. Every speaker plays: the centre and both surrounds must not be silent.
+    - Change a speaker's spot from the Devices list (e.g. Front left → Surround right): it moves on the map, and the
+      speaker that held that spot takes the old one. Nothing goes quiet.
+    - Join one more phone: within a second it gets a spot (shown in its own screen) and plays.
+    - Drag the *Left* sound to a surround speaker on the map: it should now clearly come from that speaker alone.
+    - Turn on **8D → Medium**: the music should audibly circle you about once every 8 s, speaker to speaker, with every
+      device in step (no speaker lagging the sweep). Try Slow / Fast, then Off.
+    - Pick **Everywhere**: every speaker plays the full mix; with 8D on, the mix circles the room through all of them.
+
+23. **Phone as the listener + iOS audio (Phase 2).** An iPhone (Safari) and an Android phone, plus 2–3 other speakers.
+    - Tune from the iPhone held at your head: the wizard says to hold it at ear height. The result should place the
+      seat on the phone, and timing at your head should sound tight (Measure sync from the same spot: p95 < 1 ms).
+    - Afterwards the iPhone is muted as a speaker with a note; unmuting it in Devices works.
+    - After the tune, music on the iPhone must be at normal loudspeaker volume (not quiet, not on the earpiece).
+    - Lock the iPhone mid-tune: the tune stops with "screen locked or you switched apps". Lock a *recording* phone
+      mid-tune: the tune still finishes, without that phone's distances.
+    - Play music, then take a call / trigger Siri on a speaker iPhone. When it ends, sound returns by itself or the
+      "Turn the sound back on" banner appears and one tap brings it back in sync.
+24. **Hidden tab while paused (S1).** Chrome desktop and Android Chrome: pause the room, switch the tab to the
     background (or another app) for 6+ minutes, come back and press play within a second. Nothing should skip, no
     device should start late (`__syncsound.schedules` has no `late: true`), and the debug drawer's **tick gap** should
     read ≤ 1.5 s (the Worker ticker kept the loops running). Repeat with `?noTicker` on the room URL (the
     `setInterval` fallback) and note the tick gap and how long the resume burst takes.
-21. **iOS background while playing (S1).** Play, switch apps for 5 minutes, return to Safari. Expect ≤ 1.5 s of
+25. **iOS background while playing (S1).** Play, switch apps for 5 minutes, return to Safari. Expect ≤ 1.5 s of
     silence, then playback in sync with the others — never a stretch of stale (minutes-old) audio. The reschedule
     counter should rise by at most one.
-22. **LAN clock master leaves mid-song (S1).** Close the master's tab (the host's). On the others expect at most a
+26. **LAN clock master leaves mid-song (S1).** Close the master's tab (the host's). On the others expect at most a
     few ms of wobble within ~3 s and no reschedule counter increment; within ~25 s the debug drawer's clock RTT
     should drop back to LAN values (a new master).
-23. **Tune right after joining (S2).** On real Wi-Fi, tap Tune within 10 s of opening the room: expect "Letting the
+27. **Tune right after joining (S2).** On real Wi-Fi, tap Tune within 10 s of opening the room: expect "Letting the
     clocks settle…" for up to ~20 s, then the run. Measure sync afterwards: p95 < 1 ms. Then, with two laptops, tap
     Tune on both at once: the second gets "Another device is tuning the room right now". Cancel a tune halfway: the
     other devices' chimes stop at once. Switch a phone's output to Bluetooth *during* a tune: it should be reported
     as not timed ("wasn't timed: the audio output changed during the run"), and the run should otherwise complete.
-24. **The tune survives the picture, not a move (S3).** After a full tune with Measure sync p95 < 1 ms:
+28. **The tune survives the picture, not a move (S3).** After a full tune with Measure sync p95 < 1 ms:
     - Drag a laptop 1 m on the stage *without moving it*, then change the layout (stereo → quad and back): Measure
       sync should stay < 1 ms p95 and the Advanced badge should keep reading "tuned X ms" (the value changes with the
       drag, the sync does not).
@@ -144,7 +181,7 @@ DevTools console for the per-device row table (`console.table`).
     - Toggle a Bluetooth speaker off and on: the host sees "needs tuning again (output changed)" on that device
       within a few seconds; a quick tune from the guest's screen shows its progress and result on that screen.
     - Reload the host: the room still reads "Tuned" for the host laptop (profile + room tune reference).
-25. **Mic at join (S4).** iOS Safari and Android Chrome, each as a guest: the mic prompt should come with the join
+29. **Mic at join (S4).** iOS Safari and Android Chrome, each as a guest: the mic prompt should come with the join
     tap, audio should still play afterwards (the probe is stopped at once), and no "audio delay changed" banner
     should appear in the first seconds. During a tune from the host, no second prompt. Lock one phone before the
     host taps Tune: the host should read "Waiting for <that phone>'s microphone…" for up to 8 s, then the run

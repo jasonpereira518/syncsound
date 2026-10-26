@@ -51,7 +51,7 @@ Scope a command to one package: `pnpm --filter @syncsound/audio-core test`.
   They are Class B "sync-only" sources driven through their official SDKs; spatial/EQ are unavailable there
   and the UI says so ("Sync-only mode (no spatial/EQ)").
 - Netflix/Disney+/DRM video tab capture yields silence: detect it and explain, don't fail quietly.
-- Never download/extract YouTube streams. YouTube = official IFrame API for picture + tab capture for audio.
+- Never download/extract YouTube streams. YouTube = YouTube's own tab (official player) + tab capture for audio.
 - AudioContext needs a user gesture ("Join the speaker array" button). iOS suspends background audio.
   Bluetooth adds 100–300 ms unreported latency → acoustic calibration / manual slider.
 

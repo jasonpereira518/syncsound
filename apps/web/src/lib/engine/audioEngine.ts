@@ -1,8 +1,9 @@
-﻿/**
- * The per-device audio engine: AudioContext lifecycle, roomTimeâ†”ctx mapping, scheduling with latency
+/**
+ * The per-device audio engine: AudioContext lifecycle, roomTime↔ctx mapping, scheduling with latency
  * compensation, drift correction, spatial mix + EQ graph, click test, identify beeps.
  * Browser-only: create it from client code after a user gesture (`unlock()`).
  */
+import { setAudioSession } from '../audioSession';
 import { batterySaver, dueNow } from '../power';
 import { startTicker } from '../ticker';
 import {
@@ -14,6 +15,7 @@ import {
   tickDt,
   computeDeviceMix,
   computeStart,
+  sceneAt,
   type RoomClock,
   type DeviceMix,
   type StartDecision,
@@ -28,12 +30,17 @@ import {
   autoOnlyCompensationSec,
   compensationSec,
   driftErrorMs,
+  equalPowerCurves,
   expectedHeardEpochMs,
   expectedPositionAtCtx,
   outputLatencyMs,
   type LatencyInput,
   snapToSampleGrid,
+  transitionPlan,
 } from './timing';
+
+/** live-capture voice fade in/out, s */
+const EXTERNAL_FADE_SEC = 0.02;
 
 interface PlayingVoice {
   voice: Voice;
@@ -43,6 +50,8 @@ interface PlayingVoice {
   when: number;
   tracker: PlaybackTracker;
   stopAt: number | null;
+  /** ctx s until which this voice's own fade-in curve runs (automation inside a curve cannot be edited) */
+  fadeUntil: number;
 }
 
 export interface EngineDeps {
@@ -53,6 +62,8 @@ export interface EngineDeps {
   onRouteChange?: () => void;
   /** the audio output's latency stepped outside a run: this device's tune timing may be off */
   onStale?: (kind: 'output') => void;
+  /** a queued track was fetched and decoded on this device (lets the room learn durations it did not know) */
+  onDecoded?: (trackId: string, info: { durationSec: number; channels: number }) => void;
 }
 
 const playbackKey = (pb: Playback) => `${pb.trackId}|${pb.startRoomTime}|${pb.trackOffset}`;
@@ -66,7 +77,11 @@ export class AudioEngine {
 
   private chain: OutputChain | null = null;
   private voice: PlayingVoice | null = null;
+  /** the previous track playing out under an auto-advance transition (gapless tail or crossfade) */
+  private outgoing: PlayingVoice | null = null;
   private external: Voice | null = null;
+  /** `?tap=1` e2e instrumentation: analysers on the output and the live source */
+  private taps: ReturnType<OutputChain['enableTaps']> | null = null;
   private readonly assets: AssetCache;
   private readonly drift = new DriftController();
   private readonly gate = new ReconcileGate();
@@ -74,6 +89,7 @@ export class AudioEngine {
   private lastTickCtx: number | null = null;
   /** drift-tick gaps (ctx s, gap ms) over the last minute: the debug drawer's "tick gap" */
   private tickGaps: Array<[number, number]> = [];
+  private orbitTimer: ReturnType<typeof setInterval> | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private click: { src: AudioBufferSourceNode; startedCtx: number } | null = null;
   private clickBuffer: AudioBuffer | null = null;
@@ -90,6 +106,8 @@ export class AudioEngine {
       (id) => {
         const e = this.assets.get(id);
         if (e?.state === 'error' && id === this.currentTrack()?.id) setError(e.error);
+        if (e?.state === 'ready' && e.buffer)
+          this.deps.onDecoded?.(id, { durationSec: e.buffer.duration, channels: e.buffer.numberOfChannels });
         this.reconcile();
       },
     );
@@ -114,10 +132,10 @@ export class AudioEngine {
     silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
     silent.connect(ctx.destination);
     silent.start(0);
-    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
-    if (session) session.type = 'playback';
+    setAudioSession('playback');
 
     this.chain = new OutputChain(ctx);
+    if (new URLSearchParams(location.search).has('tap')) this.taps = this.chain.enableTaps();
     ctx.onstatechange = () => this.onCtxStateChange();
     this.stops.push(startTicker(250, () => this.observeClock()), startTicker(500, () => this.tick()));
     navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
@@ -130,6 +148,7 @@ export class AudioEngine {
     this.disposed = true;
     for (const stop of this.stops) stop();
     this.stops = [];
+    this.stopOrbit();
     navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange);
     void this.wakeLock?.release().catch(() => {});
     this.wakeLock = null;
@@ -139,10 +158,21 @@ export class AudioEngine {
     this.ctx = null;
     this.loopbackNode = null;
     this.voice = null;
+    this.outgoing = null;
     this.external = null;
+    this.taps = null;
     this.chain?.dispose();
     this.chain = null;
     void ctx?.close().catch(() => {});
+  }
+
+  /** MUST run inside a user gesture: bring a suspended / interrupted context back (iOS needs the tap) */
+  resume(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    setAudioSession('playback');
+    // the rebuild waits in the gate until the audio clock has re-converged after the resume
+    void ctx.resume().then(() => this.reconcile(true), () => {});
   }
 
   /** tab visible again: resume audio + wake lock; the caller re-bursts the clock, then reconciles (forced only if it moved) */
@@ -168,7 +198,11 @@ export class AudioEngine {
         this.gate.request(true);
       }
     }
+    // a suspension freezes ctx time while perf time runs on → the mapping is no longer linear
     this.audioClock.reset();
+    // iOS 'interrupted' (a call, Siri, another app's audio): try to come back by ourselves once it ends; if the
+    // browser wants a tap for that, the room shows a "turn the sound back on" button (resume())
+    if (ctx.state !== 'running' && ctx.state !== 'closed' && document.visibilityState === 'visible') void ctx.resume().catch(() => {});
     this.publish();
   }
 
@@ -227,13 +261,13 @@ export class AudioEngine {
       const steps = this.audioClock.steps;
       if (useTs) {
         this.audioClock.addObservation(ts!.performanceTime!, ts!.contextTime!);
-        // display only: renderâ†’heard latency derived from the output timestamp
+        // display only: render→heard latency derived from the output timestamp
         this.autoLatencyMs = ts!.performanceTime! - performance.now() + (ctx.currentTime - ts!.contextTime!) * 1000;
       } else {
         this.audioClock.addObservation(performance.now(), ctx.currentTime);
         this.autoLatencyMs = ((ctx.baseLatency || 0) + (ctx.outputLatency || 0)) * 1000;
       }
-      // the output delay jumped (Bluetooth profile switch, device re-openâ€¦): acoustic alignment is stale.
+      // the output delay jumped (Bluetooth profile switch, device re-open…): acoustic alignment is stale.
       // Opening/closing a measurement's recorder causes such a step too, so steps during one (+5 s) don't count.
       const st = useRoomStore.getState();
       if (st.calibration.running || st.calibration.emitting || st.syncMeasure.running) this.measuringUntil = performance.now() + 5000;
@@ -278,7 +312,7 @@ export class AudioEngine {
     return autoOnlyCompensationSec(this.autoLatencyMs, this.usingOutputTimestamp);
   }
 
-  // ---------- room â†’ graph ----------
+  // ---------- room → graph ----------
 
   private currentTrack(room = useRoomStore.getState().room): Track | null {
     if (!room) return null;
@@ -289,9 +323,10 @@ export class AudioEngine {
   onRoomChanged(): void {
     const room = useRoomStore.getState().room;
     if (!room || !this.ctx || !this.chain) return;
+    const scene = this.heardScene(room);
     try {
       const myId = useRoomStore.getState().deviceId;
-      this.mix = computeDeviceMix({ scene: room.scene, devices: room.devices, masterVolume: room.volume }, myId);
+      this.mix = computeDeviceMix({ scene, devices: room.devices, masterVolume: room.volume }, myId);
     } catch (e) {
       setError(`Mix error: ${errMsg(e)}`);
       return;
@@ -303,16 +338,55 @@ export class AudioEngine {
       this.chain.setCrossover(room.scene.crossoverHz);
       this.chain.setHighpass(mix.highpassHz);
       this.chain.setEq(me()?.eq ?? null);
-      this.voice?.voice.apply(room.scene, mix);
-      this.external?.apply(room.scene, mix);
+      this.voice?.voice.apply(scene, mix);
+      this.external?.apply(scene, mix);
     } catch (e) {
       setError(`Audio graph error: ${errMsg(e)}`);
     }
+    if (room.scene.motion) this.startOrbit();
+    else this.stopOrbit();
     this.ensureAssets(room);
     const comp = this.compensationSec();
     if (Math.abs(comp - this.lastComp) > 0.0005 && this.clickOn) this.startClick();
     this.lastComp = comp;
     this.reconcile();
+  }
+
+  /**
+   * The scene as heard right now: with 8D on, objects turned to where they are at the room time this device's output
+   * reaches the air (now + its latency compensation), so every device pans the same sound to the same place.
+   */
+  private heardScene(room: RoomState) {
+    if (!room.scene.motion || !this.ctx || !this.timingReady()) return room.scene;
+    try {
+      return sceneAt(room.scene, this.ctxToRoom(this.ctx.currentTime) + this.compensationSec() * 1000);
+    } catch {
+      return room.scene;
+    }
+  }
+
+  /** 8D: re-pan ~30×/s (gains glide with SMOOTH_TAU, so the sweep is continuous); bus gains don't move */
+  private startOrbit() {
+    if (this.orbitTimer) return;
+    this.orbitTimer = setInterval(() => {
+      const room = useRoomStore.getState().room;
+      if (!room?.scene.motion || !this.ctx) return this.stopOrbit();
+      if (!this.voice && !this.external) return;
+      try {
+        const scene = this.heardScene(room);
+        const mix = computeDeviceMix({ scene, devices: room.devices, masterVolume: room.volume }, useRoomStore.getState().deviceId);
+        this.mix = mix;
+        this.voice?.voice.apply(scene, mix);
+        this.external?.apply(scene, mix);
+      } catch {
+        /* next tick */
+      }
+    }, 33);
+  }
+
+  private stopOrbit() {
+    if (this.orbitTimer) clearInterval(this.orbitTimer);
+    this.orbitTimer = null;
   }
 
   private ensureAssets(room: RoomState) {
@@ -354,7 +428,7 @@ export class AudioEngine {
     const buffer = this.assets.buffer(track.id);
     if (!buffer) return; // resumes when the asset is ready
     const comp = this.compensationSec();
-    // one clock snapshot per decision: a LAN â†” server path flip must not split one computation
+    // one clock snapshot per decision: a LAN ↔ server path flip must not split one computation
     const clock = this.deps.clock()!;
     this.lastLeadMs = clock.toLocalTime(pb.startRoomTime) - performance.now();
     this.lastSkewMs = this.audioClock.ctxToPerf(ctx.currentTime) - performance.now();
@@ -390,12 +464,28 @@ export class AudioEngine {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     const voice = new Voice(ctx, src, buffer.numberOfChannels, this.chain!);
-    voice.apply(room.scene, this.mix!);
+    voice.apply(this.heardScene(room), this.mix!);
     const old = this.voice;
+    let fadeUntil = 0;
     if (old && old.stopAt === null) {
-      voice.fade.gain.setValueAtTime(0, d.when);
-      voice.fade.gain.linearRampToValueAtTime(1, d.when + XFADE_SEC);
-      this.fadeOut(old, d.when);
+      const plan = transitionPlan({
+        crossfadeSec: pb.crossfadeSec,
+        whenCtx: d.when,
+        scheduledStartCtx: this.roomToCtx(pb.startRoomTime) - comp,
+      });
+      if (plan.kind === 'crossfade') {
+        fadeUntil = plan.end;
+        this.crossfade(old, voice, plan.start, plan.end);
+      } else if (plan.kind === 'gapless') {
+        // the old buffer ends right here on the room timeline; a decoder that padded it is cut over XFADE
+        voice.fade.gain.value = 1;
+        this.fadeOut(old, d.when);
+        this.outgoing = old;
+      } else {
+        voice.fade.gain.setValueAtTime(0, d.when);
+        voice.fade.gain.linearRampToValueAtTime(1, d.when + XFADE_SEC);
+        this.fadeOut(old, d.when);
+      }
     } else {
       voice.fade.gain.value = 1;
     }
@@ -408,16 +498,17 @@ export class AudioEngine {
     tracker.start(g.when, g.offset, rate);
     this.lastTickCtx = null;
     this.gate.take();
-    const pv: PlayingVoice = { voice, src, key, trackId, when: d.when, tracker, stopAt: null };
+    const pv: PlayingVoice = { voice, src, key, trackId, when: d.when, tracker, stopAt: null, fadeUntil };
     src.onended = () => {
       voice.dispose();
       if (this.voice === pv) this.voice = null;
+      if (this.outgoing === pv) this.outgoing = null;
       this.publish();
     };
     this.voice = pv;
     const L = outputLatencyMs(this.latencyInput());
     recordSchedule({
-      action,
+      action: pb.crossfadeSec !== undefined && action === 'play' ? 'advance' : action,
       trackId,
       startRoomTime: pb.startRoomTime,
       trackOffset: pb.trackOffset,
@@ -440,20 +531,49 @@ export class AudioEngine {
     });
   }
 
-  /** ramp `pv` out over XFADE ending at `endAt` (ctx s) */
+  /** ramp `pv` out over XFADE starting at `startAt` (ctx s) */
   private fadeOut(pv: PlayingVoice, startAt: number) {
     const ctx = this.ctx!;
     const t = Math.max(startAt, ctx.currentTime);
     const g = pv.voice.fade.gain;
-    g.cancelScheduledValues(t);
-    g.setValueAtTime(g.value || 1, t);
-    g.linearRampToValueAtTime(0, t + XFADE_SEC);
+    try {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value || 1, t);
+      g.linearRampToValueAtTime(0, t + XFADE_SEC);
+    } catch {
+      /* inside its own fade-in curve: the stop below ends it */
+    }
     pv.stopAt = t + XFADE_SEC;
     try {
       pv.src.stop(t + XFADE_SEC + 0.005);
     } catch {
       /* not started */
     }
+  }
+
+  /** equal-power crossfade over [start, end] (ctx s): `pv` out, `voice` in; `pv` stops at the end */
+  private crossfade(pv: PlayingVoice, voice: Voice, start: number, end: number) {
+    const dur = end - start;
+    const { fadeIn, fadeOut } = equalPowerCurves(Math.min(512, Math.max(16, dur * 100)));
+    voice.fade.gain.value = 0;
+    voice.fade.gain.setValueCurveAtTime(fadeIn, start, dur);
+    // the outgoing voice may still be fading in (short track): its curve cannot be edited, so start after it
+    const outStart = Math.max(start, pv.fadeUntil);
+    const g = pv.voice.fade.gain;
+    try {
+      g.cancelScheduledValues(outStart);
+      if (end - outStart > 0.005) g.setValueCurveAtTime(fadeOut, outStart, end - outStart);
+      else g.setValueAtTime(0, end);
+    } catch {
+      /* automation conflict: the hard stop below still ends it on time */
+    }
+    pv.stopAt = end;
+    try {
+      pv.src.stop(end + 0.005);
+    } catch {
+      /* not started */
+    }
+    this.outgoing = pv;
   }
 
   private stopVoice(atCtx: number) {
@@ -475,6 +595,16 @@ export class AudioEngine {
     }
     const trackId = this.voice.trackId;
     this.stopVoice(at);
+    const out = this.outgoing;
+    if (out && out.stopAt !== null && out.stopAt > at + XFADE_SEC) {
+      // a pause mid-transition also ends the track that was fading out
+      try {
+        out.src.stop(Math.max(at, ctx.currentTime) + XFADE_SEC);
+      } catch {
+        /* not started */
+      }
+      out.stopAt = at + XFADE_SEC;
+    }
     recordSchedule({
       action: pb.status === 'paused' ? 'pause' : 'stop',
       trackId,
@@ -608,7 +738,7 @@ export class AudioEngine {
     return b;
   }
 
-  /** room time â†’ ctx start time for a one-shot that bypasses the mix (identify / calibration) */
+  /** room time → ctx start time for a one-shot that bypasses the mix (identify / calibration) */
   private oneShotWhen(roomMs: number, comp: number, clock?: TimeMap): number {
     const ctx = this.ctx!;
     // `clock` (a calibration run's clock: the LAN link, or the master's pinned mapping) overrides the live room clock
@@ -677,20 +807,57 @@ export class AudioEngine {
     }
   }
 
-  /** capture mode: route a live stream (2 ch) through the same spatial graph */
-  attachExternal(node: AudioNode | null) {
-    this.external?.dispose();
-    this.external = null;
+  /**
+   * capture mode: route a live stream (2 ch) through the same spatial graph. The voice starts silent; `fadeIn`
+   * brings it up now, otherwise the caller does once the stream is aligned (fadeExternalIn).
+   */
+  attachExternal(node: AudioNode | null, opts: { fadeIn: boolean } = { fadeIn: true }) {
+    this.detachExternal();
     if (!node || !this.ctx || !this.chain) return;
     const v = new Voice(this.ctx, node, 2, this.chain);
     const room = useRoomStore.getState().room;
-    if (room && this.mix) v.apply(room.scene, this.mix);
-    v.fade.gain.value = 1;
+    if (room && this.mix) v.apply(this.heardScene(room), this.mix);
     this.external = v;
+    this.taps?.setExternal(node);
+    if (opts.fadeIn) this.fadeExternalIn();
   }
 
-  setOutputDelayMs(ms: number) {
-    this.chain?.setDelayMs(ms);
+  fadeExternalIn(sec = EXTERNAL_FADE_SEC) {
+    const v = this.external;
+    const ctx = this.ctx;
+    if (!v || !ctx) return;
+    const g = v.fade.gain;
+    g.cancelScheduledValues(ctx.currentTime);
+    g.setValueAtTime(g.value, ctx.currentTime);
+    g.linearRampToValueAtTime(1, ctx.currentTime + sec);
+  }
+
+  /** fade the live voice out and drop it once the fade is over (the caller keeps its stream alive that long) */
+  detachExternal(sec = EXTERNAL_FADE_SEC) {
+    const v = this.external;
+    const ctx = this.ctx;
+    this.external = null;
+    this.taps?.setExternal(null);
+    if (!v) return;
+    if (!ctx || ctx.state === 'closed') {
+      v.dispose();
+      return;
+    }
+    const g = v.fade.gain;
+    g.cancelScheduledValues(ctx.currentTime);
+    g.setValueAtTime(g.value, ctx.currentTime);
+    g.linearRampToValueAtTime(0, ctx.currentTime + sec);
+    setTimeout(() => v.dispose(), (sec + 0.02) * 1000);
+  }
+
+  /** live-capture alignment delay; true when the chain actually switched (see OutputChain.setDelayMs) */
+  setOutputDelayMs(ms: number): boolean {
+    return this.chain?.setDelayMs(ms) ?? false;
+  }
+
+  /** `?tap=1` instrumentation: what this device plays (per channel) and what the live source carries */
+  readTaps() {
+    return this.taps?.read() ?? null;
   }
 
   // ---------- store ----------
@@ -700,7 +867,10 @@ export class AudioEngine {
     const cur = this.currentTrack();
     const entry = cur ? this.assets.get(cur.id) : undefined;
     const pv = this.voice;
+    const out = this.outgoing;
     const playing = !!ctx && !!pv && pv.stopAt === null && ctx.currentTime >= pv.when;
+    // between an auto-advance SCHEDULE and the new track's start the previous track is still playing out
+    const playingOut = !!ctx && !!out && out.stopAt !== null && ctx.currentTime < out.stopAt;
     let comp = 0;
     try {
       comp = this.compensationSec() * 1000;
@@ -713,8 +883,8 @@ export class AudioEngine {
       sampleRate: ctx?.sampleRate ?? null,
       autoLatencyMs: this.autoLatencyMs === null ? null : Math.round(this.autoLatencyMs * 10) / 10,
       usingOutputTimestamp: this.usingOutputTimestamp,
-      bufferState: playing ? 'playing' : (entry?.state ?? 'idle'),
-      loadedTrackId: playing ? pv!.trackId : entry?.state === 'ready' ? cur!.id : null,
+      bufferState: playing || playingOut ? 'playing' : (entry?.state ?? 'idle'),
+      loadedTrackId: playing ? pv!.trackId : playingOut ? out!.trackId : entry?.state === 'ready' ? cur!.id : null,
       syncErrorMs: Math.round(this.syncErrorMs * 10) / 10,
       playbackRate: pv?.tracker.rate ?? 1,
       corrections: this.corrections,

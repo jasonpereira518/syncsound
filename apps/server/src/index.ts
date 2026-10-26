@@ -68,6 +68,9 @@ export async function startServer(
   const storage = storageFromEnv(join(dataDir, 'uploads'));
   const conns = new Map<string, Conn>();
 
+  /** per room: the timer for its next end-of-track transition (auto-advance / stop at the end of the queue) */
+  const advanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   const deliver = (room: Room, senderId: string | undefined, outs: Outbound[]) => {
     for (const o of outs) {
       const data = JSON.stringify(o.msg);
@@ -76,7 +79,27 @@ export async function startServer(
         if (c && c.ws.readyState === c.ws.OPEN) c.ws.send(data);
       }
     }
+    armAdvance(room);
   };
+
+  /** (re)arm the room's transition timer from its current playback; every delivery may have changed it */
+  function armAdvance(room: Room) {
+    const prev = advanceTimers.get(room.code);
+    if (prev) clearTimeout(prev);
+    advanceTimers.delete(room.code);
+    const due = room.nextDueAt();
+    if (due === null || manager.rooms.get(room.code) !== room) return;
+    const t = setTimeout(
+      () => {
+        advanceTimers.delete(room.code);
+        if (manager.rooms.get(room.code) !== room) return; // expired or removed meanwhile
+        deliver(room, undefined, room.tick(clock()));
+      },
+      Math.min(2 ** 31 - 1, Math.max(0, due - clock())),
+    );
+    t.unref();
+    advanceTimers.set(room.code, t);
+  }
 
   const server = createServer(
     createHttpHandler({
@@ -84,7 +107,8 @@ export async function startServer(
       storage,
       dataDir,
       allowedOrigins,
-      publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL,
+      // Render sets RENDER_EXTERNAL_URL (https://<service>.onrender.com), so uploads get the right public link there
+      publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL,
       maxUploadBytes: opts.maxUploadBytes ?? MAX_UPLOAD_BYTES,
       clock,
       homes,
@@ -206,7 +230,7 @@ export async function startServer(
     for (const { room, out } of manager.sweep(clock()).updates) deliver(room, undefined, out);
   }, SWEEP_MS);
   const ticker = setInterval(() => {
-    for (const { room, out } of manager.tick(clock()).updates) deliver(room, undefined, out);
+    for (const { room, out } of manager.calibrationTick(clock()).updates) deliver(room, undefined, out);
   }, TICK_MS);
   heartbeat.unref();
   sweeper.unref();
@@ -222,6 +246,8 @@ export async function startServer(
       clearInterval(heartbeat);
       clearInterval(sweeper);
       clearInterval(ticker);
+      for (const t of advanceTimers.values()) clearTimeout(t);
+      advanceTimers.clear();
       for (const c of conns.values()) c.ws.close(1001, 'server shutting down');
       profiles.flush();
       homes.flush();

@@ -135,13 +135,13 @@ export class RoomManager {
     return { startRoomTime, errors, updates };
   }
 
-  /** time-driven room work (a prepared tune's deadline): what each room has to broadcast now */
-  tick(now: number): { updates: Array<{ room: Room; out: Outbound[] }> } {
+  /** time-driven calibration work (a prepared tune's deadline): what each room has to broadcast now */
+  calibrationTick(now: number): { updates: Array<{ room: Room; out: Outbound[] }> } {
     const updates: Array<{ room: Room; out: Outbound[] }> = [];
     for (const room of this.rooms.values()) {
-      const due = room.due();
+      const due = room.calibrationDue();
       if (due === null || now < due) continue;
-      const out = room.tick(now);
+      const out = room.calibrationTick(now);
       if (out.length) updates.push({ room, out });
     }
     return { updates };

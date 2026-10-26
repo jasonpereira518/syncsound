@@ -8,7 +8,7 @@ import { Button, CLASS_ICON, Icon } from '../ui';
 import { LayoutEditor } from './LayoutEditor';
 import { SLOT_NAME } from './RoomDiagram';
 import { useJoinLink } from './RoomHeader';
-import { act } from './shared';
+import { act, placementHint } from './shared';
 import { TuneStatus } from './TuneStatus';
 
 /** what a speaker's row says about its microphone (a tune uses it to measure where the speaker is) */
@@ -38,6 +38,7 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
   const sm = useRoomStore((s) => s.syncMeasure);
   const selfId = useRoomStore((s) => s.deviceId);
   const selfHasMic = devices.find((d) => d.id === selfId)?.caps.hasMic ?? true;
+  const selfClass = devices.find((d) => d.id === selfId)?.caps.deviceClass;
   const { code, joinUrl, qr } = useJoinLink();
   const layout = scene?.layout;
   const routed = isRoutedLayout(layout);
@@ -101,8 +102,9 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
       </div>
 
       {selfHasMic ? (
-        <p className="mt-5 text-sm text-ink-300">
-          Each speaker plays one short chime in turn, about {seconds} seconds in all, while every laptop listens. Keep the room quiet.
+        <p className="mt-5 text-sm text-ink-300" data-testid="wizard-placement">
+          {placementHint(selfClass)} Each speaker plays one short chime in turn, about {seconds} seconds in all, while every phone and
+          laptop listens; keep their screens on and the room quiet.
         </p>
       ) : (
         <div className="mt-5 space-y-3">

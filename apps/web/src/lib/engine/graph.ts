@@ -6,9 +6,10 @@
  *  OutputChain:  mainIn ───────────────────────────┐
  *                bassIn → [LR4 LP] → bassGain ──────┴→ preHp → [LR4 HP @ mix.highpassHz] → preEq
  *                preEq → [EQ (no HP)] → preamp → wet ─┐
- *                preEq → dry ─────────────────────────┼→ trim → limiter → delay → out → dest
+ *                preEq → dry ─────────────────────────┼→ trim → limiter → delay → dip → out → dest
  *                fxIn (click test) ───────────────────┘
  *  trim (mix.trimGain) sits before the limiter, so a calibration boost is limited, not clipped; out = mix.volumeGain.
+ *  delay = live-capture alignment (whole samples, stepped while `dip` holds the output at 0: never glided).
  */
 import {
   channelIndexFor,
@@ -16,6 +17,7 @@ import {
   eqToBiquads,
   linkwitzRiley4,
   toIirArgs,
+  upmixActive,
   type BiquadCoeffs,
   type DeviceMix,
 } from '@syncsound/audio-core';
@@ -23,6 +25,9 @@ import type { DeviceEq, Scene } from '@syncsound/protocol';
 
 export const SMOOTH_TAU = 0.03;
 export const XFADE_SEC = 0.015;
+/** output-delay switch: schedule lead, and the dip/rise length on each side of the step */
+const SWITCH_LEAD_SEC = 0.01;
+const SWITCH_FADE_SEC = 0.01;
 
 export function smooth(ctx: BaseAudioContext, param: AudioParam, value: number, tau = SMOOTH_TAU) {
   param.setTargetAtTime(value, ctx.currentTime, tau);
@@ -72,11 +77,15 @@ export class OutputChain {
   private readonly trim: GainNode;
   private readonly limiter: DynamicsCompressorNode;
   private readonly delay: DelayNode;
+  private readonly dip: GainNode;
   private readonly out: GainNode;
   private hp: AudioNode[] = [];
   private lp: AudioNode[] = [];
   private eq: AudioNode[] = [];
   private keys = { hp: '', lp: '', eq: '' };
+  private delaySec = 0;
+  private switchBusyUntil = 0;
+  private taps: OutputTaps | null = null;
 
   constructor(private readonly ctx: AudioContext) {
     this.mainIn = gainNode(ctx, 1);
@@ -96,6 +105,7 @@ export class OutputChain {
     this.limiter.attack.value = 0.001;
     this.limiter.release.value = 0.1;
     this.delay = ctx.createDelay(2);
+    this.dip = gainNode(ctx, 1);
     this.out = gainNode(ctx, 0);
 
     this.mainIn.connect(this.preHp);
@@ -110,7 +120,8 @@ export class OutputChain {
     this.fxIn.connect(this.trim);
     this.trim.connect(this.limiter);
     this.limiter.connect(this.delay);
-    this.delay.connect(this.out);
+    this.delay.connect(this.dip);
+    this.dip.connect(this.out);
     this.out.connect(ctx.destination);
   }
 
@@ -164,11 +175,38 @@ export class OutputChain {
     smooth(this.ctx, this.out.gain, mix.volumeGain);
   }
 
-  setDelayMs(ms: number) {
-    smooth(this.ctx, this.delay.delayTime, Math.min(1.99, Math.max(0, ms / 1000)), 0.05);
+  /**
+   * Live-capture alignment delay. Returns false when nothing changes (idle devices call this with 0 on every room
+   * update). A change is a 10 ms dip to silence → sample-exact step → 10 ms rise: `delayTime` is a-rate while it
+   * is automated, so a setTargetAtTime glide would be a pitch bend, and a bare step would click. Switches queue
+   * behind an in-flight one instead of cancelling it (a cancelled ramp snaps back to its start value).
+   */
+  setDelayMs(ms: number): boolean {
+    const sec = Math.min(1.99, Math.max(0, ms / 1000));
+    if (sec === this.delaySec) return false;
+    this.delaySec = sec;
+    const g = this.dip.gain;
+    const t0 = Math.max(this.ctx.currentTime + SWITCH_LEAD_SEC, this.switchBusyUntil);
+    g.setValueAtTime(1, t0);
+    g.linearRampToValueAtTime(0, t0 + SWITCH_FADE_SEC);
+    this.delay.delayTime.setValueAtTime(sec, t0 + SWITCH_FADE_SEC);
+    g.setValueAtTime(0, t0 + SWITCH_FADE_SEC);
+    g.linearRampToValueAtTime(1, t0 + 2 * SWITCH_FADE_SEC);
+    this.switchBusyUntil = t0 + 2 * SWITCH_FADE_SEC;
+    return true;
+  }
+
+  /** Test hook: analysers on the final output (after `out`) and, when attached, on a live source. */
+  enableTaps(): OutputTaps {
+    if (!this.taps) {
+      this.taps = new OutputTaps(this.ctx);
+      this.out.connect(this.taps.input);
+    }
+    return this.taps;
   }
 
   dispose() {
+    this.taps?.dispose();
     disconnectAll([
       this.mainIn,
       this.bassIn,
@@ -182,11 +220,84 @@ export class OutputChain {
       this.trim,
       this.limiter,
       this.delay,
+      this.dip,
       this.out,
       ...this.hp,
       ...this.lp,
       ...this.eq,
     ]);
+  }
+}
+
+export interface TapReading {
+  /** RMS of the last FFT-size block, dBFS */
+  rmsDb: number;
+  /** strongest spectral peaks ≥ 100 Hz, loudest first */
+  peaks: Array<{ hz: number; db: number }>;
+}
+
+/**
+ * E2E instrumentation (`?tap=1`): per-channel analysers after the output gain and on the live source itself, so a
+ * test can hear what a device plays (level, tones, stereo) instead of trusting flags. Analysers render without a
+ * destination (the capture silence detector relies on the same).
+ */
+export class OutputTaps {
+  readonly input: ChannelSplitterNode;
+  private readonly out: AnalyserNode[];
+  private readonly ext: AnalyserNode[];
+  private readonly extSplit: ChannelSplitterNode;
+  private extSource: AudioNode | null = null;
+
+  constructor(private readonly ctx: BaseAudioContext) {
+    const analyser = () => {
+      const a = ctx.createAnalyser();
+      a.fftSize = 8192;
+      a.smoothingTimeConstant = 0;
+      return a;
+    };
+    this.input = ctx.createChannelSplitter(2);
+    this.out = [analyser(), analyser()];
+    this.out.forEach((a, ch) => this.input.connect(a, ch));
+    this.extSplit = ctx.createChannelSplitter(2);
+    this.ext = [analyser(), analyser()];
+    this.ext.forEach((a, ch) => this.extSplit.connect(a, ch));
+  }
+
+  /** follow the live source (null when it goes away) */
+  setExternal(node: AudioNode | null) {
+    try {
+      this.extSource?.disconnect(this.extSplit);
+    } catch {
+      /* already gone */
+    }
+    this.extSource = node;
+    node?.connect(this.extSplit);
+  }
+
+  read(): { out: TapReading[]; external: TapReading[] | null } {
+    return { out: this.out.map((a) => this.reading(a)), external: this.extSource ? this.ext.map((a) => this.reading(a)) : null };
+  }
+
+  private reading(a: AnalyserNode): TapReading {
+    const time = new Float32Array(a.fftSize);
+    a.getFloatTimeDomainData(time);
+    let sum = 0;
+    for (const v of time) sum += v * v;
+    const rmsDb = 10 * Math.log10(sum / time.length + 1e-20);
+    const freq = new Float32Array(a.frequencyBinCount);
+    a.getFloatFrequencyData(freq);
+    const binHz = this.ctx.sampleRate / a.fftSize;
+    const peaks: Array<{ hz: number; db: number }> = [];
+    for (let i = Math.ceil(100 / binHz); i < freq.length - 1; i++) {
+      const v = freq[i]!;
+      if (Number.isFinite(v) && v > freq[i - 1]! && v >= freq[i + 1]!) peaks.push({ hz: i * binHz, db: v });
+    }
+    peaks.sort((x, y) => y.db - x.db);
+    return { rmsDb, peaks: peaks.slice(0, 3) };
+  }
+
+  dispose() {
+    disconnectAll([this.input, this.extSplit, ...this.out, ...this.ext]);
   }
 }
 
@@ -216,7 +327,7 @@ export class Voice {
   }
 
   apply(scene: Scene, mix: Pick<DeviceMix, 'objectGains' | 'bassObjectGains'>) {
-    const key = JSON.stringify([this.channels, scene.upmix, scene.objects.map((o) => [o.id, o.channel])]);
+    const key = JSON.stringify([this.channels, upmixActive(scene), scene.objects.map((o) => [o.id, o.channel])]);
     if (key !== this.layoutKey) {
       this.layoutKey = key;
       this.rebuild(scene, mix);
@@ -236,7 +347,7 @@ export class Voice {
     const keep = <T extends AudioNode>(node: T) => (this.route.push(node), node);
 
     // stereo → surround upmix: C = 0.5(L+R)·0.707, side = 0.5(L−R); SL/SR = side, LP 7 kHz, delayed 12/17 ms
-    const upmix = n === 2 && scene.upmix;
+    const upmix = n === 2 && upmixActive(scene);
     let derived: Partial<Record<'C' | 'SL' | 'SR' | 'AMB', AudioNode>> = {};
     if (upmix) {
       const c = keep(gainNode(ctx, 0.5 * Math.SQRT1_2));

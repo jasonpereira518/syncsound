@@ -10,7 +10,7 @@ import {
   OWNER_KEY_HEADER,
   type ControlCommand,
 } from '@syncsound/protocol';
-import { serverUrl } from './config';
+import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl } from './config';
 import { hostKeyName, readError } from './roomClient';
 
 const HOME_KEY = 'syncsound:home';
@@ -60,6 +60,7 @@ export function claimRooms(homeId: string, roomIds: string[]) {
 }
 
 async function call<T>(path: string, init: RequestInit, parse: (x: unknown) => T, ownerKey?: string): Promise<T> {
+  if (isServerMissing()) throw new Error(NO_SERVER_MESSAGE);
   let res: Response;
   try {
     res = await fetch(`${serverUrl()}/api/homes${path}`, {
@@ -67,7 +68,7 @@ async function call<T>(path: string, init: RequestInit, parse: (x: unknown) => T
       headers: { 'content-type': 'application/json', ...(ownerKey ? { [OWNER_KEY_HEADER]: ownerKey } : {}) },
     });
   } catch {
-    throw new Error("Can't reach the SyncSound server. Check that it is running and on the same network.");
+    throw new Error(`Can't reach the SyncSound server. Check that it is running and on the same network. ${SERVER_WAKING_HINT}`);
   }
   if (res.status === 404) throw new Error('This home no longer exists.');
   if (!res.ok) throw new Error(await readError(res));

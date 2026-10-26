@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
-import { dbapGains, slotPositions } from '@syncsound/audio-core';
+import { slotPositions, vbapGains } from '@syncsound/audio-core';
 import { defaultScene, type DeviceRole, type LayoutId, type Vec2 } from '@syncsound/protocol';
 import { Speaker } from './Speaker';
 
@@ -32,7 +32,7 @@ const clampRoom = (p: Vec2): Vec2 => ({
 
 /**
  * "Move the sound around your room": the real layout geometry (slotPositions) and the real position panner
- * (dbapGains, the one the room engine uses for placed sounds) on a plan of the default 8 × 6 m room.
+ * (vbapGains, the one the room engine uses) on a plan of the default 8 × 6 m room.
  */
 export function LayoutDemo() {
   const [layout, setLayout] = useState(LAYOUTS[2]!);
@@ -47,12 +47,12 @@ export function LayoutDemo() {
 
   const gains = useMemo(
     () =>
-      dbapGains(
-        sound,
-        speakers.filter((s) => s.slot !== 'Sub').map((s) => ({ id: s.slot, pos: s.pos })),
-        { rolloff: scene.rolloff, blur: scene.blur },
+      vbapGains(
+        { channel: 'STEM', position: sound },
+        speakers.filter((s) => s.slot !== 'Sub').map((s) => ({ id: s.slot, role: s.slot })),
+        { ...scene, layout: layout.id, devices: Object.fromEntries(speakers.map((s) => [s.slot, s.pos])) },
       ),
-    [sound, speakers],
+    [sound, speakers, layout],
   );
 
   const moveTo = (e: PointerEvent) => {

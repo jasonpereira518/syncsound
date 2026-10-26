@@ -17,6 +17,7 @@ import type {
   Track,
 } from '@syncsound/protocol';
 import type { DeviceMix } from '@syncsound/audio-core';
+import type { HostPlayback } from '../lib/engine/capturePolicy';
 
 export type ConnStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error';
 
@@ -131,8 +132,21 @@ export interface CaptureUi {
   silent: boolean;
   error: string | null;
   peers: number;
-  /** estimated network+jitter-buffer delay of the received stream, ms */
+  /** estimated network+jitter-buffer delay of the received stream (median-filtered), ms */
   pipelineDelayMs: number | null;
+  /** what the host shared: 'browser' (a tab), 'window', 'monitor' (whole screen) */
+  surface: string | null;
+  /** the host plays the stream through its own chain (only for a shared tab: anything else could loop back) */
+  monitoring: boolean;
+  hostPlayback: HostPlayback | null;
+  /** receiver's WebRTC jitter-buffer target, ms */
+  jitterTargetMs: number | null;
+  /** alignment delay currently applied to the output chain, ms */
+  appliedDelayMs: number | null;
+  /** how many times the alignment delay was switched (rare after the first) */
+  delayChanges: number;
+  /** ms this device plays late because its output latency doesn't fit the stream buffer (null = fits) */
+  shortfallMs: number | null;
 }
 
 export interface RemoteUi {
@@ -184,7 +198,7 @@ export interface RoomActions {
   setLayout(layout: LayoutId): void;
   /** move one device to a slot ('Full' = unassigned) */
   assignSlot(deviceId: string, role: DeviceRole): void;
-  updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs'>> & {
+  updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs' | 'crossfadeSec'>> & {
     password?: string | null;
   }): void;
   identify(targetDeviceId: string): void;
@@ -208,6 +222,8 @@ export interface RoomActions {
   setClickTest(on: boolean): void;
   setBatterySaver(on: boolean): void;
   dismissRouteChange(): void;
+  /** MUST be called from a user gesture: resume audio the phone suspended or interrupted (iOS calls, Siri, other apps) */
+  resumeAudio(): void;
   /** Capture this tab / system audio and send it to every device (video mode 1). */
   startCapture(): Promise<void>;
   stopCapture(): void;

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Room store: zustand state (see state.ts) + `roomActions` (the RoomActions contract in types.ts).
  * Import only from client components. Actions that need a user gesture (call directly from a click
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
@@ -6,15 +6,18 @@
 import { dueNow, setBatterySaverFlag } from '../lib/power';
 import {
   autoAssign,
+  autoSlot,
   calibrationRecordingMs,
   defaultObjectsFor,
   isRoutedLayout,
+  LAYOUT_SLOTS,
   nextFreeSlot,
   placeForLayout,
   presetLayout,
   resyncNeedsReschedule,
   suggestLayout,
   SYNC_SEARCH_LATE_MS,
+  upmixActive,
   type RoomClock,
 } from '@syncsound/audio-core';
 import {
@@ -24,6 +27,7 @@ import {
   isValidRoomCode,
   type ClientMessage,
   type DeviceCaps,
+  type DeviceRole,
   type Playback,
   type RoomState,
   type Scene,
@@ -31,7 +35,7 @@ import {
   type ServerMessage,
   type Track,
 } from '@syncsound/protocol';
-import { serverUrl } from '../lib/config';
+import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl } from '../lib/config';
 import { batteryLevel, buildCaps, getDeviceId, probeMic, probeMicEnabled, randomId, rememberName, storage, type MicPermission } from '../lib/device';
 import { tuneStatus } from '../lib/tuneStatus';
 import { recallOutputTune, rememberOutputTune, routeChangeAction, type OutputTune } from '../lib/outputMemory';
@@ -70,7 +74,7 @@ interface Session {
   autoObjectsKey: string;
   /** sent on every (re)JOIN; refreshed when the output route changes */
   caps: DeviceCaps;
-  /** current output label (undefined when the browser hides it) â†’ per-output calibration memory key */
+  /** current output label (undefined when the browser hides it) → per-output calibration memory key */
   outputLabel: string | undefined;
   /** clock path ('lan:<master>' | 'wan') during this session's last tune; a later change means re-tune */
   tunedClockPath: string | null;
@@ -97,7 +101,7 @@ function linkState(s: Session): 'none' | 'ready' | 'not-ready' {
 }
 let joining: string | null = null;
 
-const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout'] as const;
+const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout', 'motion'] as const;
 const fin = (x: number) => (Number.isFinite(x) ? x : 0);
 const newTrackId = () => `t_${randomId(12)}`;
 
@@ -106,7 +110,7 @@ function send(msg: ClientMessage): boolean {
 }
 
 function sendOrWarn(msg: ClientMessage) {
-  if (!send(msg)) setError('Not connected to the room right now. Reconnectingâ€¦');
+  if (!send(msg)) setError('Not connected to the room right now. Reconnecting…');
 }
 
 function setRoom(fn: (r: RoomState) => RoomState) {
@@ -129,6 +133,8 @@ const FRIENDLY: Record<string, string> = {
   host_only: 'Only the host can do that in this room.',
   rate_limited: 'Too many requests. Slow down a little.',
   calibration_busy: 'Another device is tuning the room right now. Wait for it to finish.',
+  capture_busy: 'Another device is already sharing audio.',
+  capture_active: 'Stop sharing audio first.',
 };
 
 function handleMessage(msg: ServerMessage) {
@@ -210,26 +216,85 @@ function handleMessage(msg: ServerMessage) {
   }
 }
 
-/** host only: give multichannel / upmixed sources matching objects once per (track, channels, upmix) */
+/**
+ * A track queued before anyone knew its length (a web link, a file too big to decode before upload) gets its
+ * duration and channel count from the first device that decodes it, so the room can auto-advance at its end.
+ * Re-queueing a known track only fills in those fields on the server.
+ */
+function learnTrackInfo(trackId: string, info: { durationSec: number; channels: number }) {
+  const st = useRoomStore.getState();
+  const t = st.room?.queue.find((q) => q.id === trackId);
+  if (!t || (t.durationSec !== undefined && t.channels !== undefined)) return;
+  if (!st.isHost && st.room?.settings.hostOnlyControl) return; // CONTROL would be refused
+  if (!Number.isFinite(info.durationSec) || info.durationSec <= 0) return;
+  const track: Track = {
+    ...t,
+    durationSec: t.durationSec ?? info.durationSec,
+    channels: t.channels ?? Math.min(8, Math.max(1, Math.round(info.channels))),
+  };
+  session?.client.send({ type: 'CONTROL', command: { type: 'queue', track } });
+}
+
+/**
+ * Give multichannel / upmixed sources matching objects once per (source, channels, upmix): the host for the playing
+ * track, the sharing device for a live capture (always stereo: a leftover mono or 5.1 layout would mute it).
+ */
 function maybeAutoObjects(s: Session, room: RoomState) {
-  if (!useRoomStore.getState().isHost) return;
-  const track = room.queue.find((t) => t.id === room.playback.trackId);
-  if (!track?.channels || track.sourceClass !== 'rendered') return;
-  const key = `${track.id}|${track.channels}|${room.scene.upmix}`;
+  const { isHost, deviceId } = useRoomStore.getState();
+  // standard layouts with a centre / surrounds upmix stereo by themselves, so no slot is ever silent
+  const upmix = upmixActive(room.scene);
+  let channels: number;
+  let key: string;
+  if (room.captureHostId === deviceId) {
+    channels = 2;
+    key = `capture|2|${upmix}`;
+  } else {
+    if (!isHost) return;
+    const track = room.queue.find((t) => t.id === room.playback.trackId);
+    if (!track?.channels || track.sourceClass !== 'rendered') return;
+    channels = track.channels;
+    key = `${track.id}|${track.channels}|${upmix}`;
+  }
   if (key === s.autoObjectsKey) return;
   s.autoObjectsKey = key;
   try {
-    const desired = defaultObjectsFor(track.channels, room.scene.upmix);
+    const desired = defaultObjectsFor(channels, upmix);
+    // sounds the user added by hand stay
+    const extras = room.scene.objects.filter((o) => o.channel === 'STEM');
     const chans = (os: { channel: string }[]) => os.map((o) => o.channel).sort().join();
-    if (chans(desired) === chans(room.scene.objects)) return;
+    if (chans([...desired, ...extras]) === chans(room.scene.objects)) return;
     const objects = desired.map((d) => {
       const ex = room.scene.objects.find((o) => o.channel === d.channel);
       return ex ? { ...d, id: ex.id, label: ex.label, position: ex.position, gainDb: ex.gainDb, muted: ex.muted } : d;
     });
-    roomActions.updateScene({ objects }, { commit: true });
+    roomActions.updateScene({ objects: [...objects, ...extras] }, { commit: true });
   } catch {
     /* audio-core not ready: keep the scene as is */
   }
+}
+
+/**
+ * host only: in a standard layout every connected speaker gets a slot. New joiners (role 'Full') and devices whose
+ * saved role isn't in this layout go to the emptiest slot. Deferred a tick so a layout switch in progress settles first.
+ */
+let autoSlotQueued = false;
+function maybeAutoSlot() {
+  if (autoSlotQueued) return;
+  autoSlotQueued = true;
+  setTimeout(() => {
+    autoSlotQueued = false;
+    const st = useRoomStore.getState();
+    const room = st.room;
+    if (!st.isHost || !room || !session) return;
+    const layout = room.scene.layout;
+    const live = room.devices.filter((d) => d.connected);
+    const fix = autoSlot(layout, live);
+    if (!isRoutedLayout(layout) || !Object.keys(fix).length) return;
+    for (const [id, role] of Object.entries(fix)) roomActions.updateDevice({ role }, id);
+    const roles = Object.fromEntries(live.map((d) => [d.id, fix[d.id] ?? d.role]));
+    // speakers the tune ranged keep their measured spots
+    roomActions.updateScene({ devices: placeForLayout(layout, roles, room.scene, room.scene.tune?.ranged ?? []) }, { commit: true });
+  }, 0);
 }
 
 // ---------- per-output calibration memory (Bluetooth / headphones / built-in each keep their own latency) ----------
@@ -351,7 +416,7 @@ function watchOutputCalibration(s: Session): () => void {
 
 /**
  * A tune absorbs this device's clock error on the path it used (LAN master vs server clock). Switching path moves
- * that error by up to a few ms, so prompt a quick re-tune â€” only against a tune from this session.
+ * that error by up to a few ms, so prompt a quick re-tune — only against a tune from this session.
  */
 function watchClockPath(s: Session) {
   const st = useRoomStore.getState();
@@ -374,7 +439,7 @@ function sendStats(s: Session, force = false) {
     s.client.send({
       type: 'STATS',
       stats: {
-        // display value: server clock âˆ’ this device's wall clock (ClockSync's offset is relative to performance.now())
+        // display value: server clock − this device's wall clock (ClockSync's offset is relative to performance.now())
         offsetMs: fin(est.offsetMs - performance.timeOrigin),
         rttMs: fin(est.rttMs),
         jitterMs: fin(est.jitterMs),
@@ -400,6 +465,7 @@ function applyFullScene(s: Session, snapshot: Scene) {
   s.lastLocalSceneEdit = performance.now();
   const update: ScenePatch = {};
   for (const k of SCENE_KEYS) (update as Record<string, unknown>)[k] = scene[k];
+  update.motion = scene.motion ?? null; // undo back to "still" must reach the others
   send({ type: 'SCENE_UPDATE', ...update });
   useRoomStore.setState({ canUndo: s.history.canUndo, canRedo: s.history.canRedo });
 }
@@ -438,6 +504,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const displayName = name.trim().slice(0, 40);
     if (!isValidRoomCode(roomCode)) return setError("That room code doesn't look right (6 letters/numbers).");
     if (!displayName) return setError('Enter a name for this device.');
+    if (isServerMissing()) return setError(NO_SERVER_MESSAGE); // a connection that can't succeed would just spin
     if (joining === roomCode) return;
     if (session) {
       if (session.code === roomCode) {
@@ -455,6 +522,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         if (session) void onRouteChange(session);
       },
       onStale: (kind) => markStale(kind),
+      onDecoded: learnTrackInfo,
     });
     try {
       engine.unlock(); // synchronous: must stay inside the click's user activation
@@ -545,6 +613,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         s.capture.onRoomChanged(st.room);
         s.remote.onRoomChanged();
         if (st.room) maybeAutoObjects(s, st.room);
+        if (st.room) maybeAutoSlot();
       }),
     );
     const statsTimer = setInterval(() => sendStats(s), 2000);
@@ -562,14 +631,14 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;
       s.engine.onVisible();
-      s.client.resync(); // â†’ onSynced('resync') â†’ reconcile(true)
+      s.client.resync(); // → onSynced('resync') → reconcile(true)
     };
     document.addEventListener('visibilitychange', onVisibility);
     s.cleanup.push(() => document.removeEventListener('visibilitychange', onVisibility));
 
     client.connect();
     const slow = setTimeout(() => {
-      if (useRoomStore.getState().conn !== 'open') setError("Can't reach the SyncSound server yet. Still tryingâ€¦");
+      if (useRoomStore.getState().conn !== 'open') setError(`Can't reach the SyncSound server yet. Still trying… ${SERVER_WAKING_HINT}`);
       resolveJoin();
     }, 10_000);
     s.cleanup.push(() => clearTimeout(slow));
@@ -657,13 +726,24 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   },
 
   assignSlot(deviceId, role) {
-    const room = useRoomStore.getState().room;
-    if (!room) return;
-    roomActions.updateDevice({ role }, deviceId);
+    const st = useRoomStore.getState();
+    const room = st.room;
+    const dev = room?.devices.find((d) => d.id === deviceId);
+    if (!room || !dev || dev.role === role) return;
+    // with control locked a guest may only change their own speaker: no swap, no re-placing the room
+    if (!st.isHost && room.settings.hostOnlyControl) return roomActions.updateDevice({ role }, deviceId);
     const layout = room.scene.layout;
+    const live = room.devices.filter((d) => d.connected);
+    const roles: Record<string, DeviceRole> = Object.fromEntries(live.map((d) => [d.id, d.role]));
+    roles[deviceId] = role;
+    // moving into a taken spot swaps: whoever was there takes the spot this speaker leaves, so none goes empty
+    if (isRoutedLayout(layout) && role !== 'Sub' && (LAYOUT_SLOTS[layout] as DeviceRole[]).includes(dev.role))
+      for (const d of live) if (d.id !== deviceId && d.role === role) roles[d.id] = dev.role;
+    for (const d of live) if (roles[d.id] !== d.role) roomActions.updateDevice({ role: roles[d.id] }, d.id);
+    if (!live.some((d) => d.id === deviceId)) roomActions.updateDevice({ role }, deviceId);
     if (!isRoutedLayout(layout)) return;
-    // re-place the hand-placed devices so those sharing a slot fan out around it; ranged ones stay where they were measured
-    const roles = Object.fromEntries(room.devices.filter((d) => d.connected).map((d) => [d.id, d.id === deviceId ? role : d.role]));
+    // re-place the hand-placed devices so those sharing a slot fan out around it; ranged ones stay where the tune
+    // measured them (their compensation is derived from the picture, so timing survives either way)
     roomActions.updateScene({ devices: placeForLayout(layout, roles, room.scene, room.scene.tune?.ranged ?? []) }, { commit: true });
   },
 
@@ -819,7 +899,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   async startCalibration(opts) {
     if (!session) return setError('Join the room first.');
-    // one chime per device and done: Bluetooth wobble ("Â±X ms") comes from the manual sync check
+    // one chime per device and done: Bluetooth wobble ("±X ms") comes from the manual sync check
     await session.calibration.start(opts);
   },
 
@@ -857,6 +937,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   dismissRouteChange() {
     useRoomStore.setState({ routeChanged: false, routeRestored: null });
+  },
+
+  resumeAudio() {
+    session?.engine.resume(); // synchronous: must stay inside the tap's user activation
   },
 
   async startCapture() {
@@ -917,5 +1001,8 @@ installInstrumentation({
       return null;
     }
   },
-  mix: () => useRoomStore.getState().mix,
+  // the engine's live mix: with 8D on it moves ~30×/s while the store keeps the last full recompute
+  mix: () => session?.engine.mix ?? useRoomStore.getState().mix,
+  tap: () => session?.engine.readTaps() ?? null,
+  liveDelay: () => session?.capture.liveDelayInfo() ?? null,
 });
