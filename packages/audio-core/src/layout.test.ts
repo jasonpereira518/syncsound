@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultEq, defaultScene, type Device, type DeviceClass } from '@syncsound/protocol';
-import { autoAssign, isRoutedLayout, LAYOUT_SLOTS, layoutLabel, routedGains, slotPositions, suggestLayout } from './layout';
+import { autoAssign, isRoutedLayout, LAYOUT_SLOTS, layoutLabel, placeDevice, routedGains, slotPositions, suggestLayout } from './layout';
 import { channelIndexFor, computeDeviceMix, defaultObjectsFor } from './spatial';
 
 const dev = (id: string, over: Partial<Device> = {}, deviceClass: DeviceClass = 'phone'): Device => ({
@@ -38,18 +38,35 @@ describe('suggestLayout / layoutLabel', () => {
 });
 
 describe('autoAssign', () => {
-  it('fronts go to laptops/desktops, phones to surrounds, subs stay, extras double up', () => {
+  it('fronts go to laptops/desktops, phones to surrounds, one sub stays, extras wait unassigned', () => {
     const ds = [
       dev('p1', { joinedAt: 1 }),
       dev('lap', { joinedAt: 2 }, 'laptop'),
       dev('p2', { joinedAt: 3 }),
       dev('desk', { joinedAt: 4 }, 'desktop'),
       dev('sub', { role: 'Sub' }, 'bluetooth'),
+      dev('sub2', { role: 'Sub', joinedAt: 9 }, 'phone'),
       dev('p3', { joinedAt: 5 }),
       dev('p4', { joinedAt: 6 }),
     ];
-    expect(autoAssign('surround5', ds)).toEqual({ desk: 'L', lap: 'R', p1: 'C', p2: 'SL', p3: 'SR', p4: 'L', sub: 'Sub' });
+    expect(autoAssign('surround5', ds)).toEqual({ desk: 'L', lap: 'R', p1: 'C', p2: 'SL', p3: 'SR', p4: 'Full', sub: 'Sub', sub2: 'Full' });
     expect(autoAssign('party', ds).p1).toBe('Full');
+    expect(autoAssign('party', ds).sub).toBe('Sub');
+  });
+});
+
+describe('placeDevice', () => {
+  const roles = { a: 'L', b: 'R', c: 'Full', s: 'Sub' } as const;
+  it('swaps with the occupant when the moved device had a slot', () => {
+    expect(placeDevice(roles, 'a', 'R')).toEqual({ a: 'R', b: 'L', c: 'Full', s: 'Sub' });
+  });
+  it('unassigns the occupant when the moved device came from unassigned', () => {
+    expect(placeDevice(roles, 'c', 'L')).toEqual({ a: 'Full', b: 'R', c: 'L', s: 'Sub' });
+  });
+  it('fills an empty slot, unassigns with Full, and is a no-op on its own slot', () => {
+    expect(placeDevice(roles, 'a', 'C')).toEqual({ ...roles, a: 'C' });
+    expect(placeDevice(roles, 's', 'Full')).toEqual({ ...roles, s: 'Full' });
+    expect(placeDevice(roles, 'b', 'R')).toEqual(roles);
   });
 });
 

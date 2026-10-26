@@ -53,17 +53,33 @@ export function suggestLayout(speakers: number): LayoutId {
 const CLASS_RANK: Record<DeviceClass, number> = { desktop: 0, laptop: 1, bluetooth: 2, tablet: 3, unknown: 4, phone: 5 };
 
 /**
- * Slot per device for `layout`: devices already on 'Sub' stay subs; the rest fill slots in layout order by class
- * rank (then join time), and extras double up slots round-robin. Non-routed layouts leave everyone 'Full'.
+ * Slot per device for `layout`, one device per slot: the earliest device already on 'Sub' stays the sub; the rest
+ * fill slots in layout order by class rank (then join time), and devices left over stay unassigned ('Full').
+ * Non-routed layouts keep their subs and leave everyone else 'Full'.
  */
 export function autoAssign(layout: LayoutId, devices: Device[]): Record<string, DeviceRole> {
   const slots = LAYOUT_SLOTS[layout];
   const out: Record<string, DeviceRole> = {};
+  // the sub corner is a slot too in standard layouts; party/custom keep every sub
+  const subs = devices.filter((d) => d.role === 'Sub').sort((a, b) => a.joinedAt - b.joinedAt);
+  const kept = new Set(slots.length ? subs.slice(0, 1) : subs);
+  for (const d of kept) out[d.id] = 'Sub';
   const mains = devices
-    .filter((d) => d.role !== 'Sub')
+    .filter((d) => !kept.has(d))
     .sort((a, b) => CLASS_RANK[a.caps.deviceClass] - CLASS_RANK[b.caps.deviceClass] || a.joinedAt - b.joinedAt);
-  for (const d of devices) if (d.role === 'Sub') out[d.id] = 'Sub';
-  mains.forEach((d, k) => (out[d.id] = slots.length ? slots[k % slots.length]! : 'Full'));
+  mains.forEach((d, k) => (out[d.id] = slots[k] ?? 'Full'));
+  return out;
+}
+
+/**
+ * Put one device in a slot, one device per slot: whoever held the slot takes the moved device's old slot (a swap),
+ * or becomes unassigned when the moved device had none. `slot` 'Full' unassigns. Returns every device's new role.
+ */
+export function placeDevice(roles: Record<string, DeviceRole>, deviceId: string, slot: DeviceRole): Record<string, DeviceRole> {
+  const from = roles[deviceId] ?? 'Full';
+  const out = { ...roles, [deviceId]: slot };
+  if (slot === 'Full' || from === slot) return out;
+  for (const [id, role] of Object.entries(roles)) if (id !== deviceId && role === slot) out[id] = from;
   return out;
 }
 

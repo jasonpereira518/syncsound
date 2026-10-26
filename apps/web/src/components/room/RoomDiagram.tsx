@@ -1,5 +1,5 @@
 'use client';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, PointerEvent, Ref } from 'react';
 import type { Device, DeviceRole, LayoutId, Scene } from '@syncsound/protocol';
 import { LAYOUT_SLOTS, slotPositions } from '@syncsound/audio-core';
 import { ROLE_COLOR } from '../ui';
@@ -16,9 +16,17 @@ export const SLOT_NAME: Record<DeviceRole, string> = {
   Full: 'Not placed',
 };
 
+/** where each spot of `layout` (plus the sub corner) sits, in room metres */
+export function slotAnchors(layout: LayoutId, scene: Scene): Partial<Record<DeviceRole, { x: number; y: number }>> {
+  const slots: DeviceRole[] = [...LAYOUT_SLOTS[layout], 'Sub'];
+  return slotPositions(layout, Object.fromEntries(slots.map((s) => [s, s])), scene);
+}
+
 /**
  * Top-down room: the listening seat, one ring per slot of the layout (plus the sub corner), and the speakers sitting
- * in them. Tapping a ring picks that slot. `highlight` marks one device (a speaker's own screen).
+ * in them. Tapping a ring picks that slot. `highlight` marks one device (a speaker's own screen). For dragging
+ * (SpeakerSpots): `onSlotPointerDown` starts a drag from a spot, `dropTarget` rings the spot under the pointer and
+ * `dragging` lifts the device being moved out of its spot.
  */
 export function RoomDiagram({
   layout,
@@ -27,6 +35,10 @@ export function RoomDiagram({
   selected,
   highlight,
   onSlot,
+  onSlotPointerDown,
+  dropTarget,
+  dragging,
+  svgRef,
 }: {
   layout: LayoutId;
   scene: Scene;
@@ -34,9 +46,13 @@ export function RoomDiagram({
   selected?: DeviceRole | null;
   highlight?: string;
   onSlot?: (slot: DeviceRole) => void;
+  onSlotPointerDown?: (slot: DeviceRole, e: PointerEvent<SVGGElement>) => void;
+  dropTarget?: DeviceRole | null;
+  dragging?: string | null;
+  svgRef?: Ref<SVGSVGElement>;
 }) {
   const slots: DeviceRole[] = [...LAYOUT_SLOTS[layout], 'Sub'];
-  const anchors = slotPositions(layout, Object.fromEntries(slots.map((s) => [s, s])), scene);
+  const anchors = slotAnchors(layout, scene);
   const W = scene.room.width;
   const D = scene.room.depth;
   const pad = 0.6;
@@ -46,6 +62,7 @@ export function RoomDiagram({
 
   return (
     <svg
+      ref={svgRef}
       viewBox={`${-W / 2 - pad} ${-D / 2 - pad} ${W + 2 * pad} ${D + 2 * pad}`}
       className="block h-auto w-full select-none"
       role="group"
@@ -73,9 +90,9 @@ export function RoomDiagram({
       {slots.map((slot) => {
         const p = anchors[slot];
         if (!p) return null;
-        const here = live.filter((d) => d.role === slot);
+        const here = live.filter((d) => d.role === slot && d.id !== dragging);
         const color = ROLE_COLOR[slot];
-        const ring = selected === slot || here.some((d) => d.id === highlight);
+        const ring = selected === slot || dropTarget === slot || here.some((d) => d.id === highlight);
         const names = here.map((d) => d.name).join(', ');
         const label = here.length ? names : SLOT_NAME[slot];
         const interactive = onSlot
@@ -86,6 +103,9 @@ export function RoomDiagram({
               'aria-pressed': selected === slot,
               'data-testid': `slot-${slot}`,
               onClick: () => onSlot(slot),
+              ...(onSlotPointerDown && here.length > 0
+                ? { onPointerDown: (e: PointerEvent<SVGGElement>) => onSlotPointerDown(slot, e), style: { touchAction: 'none' as const } }
+                : {}),
               onKeyDown: (e: KeyboardEvent) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
                 e.preventDefault();

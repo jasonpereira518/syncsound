@@ -1,15 +1,18 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
-import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
+import { LayoutId, ObjectChannel, type AudioObject, type Device, type DeviceRole, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
+import { computeDeviceMix, dbapGains, freeSpot, isRoutedLayout, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
+import { SLOT_NAME, slotAnchors } from './RoomDiagram';
 import { act, isTypingTarget, useCanControl } from './shared';
+import { SpotPicker } from './SpeakerSpots';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
 type ScenePatch = Omit<SceneUpdate, 'type'>;
 
 const SNAP = 0.25;
+const SPOT_DROP_M = 0.9; // a device dropped this close to a preset spot lands in it
 const GLYPH_PX = 46; // on-screen size of one glyph unit, so labels stay legible at any map or room size
 const CHANNELS = ObjectChannel.options;
 
@@ -62,9 +65,11 @@ export function Stage() {
   const [snap, setSnap] = useState(false);
   const [settings, setSettings] = useState(false); // settings popover; shares the inspector's spot, so only one shows
   const [full, setFull] = useState(false); // stage fills the window
+  const [spot, setSpot] = useState<DeviceRole | null>(null); // preset layouts: the spot whose picker is open, or under a dragged device
+  const [overSpot, setOverSpot] = useState<DeviceRole | null>(null);
   const [announce, setAnnounce] = useState('');
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ t: Target; dx: number; dy: number; last: Scene | null } | null>(null);
+  const drag = useRef<{ t: Target; dx: number; dy: number; last: Scene | null; orig: Scene; over: DeviceRole | null } | null>(null);
 
   const base = room?.scene ?? null;
   const scene = draft && (dragging || draftBase === base) ? draft : base;
@@ -88,16 +93,17 @@ export function Stage() {
   // Esc peels back one layer: popover, then selection, then fullscreen
   const hasSel = sel !== null;
   useEffect(() => {
-    if (!full && !settings && !hasSel) return;
+    if (!full && !settings && !hasSel && !spot) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (settings) setSettings(false);
+      else if (spot) setSpot(null);
       else if (hasSel) setSel(null);
       else setFull(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [full, settings, hasSel]);
+  }, [full, settings, hasSel, spot]);
 
   // rendered pixels per metre, so glyphs can be sized in screen pixels rather than room metres
   const [pxPerM, setPxPerM] = useState(0);
@@ -182,7 +188,23 @@ export function Stage() {
   const pick = (t: Target) => {
     setSel(t);
     setSettings(false);
+    setSpot(null);
   };
+
+  // preset layouts: speakers live in spots, so a dragged device snaps to the nearest one (or the tray below the room)
+  const routed = isRoutedLayout(scene.layout);
+  const anchors = routed ? slotAnchors(scene.layout!, scene) : {};
+  const spotAt = (p: Vec2): DeviceRole | null => {
+    if (p.y > D / 2 + 0.1) return 'Full';
+    let best: DeviceRole | null = null;
+    let bestD = SPOT_DROP_M;
+    for (const [s, a] of Object.entries(anchors)) {
+      const dist = Math.hypot(a.x - p.x, a.y - p.y);
+      if (dist < bestD) [best, bestD] = [s as DeviceRole, dist];
+    }
+    return best;
+  };
+  const snapsToSpot = (t: Target) => routed && t.kind === 'device';
 
   const onDown = (e: PointerEvent<SVGElement>, t: Target) => {
     pick(t);
@@ -191,14 +213,20 @@ export function Stage() {
     const p = posOf(scene, t, tray);
     if (!m || !p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { t, dx: p.x - m.x, dy: p.y - m.y, last: null };
+    drag.current = { t, dx: p.x - m.x, dy: p.y - m.y, last: null, orig: scene, over: null };
     setDragging(true);
   };
   const onMove = (e: PointerEvent<SVGElement>) => {
     const d = drag.current;
     const m = d && toMeters(e);
     if (!d || !m) return;
-    const next = withPos(scene, d.t, clampSnap({ x: m.x + d.dx, y: m.y + d.dy }));
+    const raw = { x: m.x + d.dx, y: m.y + d.dy };
+    if (snapsToSpot(d.t)) {
+      d.over = spotAt(raw);
+      setOverSpot(d.over);
+    }
+    // an unplaced device can follow the pointer down into the tray
+    const next = withPos(scene, d.t, d.over === 'Full' ? { x: r2(raw.x), y: r2(Math.min(raw.y, D / 2 + pad * 0.8)) } : clampSnap(raw));
     d.last = next;
     setDraft(next);
     setDraftBase(base);
@@ -210,6 +238,19 @@ export function Stage() {
     drag.current = null;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     setDragging(false);
+    setOverSpot(null);
+    if (d.last && snapsToSpot(d.t)) {
+      const dev = room.devices.find((x) => x.id === d.t.id);
+      if (dev && d.over && d.over !== dev.role) {
+        act(() => roomActions.placeInSlot(dev.id, d.over!));
+      } else {
+        // dropped away from any spot: back where it was
+        setDraft({ ...scene, devices: d.orig.devices });
+        setDraftBase(base);
+        sceneUpdate({ devices: d.orig.devices }, false);
+      }
+      return;
+    }
     if (d.last) {
       setDraftBase(base); // keep showing the drop position until the store echoes a new scene
       sceneUpdate(patchFor(d.last, d.t), true);
@@ -232,6 +273,7 @@ export function Stage() {
     const step = e.shiftKey ? 0.5 : snap ? SNAP : 0.1;
     const delta: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     const dv = delta[e.key];
+    if (snapsToSpot(t)) return; // spots move them; keyboard users pick from a spot's list
     const p = posOf(base, t, tray);
     if (!dv || !p) return;
     e.preventDefault();
@@ -293,6 +335,11 @@ export function Stage() {
               </option>
             ))}
           </select>
+          {routed && canControl && (
+            <Button data-testid="stage-reset-spots" className="!px-3" onClick={() => act(() => roomActions.resetSlots())}>
+              Reset
+            </Button>
+          )}
           <IconButton icon="undo" label="Undo (Ctrl/Cmd+Z)" disabled={!canControl || !canUndo} onClick={() => act(() => roomActions.undo())} />
           <IconButton icon="redo" label="Redo (Shift+Ctrl/Cmd+Z)" disabled={!canControl || !canRedo} onClick={() => act(() => roomActions.redo())} />
           <IconButton icon="grid" label={`Snap to ${SNAP} m grid`} pressed={snap} onClick={() => setSnap(!snap)} />
@@ -304,6 +351,7 @@ export function Stage() {
             onClick={() => {
               setSettings(!settings);
               setSel(null);
+              setSpot(null);
             }}
           />
           <IconButton icon={full ? 'shrink' : 'expand'} label={full ? 'Exit full screen (Esc)' : 'Full screen'} pressed={full} onClick={() => setFull(!full)} />
@@ -327,7 +375,7 @@ export function Stage() {
             role="group"
             aria-label={`Room map, ${W} by ${D} metres`}
             aria-describedby="stage-help"
-            onPointerDown={(e) => !(e.target as Element).closest('.stage-item, .stage-hit') && setSel(null)}
+            onPointerDown={(e) => !(e.target as Element).closest('.stage-item, .stage-hit, .stage-spot') && (setSel(null), setSpot(null))}
           >
             <defs>
               <radialGradient id="stage-glow">
@@ -354,6 +402,54 @@ export function Stage() {
                 unplaced: drag into the room ↑
               </text>
             )}
+
+            {/* preset spots: rings the speakers sit in; an empty one opens its picker */}
+            {Object.entries(anchors).map(([slot, a]) => {
+              const s = slot as DeviceRole;
+              const taken = live.some((d) => d.role === s && scene.devices[d.id]);
+              const lit = overSpot === s || spot === s;
+              return (
+                <g
+                  key={`spot-${s}`}
+                  className="stage-spot outline-none"
+                  data-testid={`stage-spot-${s}`}
+                  role="button"
+                  tabIndex={canControl ? 0 : -1}
+                  aria-label={`${SLOT_NAME[s]}: ${taken ? 'taken' : 'empty'}`}
+                  style={{ cursor: canControl ? 'pointer' : 'default' }}
+                  onClick={() => {
+                    if (!canControl) return;
+                    setSel(null);
+                    setSettings(false);
+                    setSpot(spot === s ? null : s);
+                  }}
+                  onKeyDown={(e) => {
+                    if (!canControl || (e.key !== 'Enter' && e.key !== ' ')) return;
+                    e.preventDefault();
+                    setSel(null);
+                    setSettings(false);
+                    setSpot(s);
+                  }}
+                >
+                  <circle
+                    cx={a.x}
+                    cy={a.y}
+                    r={u * 0.85}
+                    fill={lit ? 'var(--color-accent)' : 'transparent'}
+                    fillOpacity={lit ? 0.12 : 1}
+                    stroke={lit ? 'var(--color-accent)' : ROLE_COLOR[s]}
+                    strokeOpacity={lit ? 1 : 0.55}
+                    strokeWidth={u * (lit ? 0.08 : 0.04)}
+                    strokeDasharray={`${u * 0.14} ${u * 0.1}`}
+                  />
+                  {!taken && (
+                    <text x={a.x} y={a.y + u * 1.25} textAnchor="middle" fontSize={fs * 0.72} fill="var(--color-ink-400)">
+                      {SLOT_NAME[s]}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
 
             {/* listener */}
             <circle cx={lis.x} cy={lis.y} r={u * 2.2} fill="url(#stage-glow)" pointerEvents="none" />
@@ -567,6 +663,13 @@ export function Stage() {
                 <RangeField label="Room depth" min={2} max={30} step={0.5} value={D} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: W, depth: v }), true)} />
               </div>
             </fieldset>
+          ) : spot ? (
+            <div data-testid="stage-spot-picker" className={overlayClass(full)}>
+              <div className="float-right">
+                <IconButton icon="x" label="Close" className="!size-9 border-transparent" onClick={() => setSpot(null)} />
+              </div>
+              <SpotPicker slot={spot} devices={room.devices} onDone={() => setSpot(null)} />
+            </div>
           ) : (
             <Inspector
               sel={sel}
@@ -576,6 +679,7 @@ export function Stage() {
               mixes={mixes}
               canControl={canControl}
               floating={full}
+              onSpot={routed && canControl ? (s) => (setSel(null), setSpot(s)) : undefined}
               onDelete={deleteObject}
               onClose={() => setSel(null)}
             />
@@ -684,6 +788,7 @@ function Inspector({
   mixes,
   canControl,
   floating,
+  onSpot,
   onDelete,
   onClose,
 }: {
@@ -694,6 +799,7 @@ function Inspector({
   mixes: Record<string, DeviceMix> | null;
   canControl: boolean;
   floating: boolean;
+  onSpot?: (slot: DeviceRole) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }) {
@@ -718,6 +824,14 @@ function Inspector({
         </div>
       </div>
       <p className="mt-1 font-mono text-xs text-ink-400">{pos ? fmtPos(pos) : 'not placed'}</p>
+      {dev && onSpot && dev.role !== 'Full' && (
+        <p className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-300">
+          Plays {SLOT_NAME[dev.role].toLowerCase()}
+          <Button className="!min-h-9 !px-3 text-xs" onClick={() => onSpot(dev.role)}>
+            Change speaker
+          </Button>
+        </p>
+      )}
       {obj && gains && (
         <ul className="mt-2 space-y-1">
           {devices

@@ -50,6 +50,13 @@ test('home → room → setup wizard (with tuning) → speaker screen, master vo
   const guestId = await guest.page.evaluate(() => (window as unknown as { __syncsound: { getState(): { deviceId: string } } }).__syncsound.getState().deviceId);
   await host.page.getByTestId(`assign-${guestId}`).click();
   await expect(guest.page.getByTestId('speaker-screen').locator('h1')).toHaveText('Front left');
+  // one speaker per spot: the laptop that held it swaps over to the phone's old spot
+  await expect.poll(() => roles(host.page)).toEqual({ 'Host laptop': 'R', 'Guest phone': 'L' });
+
+  // reset re-runs the automatic fill
+  await host.page.getByTestId('reset-spots').click();
+  await expect.poll(() => roles(host.page)).toEqual({ 'Host laptop': 'L', 'Guest phone': 'R' });
+  await expect(guest.page.getByTestId('speaker-screen').locator('h1')).toHaveText('Front right');
 
   await host.page.getByTestId('wizard-next').click();
   await expect(host.page.getByTestId('wizard-title')).toHaveText('Tune the room');

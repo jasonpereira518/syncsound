@@ -170,8 +170,10 @@ export interface RoomActions {
   updateDevice(patch: DevicePatch, targetDeviceId?: string): void;
   /** pick a speaker layout: auto-assigns every device's slot, places them, sets scene.layout */
   setLayout(layout: LayoutId): void;
-  /** move one device to a slot ('Full' = unassigned) */
-  assignSlot(deviceId: string, role: DeviceRole): void;
+  /** put one device in a slot, one per slot: the occupant swaps into the device's old slot ('Full' = unassigned) */
+  placeInSlot(deviceId: string, role: DeviceRole): void;
+  /** re-run the current layout's automatic assignment */
+  resetSlots(): void;
   updateSettings(patch: Partial<Pick<RoomSettings, 'hostOnlyControl' | 'videoBufferMs' | 'lipSyncNudgeMs'>> & {
     password?: string | null;
   }): void;
