@@ -955,12 +955,27 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   async connectSpotify() {
     const s = session;
     if (!s) return setError('Join the room first.');
+    s.remote.activate('spotify'); // synchronous, inside the tap: unlocks the player's audio on iOS/Safari
     try {
-      if (!s.remote.spotifySignedIn && useRoomStore.getState().remote.spotify !== 'unconfigured') await loginSpotify(); // popup opens synchronously
+      const st = useRoomStore.getState();
+      // the controller also browses (playlists, Liked Songs); speakers only play
+      const browse = st.isHost || !st.room?.settings.hostOnlyControl;
+      if (!s.remote.spotifySignedIn && st.remote.spotify !== 'unconfigured') await loginSpotify({ browse }); // popup opens synchronously
       await s.remote.connect('spotify');
     } catch (e) {
       patch('remote', { message: errMsg(e) });
     }
+  },
+
+  disconnectSpotify() {
+    session?.remote.disconnect('spotify');
+  },
+
+  startSpotifyHere() {
+    const s = session;
+    if (!s) return;
+    s.remote.activate('spotify'); // synchronous, inside the tap
+    s.remote.restart();
   },
 
   async connectApple() {

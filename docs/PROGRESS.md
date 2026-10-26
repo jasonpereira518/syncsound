@@ -43,3 +43,13 @@
 - [x] S4 – Simplest setup experience: one-screen setup (layout suggested and applied by the tune, "Adjust layout" folded away, auto-advance), mic asked for at join (`probeMic`, `caps.micPermission`, `CAPS_UPDATE`), prepare/ready handshake (`CALIBRATION_PREPARE`/`READY`, 8 s deadline on a room timer, 1.5 s lead), one "Tune" verb (`roomActions.tune` + `tuneStatus`), Tune card in Now Playing, names in warnings, landing → room; e2e: host 3 taps to tuned / 5 to playing, guest 1; slow, unanswering and busy recorders; `AudioClockMap` lost-lock recovery, immediate busy on a participating device (DECISIONS 97–105)
 - [ ] S4 on real hardware (HUMAN_TEST_CHECKLIST 16, 29)
 - [x] S5 – Docs and results: SYNC_RESULTS §2c–2f, §4c, §4d, §6 setup checks; stale figures fixed (landing page, LIMITATIONS EQ); superseded decisions marked; `pnpm verify` green
+
+## Spotify pass (plan: sign in, browse, play tracks/playlists synced on every device)
+
+- [x] SP1 – Durable sign-in: `spotifyAuth.ts` (localStorage per device, PKCE refresh single-flight + Web Locks, rotated refresh token, invalid_grant → signed out, legacy migration), playback vs browse scopes, 403 classification (Premium / dev-mode allow-list), SDK prepared early + `activate()` inside the tap, auto-connect after join, `autoplay_failed` / lost-device flags, `SpotifyBanner` on every view (guests in host-only rooms can connect), disconnect
+- [ ] SP2 – Web API client (`spotifyApi.ts`: search ≤10/page, playlists, Liked Songs, albums, 429 gate, cache) + `MockSpotifyApi`
+- [ ] SP3 – Protocol `queueMany` + Track metadata, server auto-advance for sync-only tracks with a duration, no fade into or out of them
+- [ ] SP4 – Client sync: output compensation for remote tracks, persisted seek/start leads, track-boundary hand-over, end guard, pause when the room isn't playing
+- [ ] SP5 – Spotify browse panel, cover art + metadata everywhere, readiness count, e2e `spotify-browse.spec.ts`
+- [ ] SP6 – Docs (DEPLOY, LIMITATIONS, DECISIONS, HUMAN_TEST_CHECKLIST), `pnpm verify`
+- [ ] Spotify pass on real accounts (HUMAN_TEST_CHECKLIST 10)

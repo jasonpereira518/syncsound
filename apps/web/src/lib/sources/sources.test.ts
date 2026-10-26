@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MockRemoteAdapter } from './mock';
-import { extrapolate, normalizeRemoteId, sourceFor } from './types';
+import { extrapolate, normalizeRemoteId, parseSpotifyLink, sourceFor } from './types';
 
 function fakeClock() {
   let t = 0;
@@ -59,6 +59,18 @@ describe('remote helpers', () => {
     expect(normalizeRemoteId('spotify', 'nope')).toBeNull();
     expect(normalizeRemoteId('apple', 'https://music.apple.com/us/album/x/1440833?i=1440833098')).toBe('1440833098');
     expect(normalizeRemoteId('apple', '1440833098')).toBe('1440833098');
+  });
+  it('parses Spotify track, album and playlist links', () => {
+    const id = '37i9dQZF1DXcBWIGoYBM5M';
+    expect(parseSpotifyLink(`https://open.spotify.com/playlist/${id}?si=abc`)).toEqual({ type: 'playlist', id });
+    expect(parseSpotifyLink(`https://open.spotify.com/intl-pt-br/album/${id}`)).toEqual({ type: 'album', id });
+    expect(parseSpotifyLink(`https://open.spotify.com/embed/track/${id}`)).toEqual({ type: 'track', id });
+    expect(parseSpotifyLink(`spotify:playlist:${id}`)).toEqual({ type: 'playlist', id });
+    expect(parseSpotifyLink(id)).toEqual({ type: 'track', id });
+    expect(parseSpotifyLink('https://open.spotify.com/artist/x')).toBeNull();
+    // only tracks can be queued one at a time
+    expect(normalizeRemoteId('spotify', `https://open.spotify.com/intl-de/track/${id}`)).toBe(`spotify:track:${id}`);
+    expect(normalizeRemoteId('spotify', `spotify:album:${id}`)).toBeNull();
   });
   it('marks remote sources sync-only', () => {
     expect(sourceFor({ kind: 'spotify', sourceClass: 'remote' }).capabilities).toEqual({ spatial: false, eq: false, sampleAccurate: false });

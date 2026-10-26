@@ -10,7 +10,8 @@ import { appleConfigured, spotifyConfigured } from '../config';
 import { roomPosition } from '../engine/timing';
 import { AppleMusicAdapter } from './appleMusic';
 import { MockRemoteAdapter } from './mock';
-import { SpotifyAdapter, getSpotifyToken } from './spotify';
+import { isMockRemote } from './mockMode';
+import { SpotifyAdapter, auth, hasSpotifyAuth } from './spotify';
 import { extrapolate, type RemotePlayerAdapter } from './types';
 
 type Kind = 'spotify' | 'apple';
@@ -33,21 +34,75 @@ export class RemoteSyncManager {
   constructor(
     private readonly deps: { nowRoom: () => number | null; send: (m: ClientMessage) => boolean; outputGain: () => number },
   ) {
-    this.mock = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mockRemote') === '1';
+    this.mock = isMockRemote();
     this.timer = setInterval(() => void this.tick(), 500);
     patch('remote', {
       spotify: this.mock ? 'signed-out' : spotifyConfigured ? 'signed-out' : 'unconfigured',
       apple: this.mock ? 'signed-out' : appleConfigured ? 'signed-out' : 'unconfigured',
+      needsTap: false,
+      elsewhere: false,
     });
+    if (!this.mock && spotifyConfigured) {
+      // load the SDK now so a later tap can unlock its audio synchronously; a device that signed in before
+      // reconnects on its own (connect once per device)
+      const a = this.adapterFor('spotify');
+      void a.prepare?.().catch(() => {});
+      if (hasSpotifyAuth()) void this.connect('spotify');
+      this.unsubAuth = auth().subscribe(() => {
+        if (!hasSpotifyAuth() && this.adapters.spotify && this.adapters.spotify.status === 'ready') {
+          this.adapters.spotify.status = 'signed-out';
+          this.publish();
+        }
+      });
+    }
   }
+
+  private unsubAuth: (() => void) | null = null;
+
+  private deviceName = () => {
+    const st = useRoomStore.getState();
+    return st.room?.devices.find((d) => d.id === st.deviceId)?.name ?? 'speaker';
+  };
 
   private adapterFor(kind: Kind): RemotePlayerAdapter {
-    return (this.adapters[kind] ??= this.mock ? new MockRemoteAdapter() : kind === 'spotify' ? new SpotifyAdapter() : new AppleMusicAdapter());
+    let a = this.adapters[kind];
+    if (!a) {
+      a = this.mock ? new MockRemoteAdapter() : kind === 'spotify' ? new SpotifyAdapter(this.deviceName) : new AppleMusicAdapter();
+      a.onChange = () => {
+        this.publish();
+        this.onRoomChanged();
+      };
+      this.adapters[kind] = a;
+    }
+    return a;
   }
 
-  /** true when a Spotify token exists, so connect() won't need the sign-in popup */
+  /** true when this device is signed in, so connect() won't need the sign-in popup */
   get spotifySignedIn() {
-    return this.mock || !!getSpotifyToken();
+    return this.mock || hasSpotifyAuth();
+  }
+
+  /** synchronous, inside the user's tap: unlock the player's audio (iOS/Safari) */
+  activate(kind: Kind): void {
+    this.adapterFor(kind).activate?.();
+    this.publish();
+  }
+
+  /** after "Tap to start" / "Play here": start the current track on this device again */
+  restart(): void {
+    if (this.active) this.active.playingKey = null;
+    this.onRoomChanged();
+  }
+
+  /** sign this device out of the service */
+  disconnect(kind: Kind): void {
+    const a = this.adapters[kind];
+    if (this.active?.kind === kind) void this.deactivate();
+    a?.dispose();
+    delete this.adapters[kind];
+    if (kind === 'spotify' && !this.mock) auth().clear();
+    patch('remote', { [kind]: this.mock || (kind === 'spotify' ? spotifyConfigured : appleConfigured) ? 'signed-out' : 'unconfigured', message: null });
+    this.publish();
   }
 
   async connect(kind: Kind): Promise<void> {
@@ -67,7 +122,8 @@ export class RemoteSyncManager {
     const status = (k: Kind): RemoteServiceStatus => this.adapters[k]?.status ?? useRoomStore.getState().remote[k];
     const remote = { spotify: status('spotify'), apple: status('apple') };
     const msg = this.active?.adapter.message ?? this.adapters.spotify?.message ?? this.adapters.apple?.message ?? null;
-    patch('remote', { ...remote, ...(msg ? { message: msg } : {}) });
+    const flags = this.active?.adapter ?? this.adapters.spotify;
+    patch('remote', { ...remote, needsTap: !!flags?.needsTap, elsewhere: !!flags?.elsewhere, ...(msg ? { message: msg } : {}) });
     const key = JSON.stringify(remote);
     if (key !== this.sentRemote && this.deps.send({ type: 'DEVICE_UPDATE', patch: { remote } })) this.sentRemote = key;
   }
@@ -199,6 +255,7 @@ export class RemoteSyncManager {
   }
 
   dispose() {
+    this.unsubAuth?.();
     clearInterval(this.timer);
     this.clearStart();
     for (const a of Object.values(this.adapters)) a?.dispose();
