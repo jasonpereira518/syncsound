@@ -71,6 +71,8 @@ export const DeviceCaps = z.object({
   hasOutputTimestamp: z.boolean(),
   hasMic: z.boolean(),
   outputLabel: z.string().max(120).optional(),
+  /** the browser's microphone permission for this page (asked at join; absent on older tabs) */
+  micPermission: z.enum(['granted', 'prompt', 'denied', 'unknown']).optional(),
 });
 export type DeviceCaps = z.infer<typeof DeviceCaps>;
 
@@ -110,8 +112,23 @@ export const Device = z.object({
   solo: z.boolean(),
   /** manual fine-tune, ms, +ve = this device plays earlier (slow Bluetooth speakers can need > 500 ms) */
   latencyMs: finite().min(-MAX_MANUAL_LATENCY_MS).max(MAX_MANUAL_LATENCY_MS),
-  /** acoustic calibration result (relative output latency), ms, +ve = this device plays earlier */
+  /**
+   * Output compensation from the latest tune, ms, +ve = this device plays earlier. SERVER-DERIVED from
+   * `tuneArrivalMs` and the current scene positions (see `deriveCalibratedLatency`): clients never set it.
+   */
   calibratedLatencyMs: finite().min(-1000).max(1000).nullable(),
+  /**
+   * The tune's invariant for this device: its chime's arrival at the listener's mic minus its scheduled time,
+   * relative to the earliest device of that run, ms. Geometry-free; the compensation is derived from it whenever
+   * positions change. Null until heard by a tune.
+   */
+  tuneArrivalMs: finite().min(0).max(5000).nullable(),
+  /** the run (`scene.tune.id`) that measured `tuneArrivalMs`; a value from another run is not used for timing */
+  tuneId: Id.nullable(),
+  /** this device reported that its timing may be off since the tune: a new output route, a clock-path change, an audio-output step */
+  tuneStale: z.enum(['route', 'clock', 'output']).nullable(),
+  /** server-derived: in the room's current tune and steady; in it but flagged stale; or not in it */
+  syncState: z.enum(['tuned', 'stale', 'untuned']),
   eq: DeviceEq,
   bassCapable: z.boolean(),
   rolloffHz: finite().min(10).max(2000).nullable(),
@@ -136,6 +153,23 @@ export const AudioObject = z.object({
 });
 export type AudioObject = z.infer<typeof AudioObject>;
 
+/** the room's latest tune: where the listener's mic was, so each device's compensation can be re-derived from its arrival */
+export const TuneRef = z.object({
+  id: Id,
+  listenerId: Id,
+  /** the tuning device's mic (its position at the time) */
+  mic: Vec2,
+  /** room time of the run */
+  at: finite(),
+  /** timing only (positions, levels and EQ untouched) */
+  quick: z.boolean(),
+  /** devices whose positions were measured by ranging in this run (layout edits keep them where they are) */
+  ranged: z.array(Id).max(64),
+  /** where each heard device was when its arrival was measured (the compensation tracks later picture edits) */
+  positions: z.record(z.string(), Vec2),
+});
+export type TuneRef = z.infer<typeof TuneRef>;
+
 export const SceneMotion = z.object({
   periodSec: finite().min(1).max(120),
   startRoomTime: finite(),
@@ -159,6 +193,8 @@ export const Scene = z.object({
   upmix: z.boolean(),
   /** absent = 'custom' (scenes saved before layouts existed) */
   layout: LayoutId.optional(),
+  /** set by the server from CALIBRATION_RESULT; never by SCENE_UPDATE */
+  tune: TuneRef.optional(),
   /** 8D: the whole mix circles the listener, one lap per periodSec, angle 0 at startRoomTime; null/absent = still */
   motion: SceneMotion.nullable().optional(),
 });
@@ -282,6 +318,9 @@ const CalibrationRows = {
   reason: z.string().max(200).optional(),
   /** the recorder plays through Bluetooth: its speaker isn't at its mic, so it is never ranged */
   outputBluetooth: z.boolean().optional(),
+  /** this device's own emissions were timed on a steady clock (its clock path, room clock and audio output did
+   * not move while it played); absent = yes. False: the listener leaves its timing out of the result. */
+  emissionValid: z.boolean().optional(),
 };
 
 // ---------- WebRTC signaling ----------
@@ -313,7 +352,9 @@ export const DevicePatch = z
     muted: z.boolean(),
     solo: z.boolean(),
     latencyMs: Device.shape.latencyMs,
-    calibratedLatencyMs: Device.shape.calibratedLatencyMs,
+    tuneArrivalMs: Device.shape.tuneArrivalMs,
+    tuneId: Device.shape.tuneId,
+    tuneStale: Device.shape.tuneStale,
     eq: DeviceEq,
     bassCapable: z.boolean(),
     rolloffHz: Device.shape.rolloffHz,
@@ -354,7 +395,8 @@ export type SceneUpdate = z.infer<typeof SceneUpdate>;
 export const CalibrationDeviceResult = z.object({
   deviceId: Id,
   heard: z.boolean(),
-  calibratedLatencyMs: Device.shape.calibratedLatencyMs.optional(),
+  /** the device's arrival invariant (see Device.tuneArrivalMs); absent = not timed by this run */
+  tuneArrivalMs: finite().min(0).max(5000).optional(),
   eq: DeviceEq.optional(),
   rolloffHz: Device.shape.rolloffHz.optional(),
   bassCapable: z.boolean().optional(),
@@ -394,14 +436,24 @@ export const ClientMessage = z.discriminatedUnion('type', [
     slots: z.array(CalibrationSlot).min(1).max(256),
     purpose: CalibrationPlan.shape.purpose,
     recorders: CalibrationPlan.shape.recorders,
+    /** all-recorders runs: ask every recorder to open its mic first (CALIBRATION_PREPARE → READY), then plan */
+    prepare: z.boolean().optional(),
   }),
+  /** a recorder answering CALIBRATION_PREPARE: its mic is open and settled (or why not) */
+  z.object({ type: z.literal('CALIBRATION_READY'), planId: Id, ok: z.boolean(), reason: z.string().max(200).optional() }),
+  /** this device's capabilities changed (the mic permission was answered, the output label became readable) */
+  z.object({ type: z.literal('CAPS_UPDATE'), caps: DeviceCaps }),
   /** every recorder of an all-recorders plan → the server forwards them to the plan's listener */
   z.object({ type: z.literal('CALIBRATION_ROWS'), ...CalibrationRows }),
   z.object({
     type: z.literal('CALIBRATION_RESULT'),
     planId: Id,
     results: z.array(CalibrationDeviceResult).max(64),
+    /** the run itself: the listener's mic position, whether it was timing-only, which devices were ranged, where they were */
+    tune: z.object({ mic: Vec2, quick: z.boolean(), ranged: z.array(Id).max(64), positions: z.record(z.string(), Vec2) }),
   }),
+  /** the listener gave up on its run: every device stops playing / recording for it */
+  z.object({ type: z.literal('CALIBRATION_CANCEL'), planId: Id }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id }),
   z.object({ type: z.literal('CAPTURE'), active: z.boolean() }),
   z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData, ch: RtcChannel.optional() }),
@@ -435,7 +487,12 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('SCENE'), scene: Scene }),
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
   z.object({ type: z.literal('CALIBRATION_PLAN'), plan: CalibrationPlan }),
+  /** a run is about to start: the named recorders open their mics now and answer CALIBRATION_READY by the deadline */
+  z.object({ type: z.literal('CALIBRATION_PREPARE'), planId: Id, listenerId: Id, recorderIds: z.array(Id).max(64), deadlineRoomTime: finite() }),
+  /** forwarded to the run's listener: a recorder answered */
+  z.object({ type: z.literal('CALIBRATION_READY'), planId: Id, recorderId: Id, ok: z.boolean(), reason: z.string().max(200).optional() }),
   z.object({ type: z.literal('CALIBRATION_ROWS'), recorderId: Id, ...CalibrationRows }),
+  z.object({ type: z.literal('CALIBRATION_CANCELLED'), planId: Id }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
   z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),
@@ -528,6 +585,9 @@ export type HomeGroupResponse = z.infer<typeof HomeGroupResponse>;
 export const SERVER_PORT_DEFAULT = 8787;
 /** every scheduled action must be at least max(device RTT) + this far in the future */
 export const SCHEDULE_SAFETY_MARGIN_MS = 150;
+/** a prepared tune waits this long for every recorder's CALIBRATION_READY before planning without the stragglers, ms */
+export const CALIBRATION_PREPARE_DEADLINE_MS = 8000;
+
 export const MIN_SCHEDULE_LEAD_MS = 250;
 /** auto-advance SCHEDULEs are sent this much earlier than the lead requires (lead may grow before it fires) */
 export const AUTO_ADVANCE_MARGIN_MS = 300;

@@ -15,6 +15,10 @@ export interface ScheduleRecord {
   offset: number;
   compensationSec: number;
   late: boolean;
+  arrivedLeadMs: number;
+  audioSteps: number;
+  mapSkewMs: number;
+  pendingSteps: number;
   expectedHeardEpochMs: number;
 }
 

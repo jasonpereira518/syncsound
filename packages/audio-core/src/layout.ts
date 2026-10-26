@@ -136,6 +136,28 @@ export function slotPositions(layout: LayoutId, roles: Record<string, DeviceRole
   return out;
 }
 
+/** the first empty slot of `layout` given the current roles, else the least-occupied one (a late joiner's spot) */
+export function nextFreeSlot(layout: LayoutId, roles: Record<string, DeviceRole>): DeviceRole {
+  const slots = LAYOUT_SLOTS[layout];
+  if (!slots.length) return 'Full';
+  const count = new Map<DeviceRole, number>(slots.map((s) => [s, 0]));
+  for (const r of Object.values(roles)) if (count.has(r)) count.set(r, count.get(r)! + 1);
+  let best: Slot = slots[0]!;
+  for (const s of slots) if (count.get(s)! < count.get(best)!) best = s;
+  return best;
+}
+
+/**
+ * Positions for a layout: canonical slot spots for every routed device EXCEPT those in `keep` (devices whose
+ * positions were measured by a tune stay where they are). `scene.devices` supplies the kept positions.
+ */
+export function placeForLayout(layout: LayoutId, roles: Record<string, DeviceRole>, scene: Scene, keep: readonly string[]): Record<string, Vec2> {
+  const canonical = slotPositions(layout, roles, scene);
+  const out: Record<string, Vec2> = {};
+  for (const [id, p] of Object.entries(canonical)) out[id] = keep.includes(id) && scene.devices[id] ? scene.devices[id]! : p;
+  return out;
+}
+
 /** where a channel goes when its own slot is empty, in order; the last resort is every routed device */
 const FOLD: Partial<Record<ObjectChannel, Slot[][]>> = {
   L: [['L'], ['C']],

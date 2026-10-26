@@ -22,8 +22,9 @@ Headless simulator: 8 clients × 120 s, true offsets up to ±10 s, drift ±100 p
 
 - The asymmetric case shows the **theoretical NTP bias of asymmetry/2**. No two-way protocol can observe it. It
   ends up inside the acoustic calibration offset, which absorbs it.
-- Slewing never exceeded 1.00 ms/s after convergence (0 steps). On reconnect (server clock jumps +4 s) it
-  re-converges in 0.5 s, with a max error of 1.4 ms afterwards.
+- Slewing never exceeded 1.00 ms/s after convergence (0 steps). On reconnect (server clock jumps +4 s) the client
+  re-bursts without resetting (`rebase()`): it re-acquires in 0.3 s with a max error of 1.0 ms afterwards, and its
+  drift estimate survives the jump (51.9 → 51.9 ppm).
 
 ## 2. Drift control (`drift.test.ts`)
 
@@ -33,14 +34,70 @@ controller loop runs every 500 ms.
 
 | | value |
 |---|---|
-| True playback-position error, mean / RMS / p95 / max | **0.12 / 0.55 / 1.47 / 2.00 ms** |
+| True playback-position error, mean / RMS / p95 / max | **0.11 / 0.54 / 1.50 / 2.16 ms** |
 | Rate updates / hard reschedules | 1192 (every tick, PI loop) / **0** |
-| Max playbackRate deviation | 0.03 % (inaudible; the limit is 0.2 %) |
+| Max playbackRate deviation | 0.04 % (inaudible; the limit is 0.2 %) |
 
 R1 replaced the 1–2 ms hysteresis deadband (which left a steady 1.48 ms bias: RMS / p95 / max were
 1.59 / 2.45 / 3.40 ms) with a critically damped PI loop whose integral learns the device's clock-rate mismatch.
 The remaining p95 is the WAN clock estimate (σ 5 ms jitter here), which the LAN clock master removes between
 devices (next section).
+
+### 2c. Pause → resume minutes later (`pauseResume.test.ts`)
+
+Four Wi-Fi devices (output latencies 10 / 40 / 180 / 25 ms, calibrated to ±0.5 ms, σ 3–6 ms jitter, 1 % spikes and
+loss) play for a minute, pause, and resume after a long break during which their tabs are in the background. On
+resume each tab re-bursts its clock (no reset), the host presses play 2 s later (one case: 0.3 s later, mid-burst),
+and playback runs for 60 s. "Spread" is max − min of the four devices' true position errors per probe.
+
+| Pause | Pings while paused | First second after start | 60 s after: error p95 / spread p95 | Clock steps | Reschedules |
+|---|---|---|---|---|---|
+| 5 min | 1 Hz (299) | max 0.47 ms | 0.63 / 1.19 ms | 0 | 0 |
+| 5 min, play pressed mid-burst | 1 Hz | max 0.91 ms, no late start | 0.63 / 1.18 ms | 0 | 0 |
+| 30 min | 1 Hz for 5 min, then one a minute (325) | max 0.58 ms | 0.63 / 1.05 ms | 0 | 0 |
+| 30 min, devices asleep (perf clock stopped, context suspended) | none (0) | max 1.18 ms; clocks re-acquired 400 ms after waking, map ready after 750 ms | 1.14 / 1.38 ms | 1 (the re-acquisition) | 0 |
+| 30 min, AudioContext suspended (iOS) | 1 Hz (1799) | max 0.95 ms; map ready 750 ms after resume | 1.00 / 1.37 ms | 0 | 0 |
+
+The resync bursts moved the mappings by < 1.1 ms in every non-sleep case, so no source was rebuilt; the resumed
+sources start at the learned rate, so the post-resume error (p95 0.63 ms) is *better* than the last 20 s before
+the pause (p95 1.06 ms, still settling from the cold start). Drift estimates stayed within 0.5 ppm (3.4 ppm after
+the sleep, where the history restarts from the carried prior).
+
+### 2d. 60-minute session with clock-rate wander (`longSession.test.ts`)
+
+As §2, for an hour, with the perf clock wandering ±3 ppm over 20 min and the audio clock ±2 ppm over 15 min on
+top of the constant mismatch.
+
+| | value |
+|---|---|
+| True position error, mean / RMS / p95 / max | **0.02 / 0.36 / 0.72 / 1.95 ms** |
+| Reschedules / max playbackRate deviation (after 5 min) | **0** / 0.025 % |
+| Audio-clock rate vs the true instantaneous rate | mean −0.1 ppm, p95 1.9, max 2.5 (the 256 s window lags the wander by up to ≈ 1.8 ppm) |
+| Clock drift estimate vs the true instantaneous drift | max 4.2 ppm (the 8.5 min history lags the wander) |
+
+The 60-minute sim found a latent bug: a late timestamp among the first eight audio-clock observations bent the
+least-squares fit by thousands of ppm and the step detector then rejected every good observation for ever
+(DECISIONS #78). With the robust initial line the map is within 1.3 ppm (p50) for the whole hour.
+
+### 2e. Tab switches while playing (`resync.test.ts`)
+
+Two devices, 300 s of play; a resync at 120 s (a 1 s tab switch, pings uninterrupted) and a 30 s background spell
+followed by a resync at 230 s. Mapping shifts measured by the bursts: 0.05 / 0.01 / 0.36 / 0.02 ms → **0 clock
+steps, 0 reschedules, 0 rebuilds**; true error p95 0.56 ms, spread p95 0.81 ms; drift estimates 35.0 and −79.5 ppm
+against 35 / −80 true (the history survived both bursts). Before S1 every resync reset the clock and forced a
+crossfade reschedule.
+
+### 2f. LAN clock master leaves mid-song (`lanFailover.test.ts`)
+
+Six devices as in §2b. At 90 s the master's tab closes; the server notices after its heartbeat (20 s) and the
+lowest remaining id becomes master.
+
+| | value |
+|---|---|
+| Peers fall back to the server clock after | 2.9 s (`STALE_MS` 3 s) |
+| Every peer re-linked to the new master (8 LAN samples + 2 s `READY_HOLD_MS`) after | 22.4 s (heartbeat-dominated) |
+| Largest room-time step any device saw | **0.67 ms** (the LAN-vs-server estimate difference) |
+| Spread after recovery, p95 / max | 0.39 / 0.48 ms (before: 0.47 / 0.66) |
 
 ## 2b. LAN clock master (`lanMaster.test.ts`)
 
@@ -51,8 +108,8 @@ jitter, 2 % spikes up to 30 ms. Metric: device-to-device spread, i.e. max − mi
 
 | | p50 | p95 | max |
 |---|---|---|---|
-| Every device syncs to the server over the WAN | 0.98 ms | 1.74 ms | 3.12 ms |
-| Peers sync to an in-home master (10 Hz DataChannel pings) and share the master's mapping | **0.21 ms** | **0.41 ms** | **0.93 ms** |
+| Every device syncs to the server over the WAN | 0.98 ms | 1.71 ms | 3.23 ms |
+| Peers sync to an in-home master (10 Hz DataChannel pings) and share the master's mapping (re-sent every 500 ms) | **0.20 ms** | **0.39 ms** | **0.65 ms** |
 
 ## 3. Offline-render alignment, "all devices play at the same instant" (`alignment.test.ts`)
 
@@ -63,9 +120,9 @@ true output latency) and cross-correlated pairwise.
 
 | Case | Max pairwise misalignment |
 |---|---|
-| 4 devices, output latency 10 / 40 / 180 (BT) / 25 ms, Wi-Fi jitter σ 3–6 ms, calibration error ±0.5 ms | **0.69 ms** |
-| Harsh jitter σ 8 / 15 / 5 / 30 ms | 2.50 ms (bound from the error budget: 7 ms) |
-| Late joiner (joins 7.3 s after start) | 1.01 ms vs the others |
+| 4 devices, output latency 10 / 40 / 180 (BT) / 25 ms, Wi-Fi jitter σ 3–6 ms, calibration error ±0.5 ms | **0.66 ms** |
+| Harsh jitter σ 8 / 15 / 5 / 30 ms | 2.53 ms (bound from the error budget: 7 ms) |
+| Late joiner (joins 7.3 s after start) | 1.78 ms vs the others |
 | Same devices **without** latency compensation (control) | 169.8 ms |
 
 ## 4. Acoustic calibration (`calibration.test.ts`, listener-only)
@@ -112,6 +169,53 @@ The Bluetooth speaker is timed exactly at the listener and keeps its hand placem
 window (256) and a smaller best-fraction (15 %) lowered §2b's device-to-device p95 only from 0.41 to 0.37 ms, so the
 filter is unchanged (DECISIONS #54).
 
+### 4c. Tune on real, still-converging clocks (`tuneClock.test.ts`)
+
+The room of §4b, but every device runs a real `ClockSync` over a simulated network (joined 5–20 s before the
+listener taps Tune, i.e. still converging and slewing, as in the setup wizard) and a real `AudioClockMap` fed at
+4 Hz. Each device schedules its chime through its live clock; each recorder analyses through its frozen map; the
+tune is played a minute later through each device's live clock. "Old" = before S2 (start after 8 clock samples, a
+1 s finite difference over the live clocks for the recorder map, live 500 ms snapshots of the master's mapping);
+"new" = S2 (wait for `clockSettled`, `frozenRoomMap`, the master's mapping pinned for the plan). 6 seeds.
+
+| Variant | Pipeline | Settle wait p95 | Recorder rate error p95 | Head alignment p50 / p95 / max |
+|---|---|---|---|---|
+| LAN clock master (the listener), peers over Wi-Fi | old | 0 s | 1025 ppm | 0.32 / **3.27** / 5.56 ms |
+| | new, without the mapping hold | 20 s | 36 ppm | 0.33 / 1.21 / 1.35 ms |
+| | **new** | 20 s | 41 ppm | 0.25 / **0.74** / 1.08 ms |
+| Every device on the server clock (WAN) | old | 0 s | 127 ppm | 0.97 / 3.65 / 4.71 ms |
+| | new | 20 s | 39 ppm | 0.62 / 1.86 / 3.35 ms |
+
+- In the old LAN run of seed 4 the master had a 2.5 ms slew pending at the freeze: the finite difference leaked
+  ~1000 ppm into every recorder's map and spread the arrivals by 5.6 ms. The analytic map does not see the slew.
+- The 20 s settle wait is the soft cap: the audio clock's long window needs 30 s from the context's creation, and
+  these contexts were created 5–20 s before the tune. A device that joined a minute earlier waits ~3 s.
+- The server-clock-only variant is clock-limited: each device's WAN estimate (σ 5 ms jitter) moves by about a
+  millisecond in the minute between the tune and the play, which no tune can absorb. That is what the LAN clock
+  master (§2b) is for.
+- Distances: laptop-to-laptop max 0.146 m (new) vs 0.22 m (old), the stereo half-width either way.
+
+### 4d. The tune under picture edits and a physical move (`tuneInvariant.test.ts`)
+
+The room of §4b, tuned, then edited the way a host does: a ranged laptop and the hand-placed Bluetooth speaker
+dragged 1 m on the picture (nothing moved), the Bluetooth speaker re-placed at a canonical slot ~2 m away (a
+layout reset), and, separately, a laptop carried 1 m across the room and dragged to match. "Derived" = S3 (the
+server re-derives the compensation from the stored arrivals and the tune-time positions); "frozen" = before S3
+(the value solved at tune time + propagation delays recomputed on the edited picture). 6 seeds, fresh clock
+errors at play time, scored at the true head.
+
+| Scenario | Pipeline | Head alignment p95 / max | Change vs. untouched |
+|---|---|---|---|
+| untouched | either | 0.59 / 0.62 ms | — |
+| 1 m drag of a laptop + the Bluetooth speaker | **derived** | **0.59 / 0.62 ms** | 0.000 ms |
+| | frozen | 2.96 / 4.79 ms | |
+| Bluetooth speaker re-placed at a slot 2 m away | derived | | 0.000 ms |
+| laptop carried 1 m (dragged to match), before the next tune | derived | 2.87 ms off (p95, that device vs. the others) | the air path of 1 m is 2.92 ms |
+| the same, after one more tune | derived | 0.69 / 0.84 ms | |
+
+The physical move is a documented limit (LIMITATIONS): nothing can tell a moved speaker from a corrected picture,
+and a quick tune is one tap.
+
 ## 5. Sync-measurement tool (`syncMeasure.test.ts` + E2E)
 
 - **Simulated:** 4 devices click for 60 s, time-staggered by 250 ms with identical wideband chirps, each with a known
@@ -130,13 +234,27 @@ heard) can be compared directly. This checks the whole scheduling pipeline in re
 | Scenario | Spread across devices |
 |---|---|
 | 3 contexts, play | **0.11 ms** (0.02–0.25 ms across runs, incl. fresh-clone verify) |
+| Pause, then resume (one start time, the paused offset, nobody late) | 0.01 ms |
 | Seek to 20 s while playing | 0.11 ms |
+| A guest's tab goes to the background and comes back while playing (`visibility.spec.ts`) | no reschedule, clock never reset, offset moved < 2 ms |
 | Late joiner (4th context) | 0.11 ms |
 | 5.1 upload, 2 contexts | < 10 ms (asserted) |
 | Device with +100 ms manual latency (starts 100 ms earlier) vs host | 0.007 ms |
 | Local video (Mode 2): `<video>` vs room position | 12–14 ms |
 | WebRTC capture (Mode 1): guest pipeline-delay estimate | 66 ms (compensated by the buffer) |
 | Spotify/Apple **mock** players (sync-only), after 9 s | −29 / +23 ms, mean \|err\| 66–95 ms, 2–3 seeks |
+
+The setup experience is measured in taps and in what each screen says (`home.spec.ts`, `calibration.spec.ts`):
+
+| Scenario | Asserted |
+|---|---|
+| Host: landing → tuned room → playing | **3 taps** to a tuned room ("Set up my home" lands in the room; join; "Tune the room" applies the suggested stereo layout), **5** to playing |
+| Guest | **1 tap** (the mic is granted inside it: the host's list reads "Mic ready", `caps.micPermission === 'granted'`, no banner in the first 3 s) |
+| Prepare → ready | the guest's `recorderStep` reaches `ready` before the plan; the host's screen then moves on to Now Playing by itself with "1 of 2 speakers tuned" (a loopback mic hears only its own device) |
+| A recorder whose mic takes 2.5 s | the listener reads "Waiting for Slowpoke's microphone…", then its prepared mic records the run (rows heard) |
+| A recorder whose mic takes 30 s | skipped at the 8 s deadline, named ("Locked phone didn't answer in time…"), the run completes |
+| A second Tune during a run | "Another device is tuning the room right now" at once on the second device; the first run completes |
+| A tune from Now Playing | its progress and result show right there (`tune-status`), and the state survives a reload ("1 of 2 speakers tuned") |
 
 ## 7. Class B (sync-only) simulation (`remote.test.ts`)
 

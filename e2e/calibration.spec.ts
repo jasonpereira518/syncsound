@@ -11,7 +11,7 @@ interface CalDevice {
 type Win = {
   __syncsound: {
     getState(): {
-      calibration: { step: string; message: string; freqs: number[] | null; devices: CalDevice[]; warnings: string[] };
+      calibration: { step: string; message: string; freqs: number[] | null; devices: CalDevice[]; warnings: string[]; waitingFor: string[]; recorderStep: string };
       room: { devices: Array<{ id: string; calibratedLatencyMs: number | null; eq: { source: string } }> };
     };
   };
@@ -172,4 +172,98 @@ test('calibration started immediately after joining waits for the clocks and com
   expect(cal.step).toBe('done');
   expect(pageErrors(page)).toEqual([]);
   await ctx.close();
+});
+
+// The prepare phase (S4): recorders open their mics before the plan. The listener waits for a slow one and says
+// whose mic it is waiting for; one that never answers is skipped at the server's deadline and named in the result.
+test('tune: a slow recorder is waited for by name; one that never answers is skipped after the deadline', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const host = await newPage(browser);
+  const logs: string[] = [];
+  host.page.on('console', (m) => logs.push(m.text()));
+  const code = await createRoom(host.page);
+  await host.page.goto(`/room/${code}?loopbackMic=60`);
+  await joinRoom(host.page, code, 'Listener');
+  const slow = await newPage(browser);
+  const slowLogs: string[] = [];
+  slow.page.on('console', (m) => slowLogs.push(m.text()));
+  await slow.page.goto(`/room/${code}?loopbackMic=90&slowMic=2500`);
+  await joinRoom(slow.page, code, 'Slowpoke', { advanced: false });
+  await waitConverged(host.page);
+  await waitConverged(slow.page);
+  const cal = (p: typeof host.page) => p.evaluate(() => (window as unknown as Win).__syncsound.getState().calibration);
+  const slowId = await slow.page.evaluate(() => (window as unknown as { __syncsound: { getState(): { deviceId: string } } }).__syncsound.getState().deviceId);
+
+  await host.page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  await host.page.getByTestId('calibrate-start').click();
+  await expect.poll(async () => (await cal(host.page)).waitingFor, { timeout: 60_000 }).toEqual(['Slowpoke']);
+  await expect(host.page.getByText(/Waiting for Slowpoke/)).toBeVisible();
+  // the slow recorder's screen says it is listening from the prepare step on ("ready" itself lasts only until
+  // the plan arrives, milliseconds on one machine; its log below proves it recorded through the prepared mic)
+  await expect(slow.page.getByTestId('self-tune-state')).toHaveText('Listening for the tune…');
+  await expect.poll(async () => (await cal(slow.page)).recorderStep, { timeout: 60_000 }).toMatch(/ready|recording/);
+  await expect(host.page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 120_000 });
+  const first = await cal(host.page);
+  console.log('slow recorder tune:', first.step, '-', first.message, first.warnings);
+  expect(first.step).toBe('done');
+  expect(first.warnings.some((w) => /didn't answer|couldn't listen/.test(w))).toBe(false);
+  expect(logs.some((l) => l.includes(`rows from ${slowId} 1 heard`))).toBe(true); // its prepared mic recorded the run
+  expect(slowLogs.some((l) => l.includes('recording through the mic prepared for plan'))).toBe(true);
+  await expect.poll(async () => (await cal(slow.page)).recorderStep).toBe('idle');
+
+  // a recorder whose mic takes 30 s (a locked phone): the host waits until the deadline, then runs without it
+  const stuck = await newPage(browser);
+  await stuck.page.goto(`/room/${code}?loopbackMic=90&slowMic=30000`);
+  await joinRoom(stuck.page, code, 'Locked phone', { advanced: false });
+  await waitConverged(stuck.page);
+  await host.page.getByTestId('calibrate-start').click();
+  await expect.poll(async () => (await cal(host.page)).waitingFor, { timeout: 60_000 }).toEqual(['Locked phone']);
+  await expect(host.page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 150_000 });
+  const second = await cal(host.page);
+  console.log('stuck recorder tune:', second.step, '-', second.message, second.warnings);
+  expect(second.step).toBe('done');
+  expect(second.warnings.some((w) => w.startsWith("Locked phone didn't answer in time"))).toBe(true);
+  expect(pageErrors(host.page)).toEqual([]);
+  expect(pageErrors(slow.page)).toEqual([]);
+  expect(pageErrors(stuck.page)).toEqual([]);
+  await host.ctx.close();
+  await slow.ctx.close();
+  await stuck.ctx.close();
+});
+
+// One tune at a time: a second device tapping Tune while a run is on is told so at once; the first run completes.
+test('tune: a second Tune during a run is refused as busy; the first run completes', async ({ browser }) => {
+  test.setTimeout(180_000);
+  const host = await newPage(browser);
+  const code = await createRoom(host.page);
+  await host.page.goto(`/room/${code}?loopbackMic=60`);
+  await joinRoom(host.page, code, 'Listener');
+  const guest = await newPage(browser);
+  await guest.page.goto(`/room/${code}?loopbackMic=90`);
+  await joinRoom(guest.page, code, 'Eager guest');
+  await waitConverged(host.page);
+  await waitConverged(guest.page);
+  const cal = (p: typeof host.page) => p.evaluate(() => (window as unknown as Win).__syncsound.getState().calibration);
+  await host.page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  await host.page.getByTestId('calibrate-start').click();
+  await expect.poll(async () => (await cal(host.page)).step, { timeout: 60_000 }).toMatch(/preparing|recording/);
+  // the guest is taking part in the host's run (opening its mic, recording, or chiming) when it taps
+  await expect
+    .poll(async () => guest.page.evaluate(() => {
+      const c = (window as unknown as { __syncsound: { getState(): { calibration: { recorderStep: string; emitting: boolean } } } }).__syncsound.getState().calibration;
+      return c.recorderStep !== 'idle' || c.emitting;
+    }), { timeout: 30_000, intervals: [50] })
+    .toBe(true);
+  await guest.page.getByRole('tab', { name: /calibrat/i }).click({ timeout: 1500 }).catch(() => {});
+  await guest.page.getByTestId('calibrate-start').click();
+  // refused at once (not after its own clock-settle wait, by which time the other run may be over)
+  await expect(guest.page.getByRole('alert').filter({ hasText: 'Another device is tuning the room' })).toBeVisible({ timeout: 3000 });
+  await expect(host.page.getByTestId('calibration-step')).toHaveAttribute('data-step', /done|error/, { timeout: 120_000 });
+  const first = await cal(host.page);
+  console.log('busy tune:', first.step, '-', first.message, first.warnings);
+  expect(first.step).toBe('done');
+  expect(pageErrors(host.page)).toEqual([]);
+  expect(pageErrors(guest.page)).toEqual([]);
+  await host.ctx.close();
+  await guest.ctx.close();
 });

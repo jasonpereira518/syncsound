@@ -90,12 +90,12 @@ export function CalibrationWizard() {
           </Button>
         ) : (
           <Button variant="primary" data-testid="calibrate-start" disabled={!selfHasMic} onClick={() => act(() => roomActions.startCalibration())}>
-            <Icon name="mic" className="size-4" /> {cal.step === 'done' ? 'Recalibrate' : 'Start calibration'}
+            <Icon name="mic" className="size-4" /> {cal.step === 'done' ? 'Tune again' : 'Tune'}
           </Button>
         )}
         {!busy && (
           <Button data-testid="calibrate-quick" disabled={!selfHasMic} onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
-            Quick re-sync
+            Tune (timing only)
           </Button>
         )}
         <Button onClick={presetAll}>

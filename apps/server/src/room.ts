@@ -8,6 +8,9 @@ import {
   defaultEq,
   defaultScene,
   defaultSettings,
+  CALIBRATION_PREPARE_DEADLINE_MS,
+  type CalibrationPlan,
+  type CalibrationSlot,
   type ClientMessage,
   type Device,
   type DevicePatch,
@@ -18,7 +21,17 @@ import {
   type ServerMessageBody,
   type Track,
 } from '@syncsound/protocol';
-import { clampToRoom, minScheduleLeadMs } from '@syncsound/audio-core';
+import {
+  calibrationRecordingMs,
+  clampToRoom,
+  deriveCalibratedLatency,
+  isRoutedLayout,
+  minScheduleLeadMs,
+  nextFreeSlot,
+  slotPositions,
+  SYNC_SEARCH_LATE_MS,
+  syncStateOf,
+} from '@syncsound/audio-core';
 
 export type Target = 'all' | 'others' | string[];
 /** `msg` already carries the room-assigned seq; broadcast copies share one seq. */
@@ -35,7 +48,9 @@ export const PROFILE_KEYS = [
   'role',
   'trimDb',
   'latencyMs',
-  'calibratedLatencyMs',
+  'tuneArrivalMs',
+  'tuneId',
+  'tuneStale',
   'eq',
   'bassCapable',
   'rolloffHz',
@@ -65,6 +80,8 @@ export interface RoomDeps {
   passwordHash?: string | null;
   passwords: { hash(pw: string): string; verify(pw: string, stored: string): boolean };
   profiles?: { get(deviceId: string): Profile | undefined; set(deviceId: string, p: Profile): void };
+  /** how long a prepared run waits for its recorders (tests shorten it) */
+  prepareDeadlineMs?: number;
   /** used only for PONG ts_send; defaults to performance time */
   clock?: () => number;
 }
@@ -81,6 +98,8 @@ export const CALIBRATION_MIN_LEAD_MS = 1500;
 export const CALIBRATION_ALL_LEAD_MS = 3500;
 /** an all-recorders plan must end within this, ms (32 devices × 1.55 s fit) */
 export const CALIBRATION_ALL_MAX_MS = 60_000;
+/** a run holds the room (no second CALIBRATION_START) until its recording ends plus this (the listener's rows wait + analysis), ms */
+export const CALIBRATION_ACTIVE_TAIL_MS = 5000;
 const BASS_CLASSES = new Set(['laptop', 'desktop', 'bluetooth']);
 
 /** constant-time string compare (pure JS, Worker-safe) */
@@ -101,6 +120,24 @@ class RoomError extends Error {
   }
 }
 
+interface ActiveRun {
+  id: string;
+  listenerId: string;
+  /** room time until which the room is busy with this run */
+  endsAt: number;
+  /** set while the run waits for its recorders' mics */
+  prepare?: {
+    expected: Set<string>;
+    ready: Set<string>;
+    deadline: number;
+    slots: CalibrationSlot[];
+    purpose: CalibrationPlan['purpose'];
+    recorders: CalibrationPlan['recorders'];
+    /** a connected recorder on older code (no `micPermission`) will open its mic when the plan arrives */
+    legacy: boolean;
+  };
+}
+
 export class Room {
   readonly state: RoomState;
   private readonly isHostKey: (key: string) => boolean;
@@ -114,6 +151,8 @@ export class Room {
   private readonly disconnectedAt = new Map<string, number>();
   /** recent calibration plans → their listener (only it may submit results; recorders' rows go to it) */
   private readonly plans: Array<{ id: string; listenerId: string }> = [];
+  /** the run in progress: one at a time, since every device plays every plan it receives */
+  private activeRun: ActiveRun | null = null;
   private lastStatsBroadcast = -Infinity;
   private placed = 0;
   /** room ms since which no device is connected (null while someone is connected) */
@@ -230,6 +269,10 @@ export class Room {
         solo: false,
         latencyMs: 0,
         calibratedLatencyMs: null,
+        tuneArrivalMs: null,
+        tuneId: null,
+        tuneStale: null,
+        syncState: 'untuned',
         eq: defaultEq(),
         bassCapable: BASS_CLASSES.has(msg.caps.deviceClass),
         rolloffHz: null,
@@ -244,13 +287,22 @@ export class Room {
       dev.connected = true;
     }
     if (!this.state.scene.devices[dev.id]) {
-      this.autoPlace(dev.id);
+      const layout = this.state.scene.layout;
+      if (isRoutedLayout(layout) && dev.role === 'Full') {
+        // a late joiner in a laid-out room takes a free slot and that slot's spot; nobody else moves
+        const roles = Object.fromEntries(this.state.devices.filter((d) => d.connected && d.id !== dev.id).map((d) => [d.id, d.role]));
+        dev.role = nextFreeSlot(layout, roles);
+        const pos = slotPositions(layout, { ...roles, [dev.id]: dev.role }, this.state.scene)[dev.id];
+        if (pos) this.state.scene.devices[dev.id] = pos;
+      }
+      if (!this.state.scene.devices[dev.id]) this.autoPlace(dev.id);
       this.persist();
     }
     if (isHost) {
       for (const d of this.state.devices) d.isHost = d.id === dev.id;
       this.state.hostId = dev.id;
     }
+    this.syncDerived();
 
     return {
       ok: true,
@@ -296,7 +348,47 @@ export class Room {
       this.state.captureHostId = null;
       out.push(this.stateMsg('all', now));
     }
+    if (this.activeRun?.listenerId === deviceId) {
+      // nobody is listening any more: stop the chimes and free the room for the next tune
+      out.push(this.out('all', { type: 'CALIBRATION_CANCELLED', planId: this.activeRun.id }));
+      this.activeRun = null;
+    }
     return out;
+  }
+
+  /** room time at which `calibrationTick()` has something to do (a prepared run's deadline), or null */
+  calibrationDue(): number | null {
+    return this.activeRun?.prepare?.deadline ?? null;
+  }
+
+  /** time-driven calibration work (the transport calls it once `calibrationDue()` has passed): plan a prepared run */
+  calibrationTick(now: number): Outbound[] {
+    const run = this.activeRun;
+    if (!run?.prepare || now < run.prepare.deadline) return [];
+    return [this.planPrepared(run, now)];
+  }
+
+  /** the plan of a prepared run: broadcast once every expected recorder answered, or at the deadline */
+  private planPrepared(run: ActiveRun, now: number): Outbound {
+    const { slots, purpose, recorders, legacy } = run.prepare!;
+    // a recorder that opens its mic only when the plan arrives (an older tab) still needs the long lead
+    const plan = this.makePlan(run, slots, purpose, recorders, now, legacy ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS);
+    delete run.prepare;
+    return this.out('all', { type: 'CALIBRATION_PLAN', plan });
+  }
+
+  private makePlan(run: ActiveRun, slots: CalibrationSlot[], purpose: CalibrationPlan['purpose'], recorders: CalibrationPlan['recorders'], now: number, minLead: number): CalibrationPlan {
+    const plan: CalibrationPlan = {
+      id: run.id,
+      listenerId: run.listenerId,
+      startRoomTime: now + Math.max(this.lead(), minLead),
+      slots,
+      ...(purpose ? { purpose } : {}),
+      ...(recorders ? { recorders } : {}),
+    };
+    const recordingMs = calibrationRecordingMs(slots, purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined);
+    run.endsAt = plan.startRoomTime + recordingMs + CALIBRATION_ACTIVE_TAIL_MS;
+    return plan;
   }
 
   /** drop devices disconnected longer than maxAgeMs; returns the DEVICE_LIST broadcast if anything changed */
@@ -310,10 +402,32 @@ export class Room {
       if (this.state.hostId === id) this.state.hostId = null;
     }
     this.state.devices = this.state.devices.filter((d) => !gone.includes(d.id));
+    this.syncDerived();
     return [
       this.deviceList('all'),
       this.out('all', { type: 'SCENE', scene: structuredClone(this.state.scene) }),
     ];
+  }
+
+  /**
+   * Re-derive every device's output compensation (`calibratedLatencyMs`) and `syncState` from the room's tune and
+   * the current positions (audio-core `deriveCalibratedLatency`); true when anything changed. Called wherever a
+   * position, a tune field or the device set changes, so a layout edit or a drag keeps the room aligned.
+   */
+  private syncDerived(): boolean {
+    const tune = this.state.scene.tune;
+    const cal = deriveCalibratedLatency(this.state.devices, tune, this.state.scene.devices, this.state.scene.listener);
+    let changed = false;
+    for (const d of this.state.devices) {
+      const c = cal[d.id] ?? null;
+      const s = syncStateOf(d, tune);
+      if (d.calibratedLatencyMs !== c || d.syncState !== s) {
+        d.calibratedLatencyMs = c;
+        d.syncState = s;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   handle(connId: string, msg: ClientMessage, now: number): Outbound[] {
@@ -347,7 +461,9 @@ export class Room {
         for (const [id, pos] of Object.entries(devices ?? {}))
           if (this.device(id)) this.state.scene.devices[id] = pos;
         this.persist();
-        return [this.out('others', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
+        const out = [this.out('others', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
+        if ((devices || rest.listener) && this.syncDerived()) out.push(this.deviceList('all')); // moved speakers: new compensation
+        return out;
       }
       case 'DEVICE_UPDATE': {
         const target = this.device(msg.targetDeviceId ?? sender.id);
@@ -355,6 +471,7 @@ export class Room {
         if (target.id !== sender.id && !this.canControl(sender))
           throw new RoomError('forbidden', 'only the host may change other devices');
         this.patchDevice(target, msg.patch);
+        this.syncDerived();
         return [this.deviceList('all')];
       }
       case 'SETTINGS_UPDATE': {
@@ -387,18 +504,56 @@ export class Room {
           if (msg.purpose === 'measure' || msg.slots.some((s) => s.repeat !== undefined) || new Set(ids).size !== ids.length || ids.some((id) => !this.device(id)) || endMs > CALIBRATION_ALL_MAX_MS)
             throw new RoomError('bad_plan', 'an all-recorders plan must be one short slot per device');
         }
+        const active = this.activeRun;
+        if (active && now < active.endsAt && this.deviceConn.has(active.listenerId))
+          throw new RoomError('calibration_busy', 'another device is tuning the room right now');
         const id = crypto.randomUUID();
         this.plans.push({ id, listenerId: sender.id });
         if (this.plans.length > 16) this.plans.shift();
-        const plan = {
-          id,
-          listenerId: sender.id,
-          startRoomTime: now + Math.max(this.lead(), msg.recorders === 'all' ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS),
-          slots: msg.slots,
-          ...(msg.purpose ? { purpose: msg.purpose } : {}),
-          ...(msg.recorders ? { recorders: msg.recorders } : {}),
-        };
+        const run: ActiveRun = { id, listenerId: sender.id, endsAt: 0 };
+        this.activeRun = run;
+        if (msg.prepare && msg.recorders === 'all') {
+          // prepare phase: the recorders that can answer open their mics now; the plan follows the last answer or
+          // the deadline, with a short lead (nobody opens a mic when it arrives — unless an older tab is in the room)
+          const others = this.state.devices.filter((d) => d.connected && d.id !== sender.id && d.caps.hasMic);
+          const expected = others.filter((d) => d.caps.micPermission !== undefined && d.caps.micPermission !== 'denied' && d.caps.deviceClass !== 'bluetooth');
+          const deadline = now + (this.deps.prepareDeadlineMs ?? CALIBRATION_PREPARE_DEADLINE_MS);
+          run.prepare = {
+            expected: new Set(expected.map((d) => d.id)),
+            ready: new Set(),
+            deadline,
+            slots: msg.slots,
+            purpose: msg.purpose,
+            recorders: msg.recorders,
+            legacy: others.some((d) => d.caps.micPermission === undefined),
+          };
+          run.endsAt = deadline + CALIBRATION_ALL_LEAD_MS; // until the plan sets the real end
+          if (!expected.length) return [this.planPrepared(run, now)];
+          return [this.out('all', { type: 'CALIBRATION_PREPARE', planId: id, listenerId: sender.id, recorderIds: [...run.prepare.expected], deadlineRoomTime: deadline })];
+        }
+        const plan = this.makePlan(run, msg.slots, msg.purpose, msg.recorders, now, msg.recorders === 'all' ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS);
         return [this.out('all', { type: 'CALIBRATION_PLAN', plan })];
+      }
+      case 'CALIBRATION_READY': {
+        const run = this.activeRun;
+        if (!run?.prepare || run.id !== msg.planId || !run.prepare.expected.has(sender.id)) return [];
+        run.prepare.ready.add(sender.id);
+        const to = this.deviceConn.get(run.listenerId);
+        const out: Outbound[] = [];
+        if (to !== undefined) out.push(this.out([to], { type: 'CALIBRATION_READY', planId: run.id, recorderId: sender.id, ok: msg.ok, ...(msg.reason ? { reason: msg.reason } : {}) }));
+        if ([...run.prepare.expected].every((id) => run.prepare!.ready.has(id))) out.push(this.planPrepared(run, now));
+        return out;
+      }
+      case 'CAPS_UPDATE': {
+        sender.caps = msg.caps;
+        return [this.deviceList('all')];
+      }
+      case 'CALIBRATION_CANCEL': {
+        const plan = this.plans.find((p) => p.id === msg.planId);
+        if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
+        if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may cancel it");
+        if (this.activeRun?.id === msg.planId) this.activeRun = null;
+        return [this.out('all', { type: 'CALIBRATION_CANCELLED', planId: msg.planId })];
       }
       case 'CALIBRATION_ROWS': {
         const plan = this.plans.find((p) => p.id === msg.planId);
@@ -412,11 +567,28 @@ export class Room {
         const plan = this.plans.find((p) => p.id === msg.planId);
         if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
         if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may submit its results");
+        if (this.activeRun?.id === msg.planId) this.activeRun = null;
+        // every run is a new tune: devices it heard join it, the others become untuned (their old value could only
+        // be compared to a reference that no longer exists); a timing-only run keeps the previous run's ranging
+        const prev = this.state.scene.tune;
+        this.state.scene.tune = {
+          id: msg.planId,
+          listenerId: sender.id,
+          mic: msg.tune.mic,
+          at: now,
+          quick: msg.tune.quick,
+          ranged: (msg.tune.quick ? (prev?.ranged ?? []) : msg.tune.ranged).filter((id) => this.device(id)),
+          positions: Object.fromEntries(Object.entries(msg.tune.positions).filter(([id]) => this.device(id))),
+        };
         for (const r of msg.results) {
           const dev = this.device(r.deviceId);
           if (!dev) continue;
           const patch: DevicePatch = {};
-          if (r.calibratedLatencyMs !== undefined) patch.calibratedLatencyMs = r.calibratedLatencyMs;
+          if (r.tuneArrivalMs !== undefined) {
+            patch.tuneArrivalMs = r.tuneArrivalMs;
+            patch.tuneId = msg.planId;
+            patch.tuneStale = null;
+          }
           if (r.eq !== undefined) patch.eq = r.eq;
           if (r.rolloffHz !== undefined) patch.rolloffHz = r.rolloffHz;
           if (r.bassCapable !== undefined) patch.bassCapable = r.bassCapable;
@@ -424,7 +596,9 @@ export class Room {
           this.patchDevice(dev, patch);
           if (r.volumeUpDb !== undefined) dev.volumeUpDb = r.volumeUpDb;
         }
-        return [this.deviceList('all')];
+        this.syncDerived();
+        this.persist();
+        return [this.deviceList('all'), this.out('all', { type: 'SCENE', scene: structuredClone(this.state.scene) })];
       }
       case 'IDENTIFY':
         if (!this.device(msg.targetDeviceId)) throw new RoomError('unknown_target', 'no such device');

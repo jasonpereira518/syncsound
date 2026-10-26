@@ -3,7 +3,8 @@
  * Browser-only (uses WebSocket/performance/localStorage); construct it from client code only.
  */
 import { dueNow } from './power';
-import { ClockSync } from '@syncsound/audio-core';
+import { startTicker } from './ticker';
+import { CLOCK_BURST_COUNT, CLOCK_BURST_GAP_MS, ClockSync, type ClockMappingData } from '@syncsound/audio-core';
 import {
   CreateRoomResponse,
   RoomInfoResponse,
@@ -16,8 +17,6 @@ import type { ConnStatus } from '../store/types';
 import { isServerMissing, NO_SERVER_MESSAGE, SERVER_WAKING_HINT, serverUrl, wsUrl } from './config';
 
 export const hostKeyName = (code: string) => `syncsound:hostKey:${code}`;
-const BURST_COUNT = 25;
-const BURST_GAP_MS = 40;
 
 export async function readError(res: Response): Promise<string> {
   try {
@@ -75,8 +74,11 @@ export interface RoomClientOptions {
   caps: () => DeviceCaps;
   onMessage: (msg: ServerMessage) => void;
   onStatus: (s: ConnStatus) => void;
-  /** clock burst finished (after connect/reconnect or resync()) — safe to (re)schedule */
-  onSynced: (reason: 'connect' | 'resync') => void;
+  /**
+   * clock burst finished (after connect/reconnect or resync()) — safe to (re)schedule. `shiftMs`: how far the
+   * mapping moved during the burst (0 when the clocks agreed with what we extrapolated).
+   */
+  onSynced: (reason: 'connect' | 'resync', shiftMs: number) => void;
   /** unrecoverable (join rejected) — no more reconnects */
   onFatal: (code: string, msg: string) => void;
 }
@@ -91,9 +93,10 @@ export class RoomClient {
   private attempt = 0;
   private lastSeq = -1;
   private timers = new Set<ReturnType<typeof setTimeout>>();
-  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private stopPingTimer: (() => void) | null = null;
   private burstPongs = 0;
   private burstReason: 'connect' | 'resync' = 'connect';
+  private burstBase: ClockMappingData | null = null;
   private bursting = false;
   private burstDeadline = 0;
 
@@ -153,7 +156,7 @@ export class RoomClient {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /** e.g. after the tab becomes visible again: re-burst, then onSynced('resync') */
+  /** e.g. after the tab becomes visible again: re-burst (keeping the mapping), then onSynced('resync', shift) */
   resync(): void {
     if (this.open) this.startBurst('resync');
   }
@@ -194,34 +197,43 @@ export class RoomClient {
     if (!this.synced || dueNow(this.lastTimerPing, 5000)) this.ping();
   };
 
+  /**
+   * A 25-ping burst. The clock is never reset: `rebase()` lets the burst's samples decide whether the mapping
+   * moved (a server restart, a device that slept) and keeps everything when it didn't. A resync keeps `synced`
+   * true throughout — the mapping stays valid while it is re-checked — so a SCHEDULE arriving mid-burst is
+   * scheduled on time instead of late.
+   */
   private startBurst(reason: 'connect' | 'resync') {
     this.stopPings();
-    this.synced = false;
+    if (reason === 'connect') this.synced = false;
     this.bursting = true;
     this.burstReason = reason;
     this.burstPongs = 0;
-    this.burstDeadline = performance.now() + BURST_COUNT * BURST_GAP_MS + 600;
-    this.clock.reset();
-    for (let i = 0; i < BURST_COUNT; i++) this.later(this.ping, i * BURST_GAP_MS);
+    this.burstDeadline = performance.now() + CLOCK_BURST_COUNT * CLOCK_BURST_GAP_MS + 600;
+    this.burstBase = this.clock.mapping();
+    this.clock.rebase();
+    for (let i = 0; i < CLOCK_BURST_COUNT; i++) this.later(this.ping, i * CLOCK_BURST_GAP_MS);
     // fallback: declare synced shortly after the burst even if some pongs were lost
-    this.later(() => this.finishBurst(), BURST_COUNT * BURST_GAP_MS + 650);
+    this.later(() => this.finishBurst(), CLOCK_BURST_COUNT * CLOCK_BURST_GAP_MS + 650);
     this.later(() => {
-      if (this.pingTimer === null && !this.closed) this.pingTimer = setInterval(this.timerPing, 1000);
-    }, BURST_COUNT * BURST_GAP_MS);
+      if (this.stopPingTimer === null && !this.closed) this.stopPingTimer = startTicker(1000, this.timerPing);
+    }, CLOCK_BURST_COUNT * CLOCK_BURST_GAP_MS);
   }
 
   /** synced once welcomed and either the full burst answered or the deadline passed with ≥ 3 samples */
   private finishBurst() {
     if (!this.bursting || !this.welcomed) return;
-    if (this.burstPongs < BURST_COUNT && (this.burstPongs < 3 || performance.now() < this.burstDeadline)) return;
+    if (this.burstPongs < CLOCK_BURST_COUNT && (this.burstPongs < 3 || performance.now() < this.burstDeadline)) return;
     this.bursting = false;
     this.synced = true;
-    this.o.onSynced(this.burstReason);
+    const shift = this.burstBase ? this.clock.shiftSince(this.burstBase, performance.now()) : 0;
+    this.burstBase = null;
+    this.o.onSynced(this.burstReason, Number.isFinite(shift) ? shift : 0);
   }
 
   private stopPings() {
-    if (this.pingTimer !== null) clearInterval(this.pingTimer);
-    this.pingTimer = null;
+    this.stopPingTimer?.();
+    this.stopPingTimer = null;
   }
 
   private handle(raw: unknown) {

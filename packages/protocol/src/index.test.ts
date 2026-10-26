@@ -66,6 +66,37 @@ describe('protocol validation (trust boundary)', () => {
     expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, signal: 'chime' }] }).success).toBe(false);
   });
 
+  it('device patches carry the tune invariant, never the derived compensation', () => {
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { tuneArrivalMs: 12.5, tuneId: 'p1', tuneStale: null } }).success).toBe(true);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { tuneStale: 'route' } }).success).toBe(true);
+    expect(parseClientMessage({ type: 'DEVICE_UPDATE', patch: { tuneArrivalMs: -1 } }).success).toBe(false);
+    const p = parseClientMessage({ type: 'DEVICE_UPDATE', patch: { calibratedLatencyMs: 50 } });
+    expect(p.success && p.data.type === 'DEVICE_UPDATE' && 'calibratedLatencyMs' in p.data.patch).toBe(false); // unknown keys are stripped
+    const result = { type: 'CALIBRATION_RESULT', planId: 'p1', results: [{ deviceId: 'd1', heard: true, tuneArrivalMs: 3 }], tune: { mic: { x: 0, y: 1 }, quick: false, ranged: ['d1'], positions: { d1: { x: 1, y: 2 } } } };
+    expect(parseClientMessage(result).success).toBe(true);
+    expect(parseClientMessage({ ...result, tune: undefined }).success).toBe(false);
+  });
+
+  it('a prepared run: caps carry the mic permission, recorders answer READY, the server announces PREPARE', () => {
+    expect(parseClientMessage({ ...join, caps: { ...caps, micPermission: 'granted' } }).success).toBe(true);
+    expect(parseClientMessage({ ...join, caps: { ...caps, micPermission: 'maybe' } }).success).toBe(false);
+    expect(parseClientMessage({ type: 'CAPS_UPDATE', caps: { ...caps, micPermission: 'denied' } }).success).toBe(true);
+    const slot = { deviceId: 'd1', deviceIndex: 0, signal: 'tune', offsetMs: 500, durationMs: 1100 };
+    expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [slot], recorders: 'all', prepare: true }).success).toBe(true);
+    expect(parseClientMessage({ type: 'CALIBRATION_READY', planId: 'p1', ok: false, reason: 'no mic' }).success).toBe(true);
+    expect(parseClientMessage({ type: 'CALIBRATION_READY', planId: 'p1', ok: 'yes' }).success).toBe(false);
+    expect(parseServerMessage({ type: 'CALIBRATION_PREPARE', planId: 'p1', listenerId: 'd1', recorderIds: ['d2'], deadlineRoomTime: 5, seq: 1 }).success).toBe(true);
+    expect(parseServerMessage({ type: 'CALIBRATION_READY', planId: 'p1', recorderId: 'd2', ok: true, seq: 2 }).success).toBe(true);
+  });
+
+  it('calibration rows may flag invalid emissions; a run can be cancelled', () => {
+    const rows = { type: 'CALIBRATION_ROWS', planId: 'p1', rows: [], valid: false, emissionValid: false, reason: 'clock moved' };
+    expect(parseClientMessage(rows).success).toBe(true);
+    expect(parseClientMessage({ ...rows, emissionValid: 'no' }).success).toBe(false);
+    expect(parseClientMessage({ type: 'CALIBRATION_CANCEL', planId: 'p1' }).success).toBe(true);
+    expect(parseServerMessage({ type: 'CALIBRATION_CANCELLED', planId: 'p1', seq: 3 }).success).toBe(true);
+  });
+
   it('server messages require a seq and a known type', () => {
     const pong = { type: 'PONG', t0: 1, ts_recv: 2, ts_send: 3 };
     expect(parseServerMessage({ ...pong, seq: 4 }).success).toBe(true);

@@ -29,7 +29,11 @@ export interface ServerOptions {
   publicUrl?: string;
   maxUploadBytes?: number;
   roomTtlMinutes?: number;
+  /** how long a prepared tune waits for its recorders' microphones (tests shorten it) */
+  prepareDeadlineMs?: number;
 }
+/** how often room deadlines are checked, ms */
+const TICK_MS = 100;
 
 interface Conn {
   id: string;
@@ -54,7 +58,13 @@ export async function startServer(
   const clock = perfClock;
   const profiles = new ProfileStore(join(dataDir, 'profiles.json'));
   const homes = new HomeStore(join(dataDir, 'homes.json'));
-  const manager = new RoomManager({ ttlMinutes: opts.roomTtlMinutes, profiles, clock, homes });
+  const manager = new RoomManager({
+    ttlMinutes: opts.roomTtlMinutes,
+    profiles,
+    clock,
+    homes,
+    ...(opts.prepareDeadlineMs !== undefined ? { prepareDeadlineMs: opts.prepareDeadlineMs } : {}),
+  });
   const storage = storageFromEnv(join(dataDir, 'uploads'));
   const conns = new Map<string, Conn>();
 
@@ -219,8 +229,12 @@ export async function startServer(
   const sweeper = setInterval(() => {
     for (const { room, out } of manager.sweep(clock()).updates) deliver(room, undefined, out);
   }, SWEEP_MS);
+  const ticker = setInterval(() => {
+    for (const { room, out } of manager.calibrationTick(clock()).updates) deliver(room, undefined, out);
+  }, TICK_MS);
   heartbeat.unref();
   sweeper.unref();
+  ticker.unref();
 
   await new Promise<void>((resolve) => server.listen(opts.port ?? SERVER_PORT_DEFAULT, opts.host, resolve));
   const addr = server.address();
@@ -231,6 +245,7 @@ export async function startServer(
     async close() {
       clearInterval(heartbeat);
       clearInterval(sweeper);
+      clearInterval(ticker);
       for (const t of advanceTimers.values()) clearTimeout(t);
       advanceTimers.clear();
       for (const c of conns.values()) c.ws.close(1001, 'server shutting down');
