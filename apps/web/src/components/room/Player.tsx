@@ -8,13 +8,16 @@ import {
   Button,
   Icon,
   IconButton,
+  Note,
   Panel,
   RangeField,
+  StatusDot,
   Tabs,
   Toggle,
   fmtMs,
   fmtTime,
   inputClass,
+  rangeFill,
   tabPanelProps,
   type IconName,
   type TabDef,
@@ -45,34 +48,48 @@ const KIND_ICON: Record<TrackKind, IconName> = {
 
 const control = (cmd: Parameters<typeof roomActions.control>[0]) => act(() => roomActions.control(cmd));
 
-/** Left pane: queue + sources (Spotify's "Your Library"). */
-export function Library() {
+const STATUS_LABEL: Partial<Record<string, string>> = { playing: 'Playing', paused: 'Paused', stopped: 'Stopped' };
+
+const KIND_LABEL: Record<TrackKind, string> = {
+  demo: 'Demo track',
+  file: 'Music file',
+  url: 'Web link',
+  video: 'Video file',
+  capture: 'Browser tab',
+  youtube: 'YouTube',
+  spotify: 'Spotify',
+  apple: 'Apple Music',
+};
+
+const EYEBROW = 'mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase';
+
+/** Left pane: queue + sources (Spotify's "Your Library"). `embedded`: a section on the page instead of a panel. */
+export function Library({ embedded = false }: { embedded?: boolean }) {
   const canControl = useCanControl();
   const [source, setSource] = useState<Source>('demo');
   const remote = useRoomStore((s) => s.remote);
   // streaming services this deployment isn't set up for simply don't appear
   const sources = SOURCES.filter((s) => (s.id !== 'spotify' && s.id !== 'apple') || remote[s.id] !== 'unconfigured');
-  return (
-    <Panel title="Library" icon="music" className="lg:h-full">
+  const body = (
+    <>
       {!canControl && (
-        <p className="mb-3 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
-          <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> Only the host can control playback
-          in this room.
-        </p>
+        <Note icon="lock" className="mb-4">
+          Only the host can control playback in this room.
+        </Note>
       )}
       {/* the player bar has no room for these on phones */}
-      <fieldset disabled={!canControl} className="mb-4 min-w-0 space-y-1 md:hidden">
+      <fieldset disabled={!canControl} className="mb-5 min-w-0 space-y-1 md:hidden">
         <legend className="sr-only">Room playback settings</legend>
         <MasterVolume />
         <HostOnlyToggle />
       </fieldset>
 
       <fieldset disabled={!canControl} className="min-w-0">
-        <legend className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Queue</legend>
+        <legend className={EYEBROW}>Queue</legend>
         <Queue />
       </fieldset>
 
-      <h3 className="mt-5 mb-1 text-xs font-medium tracking-widest text-ink-400 uppercase">Add audio</h3>
+      <h3 className={`mt-6 ${EYEBROW}`}>Add audio</h3>
       <Tabs
         tabs={sources}
         value={source}
@@ -80,9 +97,9 @@ export function Library() {
         label="Audio source"
         idPrefix="src"
         variant="chips"
-        className="flex flex-wrap py-1"
+        className="no-scrollbar -mx-4 flex min-w-0 overflow-x-auto px-4 py-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
       />
-      <div {...tabPanelProps('src', source)} className="min-w-0 pt-3">
+      <div {...tabPanelProps('src', source)} className="min-w-0 pt-4">
         <fieldset disabled={!canControl} className="min-w-0">
           <legend className="sr-only">{SOURCES.find((s) => s.id === source)?.label} source</legend>
           {source === 'demo' && <DemoSource />}
@@ -95,6 +112,20 @@ export function Library() {
           {source === 'video' && <LocalVideoSource />}
         </fieldset>
       </div>
+    </>
+  );
+  if (embedded)
+    return (
+      <section aria-labelledby="library-h" className="min-w-0">
+        <h2 id="library-h" className="mb-4 font-display text-xl font-semibold tracking-tight">
+          Library
+        </h2>
+        {body}
+      </section>
+    );
+  return (
+    <Panel title="Library" icon="queue" className="lg:h-full">
+      {body}
     </Panel>
   );
 }
@@ -119,22 +150,26 @@ export function Player() {
   return (
     <section
       aria-label="Player"
-      className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-ink-700 bg-ink-900/95 px-3 pt-1.5 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] md:pt-2"
+      className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 bg-ink-900 px-3 pt-2 pb-1 sm:px-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] md:pt-2.5"
     >
       <div className="flex min-w-0 items-center gap-3 md:row-span-2">
-        <span className="hidden size-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent/30 to-ink-800 text-accent sm:grid">
-          <Icon name={track ? KIND_ICON[track.kind] : 'music'} className="size-6" />
+        <span
+          className={`hidden size-12 shrink-0 place-items-center rounded-full sm:grid ${
+            playing ? 'bg-accent text-accent-ink' : 'bg-ink-800 text-ink-200'
+          }`}
+        >
+          <Icon name={playing ? 'wave' : track ? KIND_ICON[track.kind] : 'music'} className="size-5" />
         </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{track?.title ?? 'Nothing playing'}</p>
+          <p className="truncate text-sm font-medium text-ink-100">{track?.title ?? 'Nothing playing'}</p>
           <p className="truncate text-xs text-ink-400">
-            {track ? `${track.kind} · ${playback.status}` : 'Queue a track from the library'}
+            {track ? `${KIND_LABEL[track.kind]} · ${STATUS_LABEL[playback.status] ?? playback.status}` : 'Queue a track from the library'}
           </p>
-          {track?.sourceClass === 'remote' && <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>}
+          {track?.sourceClass === 'remote' && <p className="truncate text-xs text-warn">Sync-only mode (no spatial/EQ)</p>}
         </div>
       </div>
 
-      <fieldset disabled={!canControl} className="flex items-center justify-center gap-2">
+      <fieldset disabled={!canControl} className="flex items-center justify-center gap-1.5">
         <legend className="sr-only">Transport</legend>
         <IconButton
           icon="prev"
@@ -148,7 +183,7 @@ export function Player() {
           aria-label={playing ? 'Pause' : 'Play'}
           onClick={togglePlay}
           disabled={!playing && queue.length === 0}
-          className="inline-flex size-11 items-center justify-center rounded-full bg-accent text-accent-ink shadow-[0_0_24px_-6px_var(--color-accent)] transition hover:brightness-110 disabled:opacity-40"
+          className="inline-flex size-12 items-center justify-center rounded-full bg-accent text-accent-ink transition hover:bg-accent-bright active:scale-[0.96] disabled:opacity-40"
         >
           <Icon name={playing ? 'pause' : 'play'} className="size-5" />
         </button>
@@ -160,7 +195,7 @@ export function Player() {
         />
       </fieldset>
 
-      <fieldset disabled={!canControl} className="col-span-2 -mt-1.5 min-w-0 md:col-span-1 md:col-start-2">
+      <fieldset disabled={!canControl} className="col-span-2 -mt-1 min-w-0 md:col-span-1 md:col-start-2">
         <legend className="sr-only">Seek</legend>
         <Seek duration={track?.durationSec ?? 0} />
       </fieldset>
@@ -261,13 +296,14 @@ function Seek({ duration }: { duration: number }) {
   };
   return (
     <div className="flex items-center gap-3">
-      <span className="w-11 text-right font-mono text-xs text-ink-400 tabular">{fmtTime(v)}</span>
+      <span className="w-10 text-right text-xs text-ink-400 tabular">{fmtTime(v)}</span>
       <input
         type="range"
         data-testid="seek-bar"
         aria-label="Seek"
         aria-valuetext={`${fmtTime(v)} of ${fmtTime(duration)}`}
         className="min-w-0 flex-1"
+        style={rangeFill(Math.min(v, Math.max(duration, 0.1)), 0, Math.max(duration, 0.1))}
         min={0}
         max={Math.max(duration, 0.1)}
         step={0.1}
@@ -278,7 +314,7 @@ function Seek({ duration }: { duration: number }) {
         onKeyUp={commit}
         onBlur={commit}
       />
-      <span className="w-11 font-mono text-xs text-ink-400 tabular">{fmtTime(duration)}</span>
+      <span className="w-10 text-xs text-ink-400 tabular">{fmtTime(duration)}</span>
     </div>
   );
 }
@@ -288,32 +324,32 @@ function Seek({ duration }: { duration: number }) {
 function Queue() {
   const queue = useRoomStore((s) => s.room?.queue);
   const currentId = useRoomStore((s) => s.room?.playback.trackId ?? null);
+  const playing = useRoomStore((s) => s.room?.playback.status === 'playing');
   if (!queue?.length)
     return (
-      <p className="rounded-xl border border-dashed border-ink-700 p-4 text-center text-sm text-ink-400">
-        The queue is empty.
-      </p>
+      <p className="py-1 text-sm text-ink-400">The queue is empty. Add something below.</p>
     );
   return (
-    <ol className="space-y-1.5">
-      {queue.map((t: Track, i) => {
+    <ol className="divide-y divide-ink-800">
+      {queue.map((t: Track) => {
         const current = t.id === currentId;
         return (
           <li
             key={t.id}
             data-testid="queue-item"
             aria-current={current ? 'true' : undefined}
-            className={`flex items-center gap-2 rounded-xl border px-2 py-1 ${current ? 'border-accent/60 bg-accent/10' : 'border-ink-700 bg-ink-850/50'}`}
+            className="flex items-center gap-3 py-2"
           >
-            <span className="w-5 text-center font-mono text-xs text-ink-500">{i + 1}</span>
-            <Icon
-              name={KIND_ICON[t.kind]}
-              className={`size-4 shrink-0 ${current ? 'text-accent' : 'text-ink-400'}`}
-            />
+            <span
+              aria-hidden
+              className={`grid size-10 shrink-0 place-items-center rounded-full ${current ? 'bg-accent text-accent-ink' : 'bg-ink-800 text-ink-300'}`}
+            >
+              <Icon name={current && playing ? 'wave' : KIND_ICON[t.kind]} className="size-4" />
+            </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm">{t.title}</span>
-              <span className="block text-xs text-ink-500">
-                {t.kind}
+              <span className={`block truncate text-sm ${current ? 'font-medium text-ink-100' : 'text-ink-100'}`}>{t.title}</span>
+              <span className="block text-xs text-ink-400">
+                {KIND_LABEL[t.kind]}
                 {t.durationSec ? ` · ${fmtTime(t.durationSec)}` : ''}
                 {t.sourceClass === 'remote' ? ' · sync-only' : ''}
               </span>
@@ -355,18 +391,23 @@ function DemoSource() {
           Loading demo tracks… (run <code className="font-mono">pnpm demo</code> if none appear)
         </p>
       )}
-      <ul className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
+      <ul className="-mx-2 grid gap-0.5 sm:grid-cols-2 lg:grid-cols-1">
         {assets.map((a) => (
           <li key={a.id}>
             <button
               type="button"
               data-testid="demo-asset"
               onClick={() => act(() => roomActions.queueDemo(a))}
-              className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-ink-700 bg-ink-850/60 px-3 text-left transition hover:border-accent/60 disabled:opacity-50"
+              className="group flex min-h-14 w-full items-center gap-3 rounded-row px-2 text-left transition hover:bg-ink-800 disabled:opacity-50"
             >
-              <Icon name="plus" className="size-4 shrink-0 text-accent" />
+              <span
+                aria-hidden
+                className="grid size-9 shrink-0 place-items-center rounded-full bg-ink-800 text-ink-200 transition group-hover:bg-accent group-hover:text-accent-ink"
+              >
+                <Icon name="plus" className="size-4" />
+              </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{a.title}</span>
+                <span className="block truncate text-sm font-medium text-ink-100">{a.title}</span>
                 <span className="block text-xs text-ink-400">
                   {a.channels === 6
                     ? '5.1'
@@ -396,16 +437,18 @@ function JobStatus({ job }: { job: Job }) {
   if (job.state === 'busy')
     return (
       <div role="status" className="mt-3">
-        <p className="text-sm text-ink-300">Uploading {job.name}…</p>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-700">
+        <p className="flex items-center gap-2 text-sm text-ink-200">
+          <Icon name="spinner" className="size-4 animate-spin" /> Uploading {job.name}…
+        </p>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink-700">
           <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
         </div>
       </div>
     );
   if (job.state === 'done')
     return (
-      <p role="status" className="mt-3 text-sm text-ok">
-        {job.msg}
+      <p role="status" className="mt-3 flex items-center gap-2 text-sm text-ok">
+        <Icon name="check-circle" className="size-4 shrink-0" /> {job.msg}
       </p>
     );
   if (job.state === 'error')
@@ -438,9 +481,11 @@ function useUpload() {
 
 function FilePick({ accept, label, onFile }: { accept: string; label: string; onFile: (f: File) => void }) {
   return (
-    <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-600 bg-ink-850/40 p-4 text-center text-sm text-ink-300 transition hover:border-accent/60 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent">
-      <Icon name="upload" className="size-6 text-accent" />
-      {label}
+    <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-3 rounded-row bg-ink-800 p-5 text-center text-sm text-ink-200 transition hover:bg-ink-700 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent">
+      <span aria-hidden className="grid size-11 place-items-center rounded-full bg-ink-700 text-ink-100">
+        <Icon name="upload" className="size-5" />
+      </span>
+      <span className="max-w-sm">{label}</span>
       <input
         type="file"
         accept={accept}
@@ -496,7 +541,7 @@ function UrlSource() {
     }).catch((err: unknown) => setJob({ state: 'error', msg: errMsg(err) }));
   };
   return (
-    <form onSubmit={submit} className="grid gap-2" noValidate>
+    <form onSubmit={submit} className="grid gap-2.5" noValidate>
       <label htmlFor="src-url" className="text-sm text-ink-200">
         Audio URL
       </label>
@@ -519,8 +564,8 @@ function UrlSource() {
         onChange={(e) => setTitle(e.target.value)}
         className={inputClass}
       />
-      <Button type="submit" variant="primary" className="mt-1">
-        Queue URL
+      <Button type="submit" className="mt-1 justify-self-start">
+        <Icon name="plus" className="size-4" /> Queue URL
       </Button>
       <p className="text-xs text-ink-400">
         Only use audio you own or have the rights to play. The server must allow cross-origin access (CORS).
@@ -569,8 +614,10 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
   // the engine reports 'unconfigured' when neither credentials nor the mock adapter (?mockRemote=1) are available
   if (status === 'unconfigured') {
     return (
-      <div className="rounded-xl border border-ink-600 bg-ink-850 p-4 text-sm">
-        <p className="font-medium text-ink-100">Not configured</p>
+      <div className="rounded-row bg-ink-800 p-4 text-sm">
+        <p className="flex items-center gap-2 font-medium text-ink-100">
+          <Icon name="info" className="size-4 text-ink-300" /> Not configured
+        </p>
         <p className="mt-1 text-ink-300">
           Set <code className="font-mono text-accent">{meta.env}</code> in{' '}
           <code className="font-mono">apps/web/.env.local</code> and restart the dev server
@@ -609,21 +656,25 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
     <div className="space-y-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>
-        <Badge tone={status === 'ready' ? 'ok' : status === 'signed-out' ? 'neutral' : 'bad'}>
-          this device: {status}
-        </Badge>
+        <StatusDot
+          status={status === 'ready' ? 'ok' : status === 'signed-out' ? 'neutral' : 'bad'}
+          label={`This device: ${status}`}
+          testid={`remote-status-${kind}`}
+        />
       </div>
       <p className="text-ink-300">
         {meta.name} audio is DRM-protected, so it plays through the official player on each device. SyncSound
         keeps the players in time, but can&rsquo;t pan or EQ them. {meta.req}
       </p>
       {status !== 'ready' && (
-        <Button variant="primary" onClick={connect}>
+        <Button onClick={connect}>
+          <Icon name="link" className="size-4" />
           Connect {meta.name}
         </Button>
       )}
       {status === 'needs-premium' && (
-        <p className="text-warn">
+        <p className="flex items-start gap-2 text-warn">
+          <Icon name="warning" className="mt-0.5 size-4 shrink-0" />
           This account can&rsquo;t use the web player. A Premium / paid subscription is required.
         </p>
       )}
@@ -631,7 +682,7 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
       {remote.meanAbsErrorMs !== null && (
         <p
           data-testid="remote-sync-stats"
-          className="rounded-lg border border-ink-700 bg-ink-850/60 px-3 py-2 text-ink-300"
+          className="rounded-row bg-ink-800 px-4 py-3 text-ink-200"
         >
           Measured sync on this device:{' '}
           <span className="font-mono text-ink-100">{remote.errorMs ?? '—'} ms</span> now,{' '}
@@ -660,9 +711,9 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
         </p>
       )}
       {devices && (
-        <ul className="divide-y divide-ink-700 rounded-xl border border-ink-700">
+        <ul className="divide-y divide-ink-800">
           {devices.map((d) => (
-            <li key={d.id} className="flex items-center justify-between gap-2 px-3 py-2">
+            <li key={d.id} className="flex items-center justify-between gap-2 py-2">
               <span className="truncate">{d.name}</span>
               <span className="flex items-center gap-2">
                 {d.stats?.remoteErrorMs != null && (
@@ -670,7 +721,7 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
                     {Math.round(d.stats.remoteErrorMs)} ms
                   </span>
                 )}
-                <Badge tone={d.remote[kind] === 'ready' ? 'ok' : 'neutral'}>{d.remote[kind]}</Badge>
+                <StatusDot status={d.remote[kind] === 'ready' ? 'ok' : 'neutral'} label={d.remote[kind]} testid={`remote-${kind}-${d.id}`} />
               </span>
             </li>
           ))}
@@ -697,28 +748,24 @@ function CaptureSource() {
       <div className="flex flex-wrap items-center gap-2">
         {capture.active ? (
           <Button variant="danger" onClick={() => act(() => roomActions.stopCapture())}>
-            Stop capture
+            <Icon name="x" className="size-4" /> Stop capture
           </Button>
         ) : (
-          <Button variant="primary" onClick={() => act(() => roomActions.startCapture())}>
+          <Button onClick={() => act(() => roomActions.startCapture())}>
             <Icon name="capture" className="size-4" /> Start capture
           </Button>
         )}
         {capture.active && (
-          <Badge tone="ok">
-            capturing · {capture.peers} peer{capture.peers === 1 ? '' : 's'}
-          </Badge>
+          <StatusDot status="ok" label={`Capturing · ${capture.peers} peer${capture.peers === 1 ? '' : 's'}`} testid="capture-status" />
         )}
         {capture.receiving && (
-          <Badge tone="accent">
-            receiving from {captureHost ?? 'host'} · {fmtMs(capture.pipelineDelayMs, 0)}
-          </Badge>
+          <StatusDot status="ok" label={`Receiving from ${captureHost ?? 'host'} · ${fmtMs(capture.pipelineDelayMs, 0)}`} testid="capture-receiving" />
         )}
       </div>
       {capture.silent && (
-        <div role="alert" className="rounded-xl border border-warn/60 bg-warn/10 p-3">
+        <div role="alert" className="rounded-row bg-warn/10 p-4">
           <p className="flex items-center gap-2 font-semibold text-warn">
-            <Icon name="warning" className="size-5" /> This tab is silent.
+            <Icon name="warning" className="size-4" /> This tab is silent.
           </p>
           <p className="mt-1 text-ink-200">
             DRM-protected sites (Netflix, Disney+, Prime Video…) block audio capture and deliver silence. Use{' '}
@@ -834,7 +881,7 @@ function YouTubeSource() {
   return (
     <div className="space-y-3 text-sm">
       <form
-        className="flex gap-2"
+        className="flex flex-col gap-2 sm:flex-row"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -857,8 +904,8 @@ function YouTubeSource() {
           onChange={(e) => setInput(e.target.value)}
           className={inputClass}
         />
-        <Button type="submit" data-testid="youtube-play" className="shrink-0 whitespace-nowrap">
-          Play on all speakers
+        <Button type="submit" data-testid="youtube-play" className="shrink-0">
+          <Icon name="play" className="size-4" /> Play on all speakers
         </Button>
       </form>
       {err && (
@@ -868,7 +915,7 @@ function YouTubeSource() {
       )}
       <div
         ref={hostRef}
-        className={`aspect-video w-full overflow-hidden rounded-xl bg-black ${videoId ? '' : 'hidden'}`}
+        className={`aspect-video w-full overflow-hidden rounded-row bg-black ${videoId ? '' : 'hidden'}`}
       />
       {!videoId && (
         <p className="text-ink-300">
@@ -877,9 +924,9 @@ function YouTubeSource() {
         </p>
       )}
       {videoId && !capturing && (
-        <div className="rounded-xl border border-accent/40 bg-accent/5 p-3">
+        <div className="rounded-row bg-ink-800 p-4">
           <p className="text-ink-200">The sound isn&rsquo;t shared yet, so only this device plays it.</p>
-          <Button variant="primary" className="mt-2" onClick={() => act(() => roomActions.startCapture())}>
+          <Button variant="primary" className="mt-3" onClick={() => act(() => roomActions.startCapture())}>
             <Icon name="capture" className="size-4" /> Share this tab&rsquo;s sound
           </Button>
         </div>
@@ -934,7 +981,7 @@ function LocalVideoSource() {
         muted
         playsInline
         preload="auto"
-        className={`aspect-video w-full rounded-xl bg-black ${src ? '' : 'hidden'}`}
+        className={`aspect-video w-full rounded-row bg-black ${src ? '' : 'hidden'}`}
         aria-label="Video picture (audio plays through the speakers)"
       />
     </div>
