@@ -158,9 +158,11 @@ function RoomRow({
         ) : (
           <>
             <span className="block truncate font-display text-xl font-semibold">{name}</span>
-            <span className="mt-1 flex items-center gap-2 text-sm text-ink-300">
+            <span className="mt-1 flex min-w-0 items-center gap-2 text-sm text-ink-300">
               <StatusDot status={connected ? 'ok' : 'neutral'} label="" testid={`room-status-${id}`} />
-              {connected ? `${connected} speaker${connected === 1 ? '' : 's'} connected now` : 'No speakers connected'}
+              <span className="truncate">
+                {connected ? `${connected} speaker${connected === 1 ? '' : 's'} connected` : 'No speakers yet'}
+              </span>
             </span>
           </>
         )}
@@ -181,9 +183,10 @@ function RoomRow({
         <Link
           href={`/room/${id}`}
           data-testid={`open-room-${id}`}
-          className="ml-1 inline-flex min-h-11 items-center gap-1.5 rounded-full bg-ink-800 pr-4 pl-5 text-sm font-medium text-ink-100 transition hover:bg-ink-700"
+          aria-label={`Open ${name}`}
+          className="ml-1 inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-accent text-sm font-semibold text-accent-ink shadow-[0_0_20px_-8px_var(--color-accent)] transition hover:bg-accent-bright max-sm:size-11 sm:pr-4 sm:pl-5"
         >
-          Open <Icon name="arrow-right" className="size-4" />
+          <span className="max-sm:hidden">Open</span> <Icon name="arrow-right" className="size-4" />
         </Link>
       )}
     </li>

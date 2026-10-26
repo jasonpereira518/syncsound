@@ -61,7 +61,7 @@ const KIND_LABEL: Record<TrackKind, string> = {
   apple: 'Apple Music',
 };
 
-const EYEBROW = 'mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase';
+const EYEBROW = 'mb-1.5 text-xs font-medium tracking-widest text-ink-400 uppercase';
 
 /** Left pane: queue + sources (Spotify's "Your Library"). `embedded`: a section on the page instead of a panel. */
 export function Library({ embedded = false }: { embedded?: boolean }) {
@@ -78,7 +78,7 @@ export function Library({ embedded = false }: { embedded?: boolean }) {
         </Note>
       )}
       {/* the player bar has no room for these on phones */}
-      <fieldset disabled={!canControl} className="mb-5 min-w-0 space-y-1 md:hidden">
+      <fieldset disabled={!canControl} className="mb-4 min-w-0 space-y-1 md:hidden">
         <legend className="sr-only">Room playback settings</legend>
         <MasterVolume />
         <HostOnlyToggle />
@@ -89,7 +89,7 @@ export function Library({ embedded = false }: { embedded?: boolean }) {
         <Queue />
       </fieldset>
 
-      <h3 className={`mt-6 ${EYEBROW}`}>Add audio</h3>
+      <h3 className={`mt-5 ${EYEBROW}`}>Add audio</h3>
       <Tabs
         tabs={sources}
         value={source}
@@ -97,9 +97,10 @@ export function Library({ embedded = false }: { embedded?: boolean }) {
         label="Audio source"
         idPrefix="src"
         variant="chips"
-        className="no-scrollbar -mx-4 flex min-w-0 overflow-x-auto px-4 py-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+        className="no-scrollbar -mx-4 flex min-w-0 !gap-1 overflow-x-auto px-4 py-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+        tabClassName="!min-h-9 !px-3 !text-xs lg:!min-h-8"
       />
-      <div {...tabPanelProps('src', source)} className="min-w-0 pt-4">
+      <div {...tabPanelProps('src', source)} className="min-w-0 pt-3">
         <fieldset disabled={!canControl} className="min-w-0">
           <legend className="sr-only">{SOURCES.find((s) => s.id === source)?.label} source</legend>
           {source === 'demo' && <DemoSource />}
@@ -183,7 +184,7 @@ export function Player() {
           aria-label={playing ? 'Pause' : 'Play'}
           onClick={togglePlay}
           disabled={!playing && queue.length === 0}
-          className="inline-flex size-12 items-center justify-center rounded-full bg-accent text-accent-ink transition hover:bg-accent-bright active:scale-[0.96] disabled:opacity-40"
+          className="inline-flex size-12 items-center justify-center rounded-full bg-accent text-accent-ink shadow-[0_0_24px_-6px_var(--color-accent)] transition hover:bg-accent-bright active:scale-[0.96] disabled:opacity-40 disabled:shadow-none"
         >
           <Icon name={playing ? 'pause' : 'play'} className="size-5" />
         </button>
@@ -338,11 +339,11 @@ function Queue() {
             key={t.id}
             data-testid="queue-item"
             aria-current={current ? 'true' : undefined}
-            className="flex items-center gap-3 py-2"
+            className="flex items-center gap-3 py-1.5"
           >
             <span
               aria-hidden
-              className={`grid size-10 shrink-0 place-items-center rounded-full ${current ? 'bg-accent text-accent-ink' : 'bg-ink-800 text-ink-300'}`}
+              className={`grid size-9 shrink-0 place-items-center rounded-full ${current ? 'bg-accent text-accent-ink' : 'bg-ink-800 text-ink-300'}`}
             >
               <Icon name={current && playing ? 'wave' : KIND_ICON[t.kind]} className="size-4" />
             </span>
@@ -398,11 +399,11 @@ function DemoSource() {
               type="button"
               data-testid="demo-asset"
               onClick={() => act(() => roomActions.queueDemo(a))}
-              className="group flex min-h-14 w-full items-center gap-3 rounded-row px-2 text-left transition hover:bg-ink-800 disabled:opacity-50"
+              className="group flex min-h-12 w-full items-center gap-3 rounded-row px-2 text-left transition hover:bg-ink-800 disabled:opacity-50"
             >
               <span
                 aria-hidden
-                className="grid size-9 shrink-0 place-items-center rounded-full bg-ink-800 text-ink-200 transition group-hover:bg-accent group-hover:text-accent-ink"
+                className="grid size-8 shrink-0 place-items-center rounded-full bg-ink-800 text-ink-200 transition group-hover:bg-accent group-hover:text-accent-ink"
               >
                 <Icon name="plus" className="size-4" />
               </span>

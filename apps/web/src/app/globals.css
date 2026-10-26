@@ -92,6 +92,11 @@ body {
     opacity: 0.55;
   }
 
+  /* grid items may shrink below their content, so a long name truncates instead of widening the page */
+  :where(.grid) > * {
+    min-width: 0;
+  }
+
   /* range: 44px hit area, 4px track filled in amber up to --fill (set by RangeField / Seek), round amber thumb */
   input[type='range'] {
     appearance: none;

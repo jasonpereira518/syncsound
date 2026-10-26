@@ -47,12 +47,12 @@ export function NowPlaying({ onSetup }: { onSetup: () => void }) {
           <span className="sr-only">{showSpeakers ? 'Hide speakers' : 'Show speakers'}</span>
         </button>
         {showSpeakers && <SpeakerList devices={health.live} />}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2 max-sm:mt-3">
           <Button data-testid="change-setup" onClick={onSetup}>
-            <Icon name="stage" className="size-4" /> Change speaker setup
+            <Icon name="stage" className="size-4" /> Change <span className="max-sm:hidden">speaker</span> setup
           </Button>
           <Button variant="ghost" data-testid="quick-resync" onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
-            <Icon name="resync" className="size-4" /> Re-sync speakers
+            <Icon name="resync" className="size-4" /> Re-sync<span className="max-sm:hidden"> speakers</span>
           </Button>
         </div>
       </section>

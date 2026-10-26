@@ -381,37 +381,45 @@ export function Stage() {
               );
             })}
 
-            {/* audio objects */}
-            {scene.objects.map((o) => (
-              <StageItem
-                key={o.id}
-                t={{ kind: 'object', id: o.id }}
-                testid={`stage-object-${o.id}`}
-                label={`Sound object ${o.label} (${o.channel}) at ${fmtPos(o.position)}`}
-                p={o.position}
-                sel={sel}
-                canMove={canControl}
-                handlers={{ onDown, onMove, onUp, onItemKey }}
-                name={o.label}
-              >
-                <circle className="focus-ring" r={u * 0.66} fill="none" strokeWidth={u * 0.06} />
-                <circle
-                  r={u * 0.44}
-                  fill={CHANNEL_COLOR[o.channel]}
-                  fillOpacity={o.muted ? 0.08 : 0.28}
-                  stroke={CHANNEL_COLOR[o.channel]}
-                  strokeWidth={u * 0.07}
-                  strokeDasharray={o.muted ? `${u * 0.12} ${u * 0.08}` : undefined}
-                />
-                <text y={fs * 0.36} textAnchor="middle" fontSize={o.channel.length > 2 ? fs * 0.72 : fs} fontWeight={700} fill="#fff" className="font-mono">
-                  {o.channel}
-                </text>
-                {/* label above: presets park objects on speakers, whose names sit below */}
-                <text y={-u * 0.62} textAnchor="middle" fontSize={fs * 0.72} fill="var(--color-ink-300)">
-                  {o.label.length > 16 ? `${o.label.slice(0, 15)}…` : o.label}
-                </text>
-              </StageItem>
-            ))}
+            {/* audio objects: one parked on a speaker (layout presets do this) is a ring around it, so the labels don't collide */}
+            {scene.objects.map((o) => {
+              const parked = speakers.some((s) => Math.hypot(s.pos.x - o.position.x, s.pos.y - o.position.y) < u * 0.4);
+              const color = CHANNEL_COLOR[o.channel];
+              const dash = o.muted ? `${u * 0.12} ${u * 0.08}` : undefined;
+              return (
+                <StageItem
+                  key={o.id}
+                  t={{ kind: 'object', id: o.id }}
+                  testid={`stage-object-${o.id}`}
+                  label={`Sound object ${o.label} (${o.channel}) at ${fmtPos(o.position)}`}
+                  p={o.position}
+                  sel={sel}
+                  canMove={canControl}
+                  handlers={{ onDown, onMove, onUp, onItemKey }}
+                  name={o.label}
+                >
+                  <circle className="focus-ring" r={u * (parked ? 0.8 : 0.66)} fill="none" strokeWidth={u * 0.06} />
+                  {parked ? (
+                    <>
+                      {/* invisible disc: the object stays grabbable from its centre, as before */}
+                      <circle r={u * 0.44} fill="transparent" />
+                      <circle r={u * 0.64} fill="none" stroke={color} strokeOpacity={o.muted ? 0.5 : 0.9} strokeWidth={u * 0.08} strokeDasharray={dash} />
+                    </>
+                  ) : (
+                    <>
+                      <circle r={u * 0.44} fill={color} fillOpacity={o.muted ? 0.08 : 0.28} stroke={color} strokeWidth={u * 0.07} strokeDasharray={dash} />
+                      <text y={fs * 0.36} textAnchor="middle" fontSize={o.channel.length > 2 ? fs * 0.72 : fs} fontWeight={700} fill="#fff" className="font-mono">
+                        {o.channel}
+                      </text>
+                    </>
+                  )}
+                  {/* label above: speaker names sit below */}
+                  <text y={-u * (parked ? 1.02 : 0.62)} textAnchor="middle" fontSize={fs * 0.72} fill={parked ? color : 'var(--color-ink-300)'}>
+                    {o.label.length > 16 ? `${o.label.slice(0, 15)}…` : o.label}
+                  </text>
+                </StageItem>
+              );
+            })}
           </svg>
           <Inspector
             sel={sel}
@@ -428,7 +436,7 @@ export function Stage() {
           </span>
         </div>
 
-        <fieldset disabled={!canControl} className="min-w-0 space-y-3 lg:max-h-[45%] lg:shrink-0 lg:overflow-y-auto lg:px-1">
+        <fieldset disabled={!canControl} className="no-scrollbar min-w-0 space-y-3 lg:max-h-[45%] lg:shrink-0 lg:overflow-y-auto lg:px-1">
           <legend className="sr-only">Stage controls</legend>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <div className="min-w-0">
@@ -637,7 +645,7 @@ function Inspector({
   const mix = dev ? mixes?.[dev.id] : undefined;
   return (
     // desktop: floats over the map so selecting never resizes it; phones: sits under the map
-    <div className="rounded-row bg-ink-800 p-4 text-sm max-lg:mt-2 lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto">
+    <div className="rounded-row bg-ink-800 p-4 text-sm max-lg:mt-2 lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto no-scrollbar">
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 truncate font-medium text-ink-100">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
         <div className="flex shrink-0 items-center gap-1">

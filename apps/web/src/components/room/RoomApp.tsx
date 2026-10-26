@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useRoomStore, roomActions } from '@/store/roomStore';
 import { rememberLastRoom } from '@/lib/home';
 import { getRoomInfo } from '@/lib/roomClient';
-import { Button, Icon, IconButton, Tabs, fmtSigned, tabPanelProps, type TabDef } from '../ui';
+import { Button, Icon, IconButton, Tabs, fmtSigned, tabPanelProps, type IconName, type TabDef } from '../ui';
 import { CalibrationWizard } from './CalibrationWizard';
 import { DeviceList, SpeakerCard } from './DeviceList';
 import { JoinGate } from './JoinGate';
@@ -81,7 +81,6 @@ export function RoomApp({ code }: { code: string }) {
       variant="ghost"
       data-testid={view === 'advanced' ? 'view-simple' : 'view-advanced'}
       onClick={() => go(view === 'advanced' ? (isHost ? 'controls' : 'speaker') : 'advanced')}
-      className="max-sm:!px-3"
       aria-label={view === 'advanced' ? 'Simple view' : 'Advanced'}
     >
       <Icon name={view === 'advanced' ? 'home' : 'sliders'} className="size-4" />
@@ -136,7 +135,10 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       {header}
-      <Banners />
+      {/* the shell is viewport-high: a long banner scrolls inside this cap instead of squeezing the panels */}
+      <div className="no-scrollbar max-h-[35dvh] shrink-0 overflow-y-auto">
+        <Banners />
+      </div>
       <main
         id="main"
         className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 lg:grid lg:px-4 lg:grid-cols-[17rem_minmax(0,1fr)_20rem] lg:gap-3 lg:overflow-hidden xl:grid-cols-[19rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[22rem_minmax(0,1fr)_26rem]"
@@ -159,7 +161,7 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
             className="hidden lg:grid lg:grid-cols-2"
           />
           <div {...panel('devices')}>
-            <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+            <div className="no-scrollbar flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {!isHost && <SpeakerCard />}
               <DeviceList />
             </div>
@@ -197,33 +199,38 @@ function Banners() {
   return (
     <>
       {routeRestored && !routeChanged && (
-        <div role="status" data-testid="route-restored" className={BANNER}>
-          <Icon name="bluetooth" className="size-5 shrink-0 text-accent" />
-          <p className="min-w-0 flex-1 text-ink-200">
-            <strong className="font-semibold text-ink-100">Audio output changed to {routeRestored.label}.</strong> Using its saved
-            calibration ({fmtSigned(routeRestored.calibratedLatencyMs, 0)} ms). Re-sync if it sounds out of step.
-          </p>
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={dismiss}>
-            Dismiss
-          </Button>
-        </div>
-      )}
-      {routeChanged && (
-        <div role="status" className={BANNER}>
-          <Icon name="warning" className="size-5 shrink-0 text-warn" />
-          <p className="min-w-0 flex-1 text-ink-200">
-            <strong className="font-semibold text-ink-100">This speaker&rsquo;s audio delay changed.</strong> Headphones or Bluetooth add delay
-            the browser doesn&rsquo;t report. Re-sync from where you sit (about 1 s per speaker).
-          </p>
-          <span className="ml-auto flex gap-1">
-            <Button size="sm" data-testid="banner-resync" onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
-              <Icon name="resync" className="size-4" /> Re-sync now
-            </Button>
+        <Banner
+          testid="route-restored"
+          icon="bluetooth"
+          iconClass="text-accent"
+          actions={
             <Button variant="ghost" size="sm" onClick={dismiss}>
               Dismiss
             </Button>
-          </span>
-        </div>
+          }
+        >
+          <strong className="font-semibold text-ink-100">Audio output changed to {routeRestored.label}.</strong> Using its saved
+          calibration ({fmtSigned(routeRestored.calibratedLatencyMs, 0)} ms). Re-sync if it sounds out of step.
+        </Banner>
+      )}
+      {routeChanged && (
+        <Banner
+          icon="warning"
+          iconClass="text-warn"
+          actions={
+            <>
+              <Button size="sm" data-testid="banner-resync" onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
+                <Icon name="resync" className="size-4" /> Re-sync now
+              </Button>
+              <Button variant="ghost" size="sm" onClick={dismiss}>
+                Dismiss
+              </Button>
+            </>
+          }
+        >
+          <strong className="font-semibold text-ink-100">This speaker&rsquo;s audio delay changed.</strong> Headphones or Bluetooth add delay
+          the browser doesn&rsquo;t report. Re-sync from where you sit (about 1 s per speaker).
+        </Banner>
       )}
       {emitting && (
         <div
@@ -244,7 +251,30 @@ function Banners() {
   );
 }
 
-const BANNER = 'mx-3 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-row bg-ink-850 px-4 py-3 text-sm sm:mx-4';
+/** Icon, message, then its actions: under the text on phones, beside it from sm up. */
+function Banner({
+  icon,
+  iconClass,
+  testid,
+  actions,
+  children,
+}: {
+  icon: IconName;
+  iconClass: string;
+  testid?: string;
+  actions: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div role="status" data-testid={testid} className="mx-3 mb-3 flex items-start gap-3 rounded-row bg-ink-850 px-4 py-3 text-sm sm:mx-4">
+      <Icon name={icon} className={`mt-0.5 size-5 shrink-0 ${iconClass}`} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+        <p className="min-w-0 text-ink-200 sm:flex-1">{children}</p>
+        <div className="flex shrink-0 flex-wrap gap-1">{actions}</div>
+      </div>
+    </div>
+  );
+}
 
 function Toasts() {
   const error = useRoomStore((s) => s.error);

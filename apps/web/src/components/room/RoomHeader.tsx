@@ -62,12 +62,12 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
   const c = CONN[conn];
 
   return (
-    <header className="flex shrink-0 items-center gap-3 px-3 py-2.5 sm:px-4">
+    <header className="flex shrink-0 items-center gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4">
       <button
         type="button"
         onClick={() => setBigQr(true)}
         aria-label="Show QR code to join"
-        className="shrink-0 overflow-hidden rounded-xl bg-white p-0.5 transition hover:ring-2 hover:ring-accent"
+        className="shrink-0 overflow-hidden rounded-md bg-white p-0.5 transition hover:ring-2 hover:ring-accent"
       >
         {qr ? (
           <img src={qr} alt="" className="size-10" />
@@ -77,27 +77,35 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
           </span>
         )}
       </button>
-      <div className="min-w-0 flex-1">
-        <p className="flex min-w-0 items-baseline gap-3 leading-tight">
-          {name && <span className="truncate font-display text-lg font-semibold text-ink-100">{name}</span>}
-          <span className="sr-only">Room code </span>
-          <span
-            data-testid="room-code"
-            className={`shrink-0 font-mono font-semibold tracking-[0.16em] ${name ? 'text-sm text-ink-300' : 'text-lg text-ink-100'}`}
-          >
-            {code}
+      {/* one code element, reordered: phones with a named room show the full name, then "● Connected · CODE" */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5 leading-tight max-sm:gap-x-2">
+        {name && (
+          <span className="order-1 max-w-full min-w-0 truncate font-display text-lg font-semibold text-ink-100 max-sm:basis-full max-sm:text-base">
+            {name}
           </span>
-        </p>
-        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-300">
+        )}
+        <span
+          data-testid="room-code"
+          className={`order-2 shrink-0 font-mono font-semibold tracking-[0.16em] ${
+            name ? 'text-base text-accent max-sm:order-4 max-sm:text-xs max-sm:tracking-[0.08em]' : 'text-xl text-accent'
+          }`}
+        >
+          <span className="sr-only">Room code </span>
+          {code}
+        </span>
+        <p className={`order-3 flex min-w-0 items-center gap-1.5 text-xs text-ink-300 ${name ? 'basis-full max-sm:basis-auto' : 'basis-full'}`}>
           <StatusDot status={c.tone} label="" testid="conn-status" />
-          <span role="status">{c.label}</span>
+          <span role="status" className={conn === 'open' && name ? 'max-sm:sr-only' : ''}>
+            {c.label}
+          </span>
           {/* phones: connection status only, so the header stays one row */}
           <span className="truncate max-sm:hidden">
             {isHost && ' · Host'} · {deviceCount} speaker{deviceCount === 1 ? '' : 's'}
           </span>
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+      {/* phones: 40px round actions so the room name keeps its width */}
+      <div className="flex shrink-0 items-center gap-0.5 max-sm:[&>button]:!min-h-10 max-sm:[&>button]:!size-10 max-sm:[&>button]:!px-0 sm:gap-1">
         {/* phones get the native share sheet instead of copy, to keep the header on one row */}
         <IconButton
           icon={copied ? 'check' : 'link'}
@@ -109,7 +117,7 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
         {canShare && <IconButton icon="share" label="Share join link" onClick={share} variant="ghost" className="sm:hidden" />}
         {debug && <DebugDrawer />}
         {extra}
-        <Button variant="ghost" onClick={leave} className="max-sm:!px-3" aria-label="Leave">
+        <Button variant="ghost" onClick={leave} aria-label="Leave">
           <Icon name="leave" className="size-4" />
           <span className="max-sm:hidden">Leave</span>
         </Button>
@@ -128,9 +136,9 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
           onKeyDown={(e) => e.key === 'Escape' && setBigQr(false)}
         >
           <div className="flex w-full max-w-sm flex-col items-center gap-5" onClick={(e) => e.stopPropagation()}>
-            {qr && <img src={qr} alt={`QR code linking to ${joinUrl}`} className="w-full rounded-panel bg-white p-4" />}
+            {qr && <img src={qr} alt={`QR code linking to ${joinUrl}`} className="w-full rounded-lg bg-white p-4" />}
             <div className="text-center">
-              <p className="font-mono text-4xl font-semibold tracking-[0.2em] text-ink-100">{code}</p>
+              <p className="font-mono text-4xl font-bold tracking-[0.2em] text-accent">{code}</p>
               <p className="mt-1 max-w-full truncate text-sm text-ink-400">{joinUrl}</p>
             </div>
             <Button autoFocus onClick={() => setBigQr(false)}>

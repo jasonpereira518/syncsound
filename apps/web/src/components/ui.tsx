@@ -226,7 +226,8 @@ export const surface = {
 type Variant = 'primary' | 'tonal' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-accent text-accent-ink font-semibold hover:bg-accent-bright',
+  primary:
+    'bg-accent text-accent-ink font-semibold hover:bg-accent-bright shadow-[0_0_24px_-6px_var(--color-accent)] disabled:shadow-none',
   tonal: 'bg-ink-800 text-ink-100 hover:bg-ink-700',
   ghost: 'text-ink-200 hover:bg-ink-800 hover:text-ink-100',
   danger: 'bg-bad/10 text-bad hover:bg-bad/15',
@@ -307,7 +308,7 @@ export function Panel({
   return (
     // phones show one panel at a time, so the page itself is the panel there (no box around the whole screen)
     <section id={id} aria-labelledby={hid} className={`flex min-w-0 flex-col ${surface.panel} p-5 max-lg:rounded-none max-lg:bg-transparent max-lg:px-1 max-lg:py-2 ${className}`}>
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 id={hid} className="flex items-center gap-2 font-display text-xl font-semibold tracking-tight">
           {icon && <Icon name={icon} className="size-5 text-ink-400" />}
           {title}
@@ -315,7 +316,7 @@ export function Panel({
         {actions && <div className="flex flex-wrap items-center gap-1.5">{actions}</div>}
       </header>
       {/* body scrolls when the panel is height-constrained (desktop shell); px keeps focus rings unclipped */}
-      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1">{children}</div>
+      <div className="no-scrollbar -mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1">{children}</div>
     </section>
   );
 }
@@ -416,7 +417,7 @@ export function Toggle({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-40 ${
+        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] disabled:opacity-40 ${
           checked ? 'bg-accent' : 'bg-ink-600'
         }`}
       >
@@ -479,7 +480,7 @@ export function RangeField({
   };
   return (
     <div className={compact ? 'flex min-w-0 flex-1 items-center gap-2' : 'min-w-0'}>
-      <div className={compact ? 'contents' : 'flex items-baseline justify-between gap-2'}>
+      <div className={compact ? 'contents' : '-mb-1.5 flex items-baseline justify-between gap-2'}>
         <label htmlFor={id} className={compact ? 'sr-only' : 'text-sm text-ink-200'}>
           {label}
         </label>
@@ -522,7 +523,7 @@ export function RangeField({
           />
         )}
       </div>
-      {hint && <p className="text-xs text-ink-400">{hint}</p>}
+      {hint && <p className="-mt-1.5 text-xs text-ink-400">{hint}</p>}
     </div>
   );
 }

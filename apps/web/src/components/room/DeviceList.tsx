@@ -145,7 +145,9 @@ function DeviceRow({ d }: { d: Device }) {
               Solo<span className="sr-only"> {d.name}</span>
             </button>
             <Button onClick={() => act(() => roomActions.applyPresetEq(d.id))}>
-              <Icon name="eq" className="size-4" /> Use preset EQ
+              <Icon name="eq" className="size-4" />
+              <span className="max-sm:hidden">Use preset EQ</span>
+              <span className="sm:hidden">Preset EQ</span>
             </Button>
           </fieldset>
         </div>

@@ -110,7 +110,7 @@ export function JoinGate({ code }: { code: string }) {
     <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5 py-10">
       <BrandLink className="mb-8" />
       <p className="text-sm text-ink-300">{info.state === 'ok' && info.name ? info.name : 'Room'}</p>
-      <p className="mt-1 font-mono text-4xl font-semibold tracking-[0.18em] text-ink-100">{code}</p>
+      <p className="mt-1 font-mono text-5xl font-bold tracking-[0.18em] text-accent">{code}</p>
       <h1 className="mt-6 font-display text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl">{mine ? 'Your room' : 'Use this device as a speaker'}</h1>
 
       <form onSubmit={onJoin} className="mt-8 flex flex-col gap-4">
@@ -155,7 +155,7 @@ export function JoinGate({ code }: { code: string }) {
             {error}
           </p>
         )}
-        <Button type="submit" variant="primary" size="lg" data-testid="join-button" disabled={connecting} className="mt-2 w-full">
+        <Button type="submit" variant="primary" size="lg" data-testid="join-button" disabled={connecting} className="mt-2 w-full shadow-[0_0_48px_-8px_var(--color-accent)]">
           <Icon name="volume" className="size-5" />
           {connecting ? 'Joining…' : mine ? 'Open my room' : 'Use this device as a speaker'}
         </Button>

@@ -10,6 +10,7 @@ import { act } from './shared';
 
 const STANDARD = LayoutId.options.filter((l) => isRoutedLayout(l));
 const STEP_TITLES = ['Add your speakers', 'Choose your sound', 'Tune the room'] as const;
+const STEP_SHORT = ['Speakers', 'Sound', 'Tune'] as const;
 
 /** First-run setup for a room: invite speakers → pick a layout and slots → acoustic tuning from the seat. */
 export function SetupWizard({ onDone }: { onDone: () => void }) {
@@ -20,12 +21,23 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-3 pb-28 sm:px-5">
-      <ol className="flex gap-2" aria-label="Setup steps">
+      <ol className="grid grid-cols-3 gap-2" aria-label="Setup steps">
         {STEP_TITLES.map((t, i) => (
-          <li key={t} className="flex-1" aria-current={i === step ? 'step' : undefined}>
+          <li key={t} aria-current={i === step ? 'step' : undefined}>
             <span className={`block h-1.5 rounded-full transition-colors ${i <= step ? 'bg-accent' : 'bg-ink-700'}`} />
-            <span className={`mt-2 block text-[13px] ${i === step ? 'font-medium text-ink-100' : 'text-ink-400 max-sm:sr-only'}`}>
-              {t}
+            <span className={`mt-2.5 flex items-center gap-2 text-[13px] ${i === step ? 'font-medium text-ink-100' : 'text-ink-400'}`}>
+              <span
+                aria-hidden
+                className={`grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold tabular ${
+                  i <= step ? 'bg-accent text-accent-ink' : 'bg-ink-800 text-ink-400'
+                }`}
+              >
+                {i < step ? <Icon name="check" className="size-3.5" /> : i + 1}
+              </span>
+              <span className="min-w-0 truncate">
+                <span className="sm:hidden">{STEP_SHORT[i]}</span>
+                <span className="max-sm:sr-only">{t}</span>
+              </span>
             </span>
           </li>
         ))}
@@ -71,14 +83,14 @@ function AddSpeakers({ devices }: { devices: Device[] }) {
   const { code, joinUrl, qr } = useJoinLink();
   const selfId = useRoomStore((s) => s.deviceId);
   return (
-    <div className="grid gap-8 sm:grid-cols-[13rem_1fr] sm:items-start">
+    <div className="grid gap-6 sm:grid-cols-[13rem_1fr] sm:items-start sm:gap-8">
       <div className="flex flex-col items-center gap-2">
         {qr ? (
-          <img src={qr} alt={`QR code to join, ${joinUrl}`} className="w-52 rounded-panel bg-white p-3" />
+          <img src={qr} alt={`QR code to join, ${joinUrl}`} className="w-44 rounded-lg bg-white p-3 sm:w-52" />
         ) : (
-          <div className="size-52 rounded-panel bg-ink-850" />
+          <div className="size-44 rounded-lg bg-ink-850 sm:size-52" />
         )}
-        <p className="font-mono text-2xl font-semibold tracking-[0.18em] text-ink-100">{code}</p>
+        <p className="font-mono text-2xl font-bold tracking-[0.18em] text-accent">{code}</p>
       </div>
       <div>
         <p className="text-ink-200">
@@ -99,7 +111,9 @@ function AddSpeakers({ devices }: { devices: Device[] }) {
                 {d.id === selfId && <span className="ml-2 text-xs text-ink-400">this device</span>}
               </span>
               <Button variant="ghost" size="sm" onClick={() => act(() => roomActions.identify(d.id))}>
-                <Icon name="bell" className="size-4" /> Play a beep
+                <Icon name="bell" className="size-4" />
+                <span className="sm:hidden">Beep</span>
+                <span className="max-sm:hidden">Play a beep</span>
               </Button>
             </li>
           ))}

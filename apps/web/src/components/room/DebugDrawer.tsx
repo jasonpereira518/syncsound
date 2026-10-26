@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRoomStore } from '@/store/roomStore';
-import { Icon, fmtMs, fmtSigned } from '../ui';
+import { Icon, IconButton, fmtMs, fmtSigned } from '../ui';
 import { isTypingTarget } from './shared';
 
 export function DebugDrawer() {
@@ -33,7 +33,7 @@ export function DebugDrawer() {
         <Icon name="bug" />
         <span className="sr-only">{open ? 'Hide' : 'Show'} debug info (D)</span>
       </button>
-      {open && <DebugBody />}
+      {open && <DebugBody onClose={() => setOpen(false)} />}
     </>
   );
 }
@@ -47,7 +47,7 @@ function Row({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
-function DebugBody() {
+function DebugBody({ onClose }: { onClose: () => void }) {
   const clock = useRoomStore((s) => s.clock);
   const engine = useRoomStore((s) => s.engine);
   const capture = useRoomStore((s) => s.capture);
@@ -60,9 +60,12 @@ function DebugBody() {
     <aside
       id="debug-drawer"
       aria-label="Debug info"
-      className="fixed inset-x-0 bottom-0 z-40 max-h-[70dvh] overflow-y-auto rounded-t-panel bg-ink-900 p-5 pb-[calc(6rem+env(safe-area-inset-bottom))] font-mono text-xs lg:inset-x-auto lg:top-16 lg:right-3 lg:bottom-24 lg:max-h-none lg:w-[420px] lg:rounded-panel lg:pb-5"
+      className="fixed inset-x-0 bottom-0 z-40 max-h-[70dvh] overflow-y-auto rounded-t-panel bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] font-mono text-xs lg:inset-x-auto lg:top-16 lg:right-3 lg:bottom-24 lg:max-h-none lg:w-[420px] lg:rounded-panel lg:pb-5"
     >
-      <h2 className="mb-3 font-display text-base font-semibold">Debug</h2>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="font-display text-base font-semibold">Debug</h2>
+        <IconButton icon="x" label="Close debug info" variant="ghost" size="sm" className="-mr-2" onClick={onClose} />
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
         <section aria-label="Clock">
           <h3 className="mb-1 text-[11px] tracking-widest text-ink-400 uppercase">Clock</h3>
