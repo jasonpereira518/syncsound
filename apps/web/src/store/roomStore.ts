@@ -4,7 +4,7 @@
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
 import { dueNow, setBatterySaverFlag } from '../lib/power';
-import { autoAssign, defaultObjectsFor, isRoutedLayout, presetLayout, slotPositions, type RoomClock } from '@syncsound/audio-core';
+import { autoAssign, defaultObjectsFor, isRoutedLayout, placeDevice, presetLayout, slotPositions, type RoomClock } from '@syncsound/audio-core';
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
@@ -551,15 +551,19 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     roomActions.updateScene({ layout, devices }, { commit: true });
   },
 
-  assignSlot(deviceId, role) {
+  placeInSlot(deviceId, role) {
     const room = useRoomStore.getState().room;
     if (!room) return;
-    roomActions.updateDevice({ role }, deviceId);
+    const live = room.devices.filter((d) => d.connected || d.id === deviceId);
+    const roles = placeDevice(Object.fromEntries(live.map((d) => [d.id, d.role])), deviceId, role);
+    for (const d of live) if (roles[d.id] !== d.role) roomActions.updateDevice({ role: roles[d.id]! }, d.id);
     const layout = room.scene.layout;
-    if (!isRoutedLayout(layout)) return;
-    // re-place everyone so devices sharing a slot fan out around it
-    const roles = Object.fromEntries(room.devices.filter((d) => d.connected).map((d) => [d.id, d.id === deviceId ? role : d.role]));
-    roomActions.updateScene({ devices: slotPositions(layout, roles, room.scene) }, { commit: true });
+    if (isRoutedLayout(layout)) roomActions.updateScene({ devices: slotPositions(layout, roles, room.scene) }, { commit: true });
+  },
+
+  resetSlots() {
+    const layout = useRoomStore.getState().room?.scene.layout;
+    if (layout) roomActions.setLayout(layout);
   },
 
   updateSettings(p) {

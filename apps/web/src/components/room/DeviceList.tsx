@@ -102,7 +102,10 @@ function DeviceRow({ d }: { d: Device }) {
           id={`role-${d.id}`}
           value={d.role}
           disabled={!editable}
-          onChange={(e) => update({ role: e.target.value as DeviceRole }, d.id)}
+          // one speaker per spot: a controller's pick swaps with the current holder; a guest only changes their own
+          onChange={(e) =>
+            canControl ? act(() => roomActions.placeInSlot(d.id, e.target.value as DeviceRole)) : update({ role: e.target.value as DeviceRole }, d.id)
+          }
           className="h-11 w-20 shrink-0 rounded-xl border border-ink-600 bg-ink-800 px-2 font-mono text-sm disabled:opacity-50"
           style={{ color }}
         >

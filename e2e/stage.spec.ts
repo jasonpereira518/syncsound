@@ -20,7 +20,7 @@ test('stage layouts propagate to every client and undo/redo restore them', async
   await expect.poll(() => positions(guest.page)).toBe(await positions(host.page));
   const before = await positions(host.page);
 
-  await host.page.getByTestId('layout-stereo').click();
+  await host.page.getByTestId('stage-layout').selectOption('stereo');
   await expect.poll(() => positions(host.page)).not.toBe(before);
   const front = await positions(host.page);
   await expect.poll(() => positions(guest.page), { timeout: 10_000 }).toBe(front);

@@ -1,16 +1,19 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
-import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
+import { LayoutId, ObjectChannel, type AudioObject, type Device, type DeviceRole, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
+import { computeDeviceMix, dbapGains, freeSpot, isRoutedLayout, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
+import { SLOT_NAME, slotAnchors } from './RoomDiagram';
 import { act, isTypingTarget, useCanControl } from './shared';
+import { SpotPicker } from './SpeakerSpots';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
 type ScenePatch = Omit<SceneUpdate, 'type'>;
 
 const SNAP = 0.25;
-const GLYPH_PX = 34; // on-screen size of one glyph unit, so labels stay legible at any map or room size
+const SPOT_DROP_M = 0.9; // a device dropped this close to a preset spot lands in it
+const GLYPH_PX = 46; // on-screen size of one glyph unit, so labels stay legible at any map or room size
 const CHANNELS = ObjectChannel.options;
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -34,6 +37,14 @@ function patchFor(scene: Scene, t: Target): ScenePatch {
 }
 const sceneUpdate = (patch: ScenePatch, commit: boolean) => act(() => roomActions.updateScene(patch, { commit }));
 
+/** Inspector and settings share one spot: floating over the map on desktop and in fullscreen, under it on phones. */
+const overlayClass = (floating: boolean) =>
+  `bg-ink-850/95 p-3 text-sm backdrop-blur ${
+    floating
+      ? 'absolute inset-x-2 top-2 max-h-[calc(100%-1rem)] overflow-y-auto rounded-xl border border-ink-700 shadow-xl sm:left-auto sm:w-80'
+      : 'border-t border-ink-700 lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-80 lg:overflow-y-auto lg:rounded-xl lg:border lg:shadow-xl'
+  }`;
+
 /** Total linear level a device puts out for the scene (for the little meters). */
 const totalGain = (m: DeviceMix) => {
   const sq = Object.values(m.objectGains).reduce((a, g) => a + g * g, 0) + m.bassGain * m.bassGain;
@@ -52,9 +63,13 @@ export function Stage() {
   const [dragging, setDragging] = useState(false);
   const [sel, setSel] = useState<Target | null>(null);
   const [snap, setSnap] = useState(false);
+  const [settings, setSettings] = useState(false); // settings popover; shares the inspector's spot, so only one shows
+  const [full, setFull] = useState(false); // stage fills the window
+  const [spot, setSpot] = useState<DeviceRole | null>(null); // preset layouts: the spot whose picker is open, or under a dragged device
+  const [overSpot, setOverSpot] = useState<DeviceRole | null>(null);
   const [announce, setAnnounce] = useState('');
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ t: Target; dx: number; dy: number; last: Scene | null } | null>(null);
+  const drag = useRef<{ t: Target; dx: number; dy: number; last: Scene | null; orig: Scene; over: DeviceRole | null } | null>(null);
 
   const base = room?.scene ?? null;
   const scene = draft && (dragging || draftBase === base) ? draft : base;
@@ -75,12 +90,27 @@ export function Stage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [canControl]);
 
+  // Esc peels back one layer: popover, then selection, then fullscreen
+  const hasSel = sel !== null;
+  useEffect(() => {
+    if (!full && !settings && !hasSel && !spot) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (settings) setSettings(false);
+      else if (spot) setSpot(null);
+      else if (hasSel) setSel(null);
+      else setFull(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [full, settings, hasSel, spot]);
+
   // rendered pixels per metre, so glyphs can be sized in screen pixels rather than room metres
   const [pxPerM, setPxPerM] = useState(0);
   const geo = useMemo(() => {
     const W = scene?.room.width ?? 8;
     const D = scene?.room.depth ?? 6;
-    const pad = Math.max(0.9, Math.max(W, D) * 0.13);
+    const pad = Math.max(0.7, Math.max(W, D) * 0.1);
     const u = pxPerM > 0 ? Math.min(GLYPH_PX / pxPerM, pad * 0.8) : Math.max(W, D) / 13;
     return { W, D, pad, u };
   }, [scene?.room.width, scene?.room.depth, pxPerM]);
@@ -155,32 +185,72 @@ export function Stage() {
     return { x: p.x, y: p.y };
   };
 
-  const onDown = (e: PointerEvent<SVGGElement>, t: Target) => {
+  const pick = (t: Target) => {
     setSel(t);
+    setSettings(false);
+    setSpot(null);
+  };
+
+  // preset layouts: speakers live in spots, so a dragged device snaps to the nearest one (or the tray below the room)
+  const routed = isRoutedLayout(scene.layout);
+  const anchors = routed ? slotAnchors(scene.layout!, scene) : {};
+  const spotAt = (p: Vec2): DeviceRole | null => {
+    if (p.y > D / 2 + 0.1) return 'Full';
+    let best: DeviceRole | null = null;
+    let bestD = SPOT_DROP_M;
+    for (const [s, a] of Object.entries(anchors)) {
+      const dist = Math.hypot(a.x - p.x, a.y - p.y);
+      if (dist < bestD) [best, bestD] = [s as DeviceRole, dist];
+    }
+    return best;
+  };
+  const snapsToSpot = (t: Target) => routed && t.kind === 'device';
+
+  const onDown = (e: PointerEvent<SVGElement>, t: Target) => {
+    pick(t);
     if (!canControl || e.button !== 0) return;
     const m = toMeters(e);
     const p = posOf(scene, t, tray);
     if (!m || !p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { t, dx: p.x - m.x, dy: p.y - m.y, last: null };
+    drag.current = { t, dx: p.x - m.x, dy: p.y - m.y, last: null, orig: scene, over: null };
     setDragging(true);
   };
-  const onMove = (e: PointerEvent<SVGGElement>) => {
+  const onMove = (e: PointerEvent<SVGElement>) => {
     const d = drag.current;
     const m = d && toMeters(e);
     if (!d || !m) return;
-    const next = withPos(scene, d.t, clampSnap({ x: m.x + d.dx, y: m.y + d.dy }));
+    const raw = { x: m.x + d.dx, y: m.y + d.dy };
+    if (snapsToSpot(d.t)) {
+      d.over = spotAt(raw);
+      setOverSpot(d.over);
+    }
+    // an unplaced device can follow the pointer down into the tray
+    const next = withPos(scene, d.t, d.over === 'Full' ? { x: r2(raw.x), y: r2(Math.min(raw.y, D / 2 + pad * 0.8)) } : clampSnap(raw));
     d.last = next;
     setDraft(next);
     setDraftBase(base);
     sceneUpdate(patchFor(next, d.t), false);
   };
-  const onUp = (e: PointerEvent<SVGGElement>) => {
+  const onUp = (e: PointerEvent<SVGElement>) => {
     const d = drag.current;
     if (!d) return;
     drag.current = null;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     setDragging(false);
+    setOverSpot(null);
+    if (d.last && snapsToSpot(d.t)) {
+      const dev = room.devices.find((x) => x.id === d.t.id);
+      if (dev && d.over && d.over !== dev.role) {
+        act(() => roomActions.placeInSlot(dev.id, d.over!));
+      } else {
+        // dropped away from any spot: back where it was
+        setDraft({ ...scene, devices: d.orig.devices });
+        setDraftBase(base);
+        sceneUpdate({ devices: d.orig.devices }, false);
+      }
+      return;
+    }
     if (d.last) {
       setDraftBase(base); // keep showing the drop position until the store echoes a new scene
       sceneUpdate(patchFor(d.last, d.t), true);
@@ -190,7 +260,7 @@ export function Stage() {
   const onItemKey = (e: KeyboardEvent<SVGGElement>, t: Target, label: string) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      setSel(t);
+      pick(t);
       return;
     }
     if (!canControl) return;
@@ -203,12 +273,13 @@ export function Stage() {
     const step = e.shiftKey ? 0.5 : snap ? SNAP : 0.1;
     const delta: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     const dv = delta[e.key];
+    if (snapsToSpot(t)) return; // spots move them; keyboard users pick from a spot's list
     const p = posOf(base, t, tray);
     if (!dv || !p) return;
     e.preventDefault();
     const np = clampSnap({ x: p.x + dv[0], y: p.y + dv[1] });
     const next = withPos(base, t, np);
-    setSel(t);
+    pick(t);
     setDraft(next);
     setDraftBase(base);
     sceneUpdate(patchFor(next, t), true);
@@ -242,36 +313,69 @@ export function Stage() {
     <Panel
       title="Stage"
       icon="stage"
-      className="lg:h-full"
+      // fullscreen is a fixed overlay rather than the Fullscreen API, which iPhone Safari lacks for elements
+      className={full ? 'fixed inset-0 z-50 !rounded-none !bg-ink-950' : 'lg:h-full'}
       actions={
-        <>
+        <div className="flex flex-wrap items-center gap-1">
+          <label htmlFor="stage-layout" className="sr-only">
+            Speaker layout
+          </label>
+          <select
+            id="stage-layout"
+            data-testid="stage-layout"
+            value={scene.layout ?? 'custom'}
+            disabled={!canControl}
+            onChange={(e) => applyLayout(e.target.value as LayoutId)}
+            className="h-11 max-w-44 min-w-0 rounded-xl border border-ink-600 bg-ink-850 px-2 text-sm disabled:opacity-45"
+          >
+            {LayoutId.options.map((l) => (
+              <option key={l} value={l}>
+                {layoutLabel(l, hasSub)}
+                {l === suggested ? ' (suggested)' : ''}
+              </option>
+            ))}
+          </select>
+          {routed && canControl && (
+            <Button data-testid="stage-reset-spots" className="!px-3" onClick={() => act(() => roomActions.resetSlots())}>
+              Reset
+            </Button>
+          )}
           <IconButton icon="undo" label="Undo (Ctrl/Cmd+Z)" disabled={!canControl || !canUndo} onClick={() => act(() => roomActions.undo())} />
           <IconButton icon="redo" label="Redo (Shift+Ctrl/Cmd+Z)" disabled={!canControl || !canRedo} onClick={() => act(() => roomActions.redo())} />
           <IconButton icon="grid" label={`Snap to ${SNAP} m grid`} pressed={snap} onClick={() => setSnap(!snap)} />
-        </>
+          <IconButton
+            icon="sliders"
+            label="Stage settings"
+            data-testid="stage-settings"
+            pressed={settings}
+            onClick={() => {
+              setSettings(!settings);
+              setSel(null);
+              setSpot(null);
+            }}
+          />
+          <IconButton icon={full ? 'shrink' : 'expand'} label={full ? 'Exit full screen (Esc)' : 'Full screen'} pressed={full} onClick={() => setFull(!full)} />
+        </div>
       }
     >
-      {/* desktop: the map takes whatever height the controls leave */}
-      <div className="flex flex-col gap-3 lg:h-full">
-        {!canControl && (
-          <p className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
-            <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> The host has locked the stage. You can look, not move.
-          </p>
-        )}
+      {/* the map takes all the height the panel has */}
+      <div className={`flex flex-col gap-3 ${full ? 'h-full' : 'lg:h-full'}`}>
         <p id="stage-help" className="sr-only">
           Top-down map of the room, front stage at the top. Drag items, or focus one with Tab and use the arrow keys to move it by 0.1 metres (Shift
           for 0.5). Delete removes a selected sound object.
         </p>
-        <div className="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-950 lg:min-h-48 lg:flex-1">
+        <div className={`relative overflow-hidden rounded-xl border border-ink-700 bg-ink-950 ${full ? 'min-h-0 flex-1' : 'lg:min-h-48 lg:flex-1'}`}>
           <svg
             ref={svgRef}
             data-testid="stage-svg"
             viewBox={`${-W / 2 - pad} ${-D / 2 - pad} ${W + 2 * pad} ${D + 2 * pad}`}
-            className="block h-auto max-h-[60vh] w-full touch-none select-none lg:absolute lg:inset-0 lg:h-full lg:max-h-none"
+            className={`block w-full touch-none select-none ${
+              full ? 'absolute inset-0 h-full' : 'h-auto max-h-[70vh] lg:absolute lg:inset-0 lg:h-full lg:max-h-none'
+            }`}
             role="group"
             aria-label={`Room map, ${W} by ${D} metres`}
             aria-describedby="stage-help"
-            onPointerDown={(e) => !(e.target as Element).closest('.stage-item') && setSel(null)}
+            onPointerDown={(e) => !(e.target as Element).closest('.stage-item, .stage-hit, .stage-spot') && (setSel(null), setSpot(null))}
           >
             <defs>
               <radialGradient id="stage-glow">
@@ -293,12 +397,86 @@ export function Stage() {
             <text x={W / 2} y={D / 2 + pad * 0.3} textAnchor="end" fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
               {W} × {D} m
             </text>
-            <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
-              {Object.keys(tray).length > 0 ? 'unplaced: drag into the room ↑' : canControl ? 'drag to move · click to inspect' : 'click to inspect'}
-            </text>
+            {Object.keys(tray).length > 0 && (
+              <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
+                unplaced: drag into the room ↑
+              </text>
+            )}
+
+            {/* preset spots: rings the speakers sit in; an empty one opens its picker */}
+            {Object.entries(anchors).map(([slot, a]) => {
+              const s = slot as DeviceRole;
+              const taken = live.some((d) => d.role === s && scene.devices[d.id]);
+              const lit = overSpot === s || spot === s;
+              return (
+                <g
+                  key={`spot-${s}`}
+                  className="stage-spot outline-none"
+                  data-testid={`stage-spot-${s}`}
+                  role="button"
+                  tabIndex={canControl ? 0 : -1}
+                  aria-label={`${SLOT_NAME[s]}: ${taken ? 'taken' : 'empty'}`}
+                  style={{ cursor: canControl ? 'pointer' : 'default' }}
+                  onClick={() => {
+                    if (!canControl) return;
+                    setSel(null);
+                    setSettings(false);
+                    setSpot(spot === s ? null : s);
+                  }}
+                  onKeyDown={(e) => {
+                    if (!canControl || (e.key !== 'Enter' && e.key !== ' ')) return;
+                    e.preventDefault();
+                    setSel(null);
+                    setSettings(false);
+                    setSpot(s);
+                  }}
+                >
+                  <circle
+                    cx={a.x}
+                    cy={a.y}
+                    r={u * 0.85}
+                    fill={lit ? 'var(--color-accent)' : 'transparent'}
+                    fillOpacity={lit ? 0.12 : 1}
+                    stroke={lit ? 'var(--color-accent)' : ROLE_COLOR[s]}
+                    strokeOpacity={lit ? 1 : 0.55}
+                    strokeWidth={u * (lit ? 0.08 : 0.04)}
+                    strokeDasharray={`${u * 0.14} ${u * 0.1}`}
+                  />
+                  {!taken && (
+                    <text x={a.x} y={a.y + u * 1.25} textAnchor="middle" fontSize={fs * 0.72} fill="var(--color-ink-400)">
+                      {SLOT_NAME[s]}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
 
             {/* listener */}
             <circle cx={lis.x} cy={lis.y} r={u * 2.2} fill="url(#stage-glow)" pointerEvents="none" />
+
+            {/* grab areas bigger than the glyphs, drawn under all of them so they never cover another item */}
+            {[
+              { t: { kind: 'listener', id: 'listener' } as Target, p: lis },
+              ...devices.map((d) => ({ t: { kind: 'device', id: d.id } as Target, p: scene.devices[d.id] ?? tray[d.id] })),
+              ...scene.objects.map((o) => ({ t: { kind: 'object', id: o.id } as Target, p: o.position })),
+            ].map(
+              ({ t, p }) =>
+                p && (
+                  <circle
+                    key={`hit-${t.kind}-${t.id}`}
+                    className="stage-hit"
+                    cx={p.x}
+                    cy={p.y}
+                    r={u * 1.1}
+                    fill="transparent"
+                    style={{ cursor: canControl ? 'grab' : 'pointer' }}
+                    onPointerDown={(e) => onDown(e, t)}
+                    onPointerMove={onMove}
+                    onPointerUp={onUp}
+                    onPointerCancel={onUp}
+                  />
+                ),
+            )}
             <StageItem
               t={{ kind: 'listener', id: 'listener' }}
               testid="stage-listener"
@@ -363,7 +541,8 @@ export function Stage() {
                   <text y={u * 1.0} textAnchor="middle" fontSize={fs * 0.82} fill="var(--color-ink-100)">
                     {d.name.length > 14 ? `${d.name.slice(0, 13)}…` : d.name}
                   </text>
-                  {mix && (
+                  {/* level + delay only for the selected speaker, to keep the map readable */}
+                  {mix && same(sel, { kind: 'device', id: d.id }) && (
                     <g transform={`translate(${-u * 0.6} ${u * 1.18})`}>
                       <rect width={u * 1.2} height={u * 0.13} rx={u * 0.06} fill="var(--color-ink-700)" />
                       <rect width={u * 1.2 * totalGain(mix)} height={u * 0.13} rx={u * 0.06} fill="var(--color-accent)" />
@@ -415,60 +594,27 @@ export function Stage() {
               </StageItem>
             ))}
           </svg>
-          <Inspector
-            sel={sel}
-            scene={scene}
-            devices={devices}
-            gains={selGains}
-            mixes={mixes}
-            canControl={canControl}
-            onDelete={deleteObject}
-            onClose={() => setSel(null)}
-          />
-          <span className="sr-only" aria-live="polite">
-            {announce}
-          </span>
-        </div>
-
-        <fieldset disabled={!canControl} className="min-w-0 space-y-3 lg:max-h-[45%] lg:shrink-0 lg:overflow-y-auto lg:px-1">
-          <legend className="sr-only">Stage controls</legend>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <div className="min-w-0">
-              <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layouts</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {LayoutId.options.map((l) => (
-                  <Button
-                    key={l}
-                    data-testid={`layout-${l}`}
-                    aria-pressed={(scene.layout ?? 'custom') === l}
-                    variant={(scene.layout ?? 'custom') === l ? 'primary' : undefined}
-                    className="!min-h-9 rounded-full !px-3 text-xs"
-                    onClick={() => applyLayout(l)}
-                  >
-                    {layoutLabel(l, hasSub)}
-                    {l === suggested && <span className="ml-1 text-[10px] opacity-70">suggested</span>}
-                  </Button>
-                ))}
+          {!canControl && (
+            <span className="pointer-events-none absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-full border border-ink-700 bg-ink-850/90 px-2.5 py-1 text-xs text-ink-300">
+              <Icon name="lock" className="size-3.5" /> Locked by the host: view only
+            </span>
+          )}
+          {settings ? (
+            <fieldset disabled={!canControl} aria-label="Stage settings" className={`min-w-0 space-y-3 ${overlayClass(full)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium">Stage settings</p>
+                <IconButton icon="x" label="Close settings" className="!size-9 border-transparent" onClick={() => setSettings(false)} />
               </div>
-            </div>
-            <AddObject
-              disabled={scene.objects.length >= 32}
-              onAdd={(o) => {
-                const taken = [base.listener, ...Object.values(base.devices), ...base.objects.map((x) => x.position)];
-                const position = clampSnap(freeSpot({ x: 0, y: -D / 4 }, taken, base.room, Math.max(0.8, 2 * u)));
-                const objects = [...base.objects, { ...o, position }];
-                sceneUpdate({ objects }, true);
-                setSel({ kind: 'object', id: o.id });
-              }}
-            />
-          </div>
-          {/* secondary settings stay folded so the map keeps the height */}
-          <details className="group rounded-xl border border-ink-700">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-medium tracking-widest text-ink-400 uppercase hover:text-ink-100">
-              Rendering &amp; room size
-              <span aria-hidden className="text-base transition group-open:rotate-90">›</span>
-            </summary>
-            <div className="grid gap-3 px-3 pb-3 md:grid-cols-2">
+              <AddObject
+                disabled={scene.objects.length >= 32}
+                onAdd={(o) => {
+                  const taken = [base.listener, ...Object.values(base.devices), ...base.objects.map((x) => x.position)];
+                  const position = clampSnap(freeSpot({ x: 0, y: -D / 4 }, taken, base.room, Math.max(0.8, 2 * u)));
+                  const objects = [...base.objects, { ...o, position }];
+                  sceneUpdate({ objects }, true);
+                  setSel({ kind: 'object', id: o.id });
+                }}
+              />
               <Toggle
                 label="Time-align to listener"
                 description="Delay nearer speakers so sound arrives together"
@@ -516,18 +662,41 @@ export function Stage() {
                 <RangeField label="Room width" min={2} max={30} step={0.5} value={W} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: v, depth: D }), true)} />
                 <RangeField label="Room depth" min={2} max={30} step={0.5} value={D} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: W, depth: v }), true)} />
               </div>
+            </fieldset>
+          ) : spot ? (
+            <div data-testid="stage-spot-picker" className={overlayClass(full)}>
+              <div className="float-right">
+                <IconButton icon="x" label="Close" className="!size-9 border-transparent" onClick={() => setSpot(null)} />
+              </div>
+              <SpotPicker slot={spot} devices={room.devices} onDone={() => setSpot(null)} />
             </div>
-          </details>
-        </fieldset>
+          ) : (
+            <Inspector
+              sel={sel}
+              scene={scene}
+              devices={devices}
+              gains={selGains}
+              mixes={mixes}
+              canControl={canControl}
+              floating={full}
+              onSpot={routed && canControl ? (s) => (setSel(null), setSpot(s)) : undefined}
+              onDelete={deleteObject}
+              onClose={() => setSel(null)}
+            />
+          )}
+          <span className="sr-only" aria-live="polite">
+            {announce}
+          </span>
+        </div>
       </div>
     </Panel>
   );
 }
 
 interface ItemHandlers {
-  onDown: (e: PointerEvent<SVGGElement>, t: Target) => void;
-  onMove: (e: PointerEvent<SVGGElement>) => void;
-  onUp: (e: PointerEvent<SVGGElement>) => void;
+  onDown: (e: PointerEvent<SVGElement>, t: Target) => void;
+  onMove: (e: PointerEvent<SVGElement>) => void;
+  onUp: (e: PointerEvent<SVGElement>) => void;
   onItemKey: (e: KeyboardEvent<SVGGElement>, t: Target, label: string) => void;
 }
 
@@ -618,6 +787,8 @@ function Inspector({
   gains,
   mixes,
   canControl,
+  floating,
+  onSpot,
   onDelete,
   onClose,
 }: {
@@ -627,6 +798,8 @@ function Inspector({
   gains: Record<string, number> | null;
   mixes: Record<string, DeviceMix> | null;
   canControl: boolean;
+  floating: boolean;
+  onSpot?: (slot: DeviceRole) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }) {
@@ -638,7 +811,7 @@ function Inspector({
   const mix = dev ? mixes?.[dev.id] : undefined;
   return (
     // desktop: floats over the map so selecting never resizes it; phones: sits under the map
-    <div className="border-t border-ink-700 bg-ink-850/95 p-3 text-sm backdrop-blur lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto lg:rounded-xl lg:border lg:shadow-xl">
+    <div className={overlayClass(floating)}>
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 truncate font-medium">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
         <div className="flex shrink-0 items-center gap-1">
@@ -651,6 +824,14 @@ function Inspector({
         </div>
       </div>
       <p className="mt-1 font-mono text-xs text-ink-400">{pos ? fmtPos(pos) : 'not placed'}</p>
+      {dev && onSpot && dev.role !== 'Full' && (
+        <p className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-300">
+          Plays {SLOT_NAME[dev.role].toLowerCase()}
+          <Button className="!min-h-9 !px-3 text-xs" onClick={() => onSpot(dev.role)}>
+            Change speaker
+          </Button>
+        </p>
+      )}
       {obj && gains && (
         <ul className="mt-2 space-y-1">
           {devices

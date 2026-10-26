@@ -7,6 +7,7 @@ import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon, IconButton, StatusDot } from '../ui';
 import { Library, MasterVolume } from './Player';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
+import { SpeakerSpots } from './SpeakerSpots';
 import { act, currentTrack, errMsg, roomNowMs, syncStatusOf, toast, useCanControl } from './shared';
 
 /** the room's one-line health summary: how many speakers, and whether they're all locked together */
@@ -26,7 +27,10 @@ function useRoomHealth() {
 export function NowPlaying({ onSetup }: { onSetup: () => void }) {
   const [showSpeakers, setShowSpeakers] = useState(false);
   const health = useRoomHealth();
-  const layout = useRoomStore((s) => s.room?.scene.layout);
+  const scene = useRoomStore((s) => s.room?.scene);
+  const devices = useRoomStore((s) => s.room?.devices);
+  const canControl = useCanControl();
+  const layout = scene?.layout;
   const hasSub = health.live.some((d) => d.role === 'Sub');
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4 px-4 pb-6">
@@ -45,6 +49,11 @@ export function NowPlaying({ onSetup }: { onSetup: () => void }) {
           </span>
           <span className="text-sm text-ink-400">{showSpeakers ? 'Hide' : 'Show'}</span>
         </button>
+        {showSpeakers && scene && devices && isRoutedLayout(layout) && (
+          <div className="mt-3">
+            <SpeakerSpots layout={layout} scene={scene} devices={devices} canControl={canControl} />
+          </div>
+        )}
         {showSpeakers && <SpeakerList devices={health.live} />}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button data-testid="change-setup" onClick={onSetup}>
