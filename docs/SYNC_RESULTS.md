@@ -169,6 +169,32 @@ The Bluetooth speaker is timed exactly at the listener and keeps its hand placem
 window (256) and a smaller best-fraction (15 %) lowered §2b's device-to-device p95 only from 0.41 to 0.37 ms, so the
 filter is unchanged (DECISIONS #54).
 
+### 4c. Tune on real, still-converging clocks (`tuneClock.test.ts`)
+
+The room of §4b, but every device runs a real `ClockSync` over a simulated network (joined 5–20 s before the
+listener taps Tune, i.e. still converging and slewing, as in the setup wizard) and a real `AudioClockMap` fed at
+4 Hz. Each device schedules its chime through its live clock; each recorder analyses through its frozen map; the
+tune is played a minute later through each device's live clock. "Old" = before S2 (start after 8 clock samples, a
+1 s finite difference over the live clocks for the recorder map, live 500 ms snapshots of the master's mapping);
+"new" = S2 (wait for `clockSettled`, `frozenRoomMap`, the master's mapping pinned for the plan). 6 seeds.
+
+| Variant | Pipeline | Settle wait p95 | Recorder rate error p95 | Head alignment p50 / p95 / max |
+|---|---|---|---|---|
+| LAN clock master (the listener), peers over Wi-Fi | old | 0 s | 1025 ppm | 0.32 / **3.27** / 5.56 ms |
+| | new, without the mapping hold | 20 s | 36 ppm | 0.33 / 1.21 / 1.35 ms |
+| | **new** | 20 s | 41 ppm | 0.25 / **0.74** / 1.08 ms |
+| Every device on the server clock (WAN) | old | 0 s | 127 ppm | 0.97 / 3.65 / 4.71 ms |
+| | new | 20 s | 39 ppm | 0.62 / 1.86 / 3.35 ms |
+
+- In the old LAN run of seed 4 the master had a 2.5 ms slew pending at the freeze: the finite difference leaked
+  ~1000 ppm into every recorder's map and spread the arrivals by 5.6 ms. The analytic map does not see the slew.
+- The 20 s settle wait is the soft cap: the audio clock's long window needs 30 s from the context's creation, and
+  these contexts were created 5–20 s before the tune. A device that joined a minute earlier waits ~3 s.
+- The server-clock-only variant is clock-limited: each device's WAN estimate (σ 5 ms jitter) moves by about a
+  millisecond in the minute between the tune and the play, which no tune can absorb. That is what the LAN clock
+  master (§2b) is for.
+- Distances: laptop-to-laptop max 0.146 m (new) vs 0.22 m (old), the stereo half-width either way.
+
 ## 5. Sync-measurement tool (`syncMeasure.test.ts` + E2E)
 
 - **Simulated:** 4 devices click for 60 s, time-staggered by 250 ms with identical wideband chirps, each with a known
@@ -187,7 +213,9 @@ heard) can be compared directly. This checks the whole scheduling pipeline in re
 | Scenario | Spread across devices |
 |---|---|
 | 3 contexts, play | **0.11 ms** (0.02–0.25 ms across runs, incl. fresh-clone verify) |
+| Pause, then resume (one start time, the paused offset, nobody late) | 0.01 ms |
 | Seek to 20 s while playing | 0.11 ms |
+| A guest's tab goes to the background and comes back while playing (`visibility.spec.ts`) | no reschedule, clock never reset, offset moved < 2 ms |
 | Late joiner (4th context) | 0.11 ms |
 | 5.1 upload, 2 contexts | < 10 ms (asserted) |
 | Device with +100 ms manual latency (starts 100 ms earlier) vs host | 0.007 ms |

@@ -4,7 +4,17 @@
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
 import { dueNow, setBatterySaverFlag } from '../lib/power';
-import { autoAssign, defaultObjectsFor, isRoutedLayout, presetLayout, resyncNeedsReschedule, slotPositions, type RoomClock } from '@syncsound/audio-core';
+import {
+  autoAssign,
+  calibrationRecordingMs,
+  defaultObjectsFor,
+  isRoutedLayout,
+  presetLayout,
+  resyncNeedsReschedule,
+  slotPositions,
+  SYNC_SEARCH_LATE_MS,
+  type RoomClock,
+} from '@syncsound/audio-core';
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
@@ -68,6 +78,20 @@ let session: Session | null = null;
 
 /** the clock every timing path uses: the LAN link when ready, else the server clock */
 const activeClock = (s: Session): RoomClock => (s.link.ready ? s.link : s.client.clock);
+/** the clock a calibration run is timed on: the LAN link, or (the master during a plan) its own pinned mapping */
+const calibrationClock = (s: Session): RoomClock => (s.link.ready ? s.link : (s.link.heldClock() ?? s.client.clock));
+/** the clock path in use, for run-validity snapshots and the clock-path banner */
+function clockPath(s: Session): string {
+  const st = useRoomStore.getState();
+  return activeClock(s) === s.link ? `lan:${st.room ? pickClockMaster(st.room.devices, st.room.hostId) : ''}` : 'wan';
+}
+/** the in-room clock link as the settle gate sees it */
+function linkState(s: Session): 'none' | 'ready' | 'not-ready' {
+  const st = useRoomStore.getState();
+  const master = st.room ? pickClockMaster(st.room.devices, st.room.hostId) : null;
+  if (!master || master === st.deviceId) return 'none';
+  return s.link.ready ? 'ready' : 'not-ready';
+}
 let joining: string | null = null;
 
 const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout'] as const;
@@ -101,6 +125,7 @@ const FRIENDLY: Record<string, string> = {
   forbidden: 'Only the host can do that in this room.',
   host_only: 'Only the host can do that in this room.',
   rate_limited: 'Too many requests. Slow down a little.',
+  calibration_busy: 'Another device is tuning the room right now. Wait for it to finish.',
 };
 
 function handleMessage(msg: ServerMessage) {
@@ -135,11 +160,23 @@ function handleMessage(msg: ServerMessage) {
     case 'DEVICE_LIST':
       setRoom((r) => ({ ...r, devices: msg.devices }));
       break;
-    case 'CALIBRATION_PLAN':
-      s.calibration.onPlan(msg.plan);
+    case 'CALIBRATION_PLAN': {
+      // the LAN clock master pins its mapping for the whole run: every device then times the run on one snapshot
+      const plan = msg.plan;
+      const endRoom = plan.startRoomTime + calibrationRecordingMs(plan.slots, plan.purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined) + 1000;
+      try {
+        s.link.holdMapping(s.client.clock.toLocalTime(endRoom));
+      } catch {
+        /* no mapping yet: nothing to hold */
+      }
+      s.calibration.onPlan(plan);
       break;
+    }
     case 'CALIBRATION_ROWS':
       s.calibration.onRows(msg);
+      break;
+    case 'CALIBRATION_CANCELLED':
+      s.calibration.onCancelled(msg.planId);
       break;
     case 'IDENTIFY': {
       useRoomStore.setState({ identifyFlash: msg.targetDeviceId });
@@ -265,7 +302,7 @@ function watchOutputCalibration(s: Session): () => void {
  */
 function watchClockPath(s: Session) {
   const st = useRoomStore.getState();
-  const path = activeClock(s) === s.link ? `lan:${st.room ? pickClockMaster(st.room.devices, st.room.hostId) : ''}` : 'wan';
+  const path = clockPath(s);
   if (st.calibration.nowPlaying !== null) s.tunedClockPath = path;
   else if (s.tunedClockPath !== null && path !== s.tunedClockPath) {
     s.tunedClockPath = path;
@@ -420,7 +457,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       client,
       link,
       engine,
-      calibration: new CalibrationController(engine, send, () => activeClock(s), (p) => roomActions.updateScene(p, { commit: true })),
+      calibration: new CalibrationController(engine, send, () => calibrationClock(s), (p) => roomActions.updateScene(p, { commit: true }), {
+        clockPath: () => clockPath(s),
+        linkState: () => linkState(s),
+      }),
       capture: new CaptureController(engine, send),
       remote: new RemoteSyncManager({ nowRoom, send, outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1 }),
       video: new VideoDriver(engine, nowRoom),

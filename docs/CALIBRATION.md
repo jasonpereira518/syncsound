@@ -10,8 +10,11 @@ listener's head**. Laptops first; phones later.
 
 ### Run
 
-1. The listener opens its mic, settles 1.5 s, and sends `CALIBRATION_START` with `recorders: 'all'`. The server
-   stamps `startRoomTime = now + max(lead, 3.5 s)` and broadcasts the plan.
+1. The listener opens its mic, settles 1.5 s, waits for its clocks to settle (`clockSettled`, below) and sends
+   `CALIBRATION_START` with `recorders: 'all'`. The server refuses a second run while one is active
+   (`calibration_busy`), stamps `startRoomTime = now + max(lead, 3.5 s)` and broadcasts the plan. The LAN clock
+   master pins its mapping for the whole run (`holdMapping`): every device then times the run on one snapshot of the
+   WAN estimate, so its movement cancels between every emitter and every recorder.
 2. Every other device with a usable mic opens it as soon as the plan arrives (never a Bluetooth-headset mic, which
    would flip the headset into its hands-free profile) and records until the plan ends. No mic / no permission →
    it still plays, it just isn't ranged.
@@ -22,10 +25,30 @@ listener's head**. Laptops first; phones later.
    readout comes from the manual sync check. Emissions are scheduled lazily (~1 s ahead) with only the browser-reported part of the
    compensation, so the measurement captures the unreported residual (e.g. Bluetooth) and any output step from
    opening a mic is already in the audio-clock mapping.
-4. Every recorder maps sample index → room time through its audio clock (`ctxToRoom(startCtx + idx/sr)`, so ppm
-   error is included) and analyzes locally (`analyzeRecording`). Only numbers travel: one row per emitter,
-   `{emitterId, mMs, levelDb, snrDb, clipped}`, via `CALIBRATION_ROWS` to the listener. A recorder whose clock
-   source or audio clock moved mid-run marks its rows invalid.
+4. Every recorder maps sample index → room time through `frozenRoomMap`: the audio clock's long-baseline rate
+   (256 s window, ≈ 3 ppm after a minute) times the room clock's drift slope, frozen 300 ms before the first slot
+   and anchored at the first recorded sample — never a finite difference over the live clocks, whose pending slew
+   (1 ms/s) would read as up to ±1000 ppm (0.3 ms per slot). It analyzes locally (`analyzeRecording`). Only
+   numbers travel: one row per emitter, `{emitterId, mMs, levelDb, snrDb, clipped}`, via `CALIBRATION_ROWS` to the
+   listener. A recorder whose clocks moved mid-run (see validity) marks its rows invalid.
+
+### Preconditions and validity
+
+- **Settled clocks** (`clockSettled`): the listener waits, up to 30 s, until its room clock has converged and
+  wasn't just re-acquired (≥ 3 s), the in-room clock link is up when there is a master, and no slew is pending
+  (≤ 0.3 ms) — else the run errors ("The room clock hasn't settled yet"). It also waits, up to 20 s, for the drift
+  fit (SE ≤ 30 ppm), the network (jitter ≤ 3 ms) and the audio clock's long-baseline rate (SE ≤ 15 ppm) — else it
+  proceeds with the warning "The clocks were still settling". A tune started within ~30 s of joining typically
+  waits 10–20 s ("Letting the clocks settle…"). A recorder that fails a hard criterion sends invalid rows.
+- **Validity** (`runValidity`): every device snapshots its clock path, `ClockSync` reset count, audio-clock step
+  count and a frozen copy of its mapping at the freeze (recorders, the listener) or its first emission. At the end
+  the run is invalid if any changed, or if the live mapping moved more than 1 ms from the frozen one (a slew or a
+  step during the run). The listener discards and retries once, then errors. A recorder's rows carry
+  `emissionValid`; a device that only emitted reports a fault with `CALIBRATION_ROWS { emissionValid: false }`.
+  Faulted devices are left untimed, with a named warning ("X wasn't timed: the clock path changed during the run").
+- **One run at a time**: the server answers a second `CALIBRATION_START` with `calibration_busy` until the result
+  arrives, the listener cancels (`CALIBRATION_CANCEL` → `CALIBRATION_CANCELLED` to all, which stops every chime
+  and recording) or leaves, or the recording's end plus 5 s has passed.
 
 ### Arrival (per recorder, per emitter)
 

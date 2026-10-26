@@ -107,6 +107,8 @@ export class ClockLink implements RoomClock {
   private graceTimers = new Set<ReturnType<typeof setTimeout>>();
   /** per peer: t0 of the last mapping sent on a pong, so a changed mapping travels at once and an unchanged one doesn't */
   private sentMapT0 = new Map<string, number>();
+  /** master: the mapping pinned for a calibration plan (every peer applies it; the master's emissions go through it too) */
+  private held: { d: ClockMappingData; untilLocalMs: number } | null = null;
   private readonly now: () => number;
 
   constructor(private readonly o: ClockLinkOptions) {
@@ -150,6 +152,7 @@ export class ClockLink implements RoomClock {
     this.mapping = null;
     this.mappingAt = -Infinity;
     this.readySince = null;
+    this.held = null;
     if (id && id !== this.o.selfId) void this.connect(id);
   }
 
@@ -213,10 +216,41 @@ export class ClockLink implements RoomClock {
     return null;
   }
 
-  /** the master's current mapping, as a message (null before its server clock has a mapping) */
+  /** the master's current mapping, as a message (null before its server clock has a mapping); the held one during a plan */
   mapMsg(): { t: 'map'; d: ClockMappingData } | null {
+    const held = this.held;
+    if (held) {
+      if (this.now() < held.untilLocalMs) return { t: 'map', d: held.d };
+      this.held = null;
+    }
     const d = this.o.serverClock().mapping();
     return d ? { t: 'map', d } : null;
+  }
+
+  /**
+   * Master: pin the mapping until `untilLocalMs` (a calibration plan's end). Every peer schedules its chimes and maps
+   * its recording through this one snapshot, and so does the master (`heldClock`), so the WAN estimate's movement
+   * during the run cancels exactly between every emitter and every recorder. Peers need nothing: they apply whatever
+   * they receive.
+   */
+  holdMapping(untilLocalMs: number): void {
+    if (!this.isMaster) return;
+    const d = this.o.serverClock().mapping();
+    if (d) this.held = { d, untilLocalMs };
+  }
+
+  /** master, while a mapping is held: the room clock through the pinned mapping (null otherwise) */
+  heldClock(): RoomClock | null {
+    const held = this.held;
+    if (!this.isMaster || !held || this.now() >= held.untilLocalMs) return null;
+    const m = new ClockMapping(held.d);
+    const sc = this.o.serverClock();
+    return {
+      toRoomTime: (l) => m.toRoomTime(l),
+      toLocalTime: (r) => m.toLocalTime(r),
+      estimate: () => ({ ...sc.estimate(), pendingSlewMs: 0 }),
+      frozenAt: () => m,
+    };
   }
 
   async onSignal(from: string, data: RtcData): Promise<void> {

@@ -15,7 +15,7 @@ import {
   type ServerMessage,
   type ServerMessageBody,
 } from '@syncsound/protocol';
-import { clampToRoom, minScheduleLeadMs } from '@syncsound/audio-core';
+import { calibrationRecordingMs, clampToRoom, minScheduleLeadMs, SYNC_SEARCH_LATE_MS } from '@syncsound/audio-core';
 
 export type Target = 'all' | 'others' | string[];
 /** `msg` already carries the room-assigned seq; broadcast copies share one seq. */
@@ -78,6 +78,8 @@ export const CALIBRATION_MIN_LEAD_MS = 1500;
 export const CALIBRATION_ALL_LEAD_MS = 3500;
 /** an all-recorders plan must end within this, ms (32 devices × 1.55 s fit) */
 export const CALIBRATION_ALL_MAX_MS = 60_000;
+/** a run holds the room (no second CALIBRATION_START) until its recording ends plus this (the listener's rows wait + analysis), ms */
+export const CALIBRATION_ACTIVE_TAIL_MS = 5000;
 const BASS_CLASSES = new Set(['laptop', 'desktop', 'bluetooth']);
 
 /** constant-time string compare (pure JS, Worker-safe) */
@@ -111,6 +113,8 @@ export class Room {
   private readonly disconnectedAt = new Map<string, number>();
   /** recent calibration plans → their listener (only it may submit results; recorders' rows go to it) */
   private readonly plans: Array<{ id: string; listenerId: string }> = [];
+  /** the run in progress: one at a time, since every device plays every plan it receives */
+  private activeRun: { id: string; listenerId: string; endsAt: number } | null = null;
   private lastStatsBroadcast = -Infinity;
   private placed = 0;
   /** room ms since which no device is connected (null while someone is connected) */
@@ -293,6 +297,11 @@ export class Room {
       this.state.captureHostId = null;
       out.push(this.stateMsg('all', now));
     }
+    if (this.activeRun?.listenerId === deviceId) {
+      // nobody is listening any more: stop the chimes and free the room for the next tune
+      out.push(this.out('all', { type: 'CALIBRATION_CANCELLED', planId: this.activeRun.id }));
+      this.activeRun = null;
+    }
     return out;
   }
 
@@ -383,6 +392,9 @@ export class Room {
           if (msg.purpose === 'measure' || msg.slots.some((s) => s.repeat !== undefined) || new Set(ids).size !== ids.length || ids.some((id) => !this.device(id)) || endMs > CALIBRATION_ALL_MAX_MS)
             throw new RoomError('bad_plan', 'an all-recorders plan must be one short slot per device');
         }
+        const active = this.activeRun;
+        if (active && now < active.endsAt && this.deviceConn.has(active.listenerId))
+          throw new RoomError('calibration_busy', 'another device is tuning the room right now');
         const id = crypto.randomUUID();
         this.plans.push({ id, listenerId: sender.id });
         if (this.plans.length > 16) this.plans.shift();
@@ -394,7 +406,16 @@ export class Room {
           ...(msg.purpose ? { purpose: msg.purpose } : {}),
           ...(msg.recorders ? { recorders: msg.recorders } : {}),
         };
+        const recordingMs = calibrationRecordingMs(msg.slots, msg.purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined);
+        this.activeRun = { id, listenerId: sender.id, endsAt: plan.startRoomTime + recordingMs + CALIBRATION_ACTIVE_TAIL_MS };
         return [this.out('all', { type: 'CALIBRATION_PLAN', plan })];
+      }
+      case 'CALIBRATION_CANCEL': {
+        const plan = this.plans.find((p) => p.id === msg.planId);
+        if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
+        if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may cancel it");
+        if (this.activeRun?.id === msg.planId) this.activeRun = null;
+        return [this.out('all', { type: 'CALIBRATION_CANCELLED', planId: msg.planId })];
       }
       case 'CALIBRATION_ROWS': {
         const plan = this.plans.find((p) => p.id === msg.planId);
@@ -408,6 +429,7 @@ export class Room {
         const plan = this.plans.find((p) => p.id === msg.planId);
         if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
         if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may submit its results");
+        if (this.activeRun?.id === msg.planId) this.activeRun = null;
         for (const r of msg.results) {
           const dev = this.device(r.deviceId);
           if (!dev) continue;

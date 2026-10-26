@@ -265,6 +265,9 @@ const CalibrationRows = {
   reason: z.string().max(200).optional(),
   /** the recorder plays through Bluetooth: its speaker isn't at its mic, so it is never ranged */
   outputBluetooth: z.boolean().optional(),
+  /** this device's own emissions were timed on a steady clock (its clock path, room clock and audio output did
+   * not move while it played); absent = yes. False: the listener leaves its timing out of the result. */
+  emissionValid: z.boolean().optional(),
 };
 
 // ---------- WebRTC signaling ----------
@@ -383,6 +386,8 @@ export const ClientMessage = z.discriminatedUnion('type', [
     planId: Id,
     results: z.array(CalibrationDeviceResult).max(64),
   }),
+  /** the listener gave up on its run: every device stops playing / recording for it */
+  z.object({ type: z.literal('CALIBRATION_CANCEL'), planId: Id }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id }),
   z.object({ type: z.literal('CAPTURE'), active: z.boolean() }),
   z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData, ch: RtcChannel.optional() }),
@@ -415,6 +420,7 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
   z.object({ type: z.literal('CALIBRATION_PLAN'), plan: CalibrationPlan }),
   z.object({ type: z.literal('CALIBRATION_ROWS'), recorderId: Id, ...CalibrationRows }),
+  z.object({ type: z.literal('CALIBRATION_CANCELLED'), planId: Id }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
   z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),

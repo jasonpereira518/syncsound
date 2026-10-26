@@ -17,6 +17,7 @@ import {
   type RoomClock,
   type DeviceMix,
   type StartDecision,
+  type TimeMap,
 } from '@syncsound/audio-core';
 import type { Playback, RoomState, Track } from '@syncsound/protocol';
 import { errMsg, me, patch, setError, useRoomStore } from '../../store/state';
@@ -585,9 +586,10 @@ export class AudioEngine {
   }
 
   /** room time â†’ ctx start time for a one-shot that bypasses the mix (identify / calibration) */
-  private oneShotWhen(roomMs: number, comp: number): number {
+  private oneShotWhen(roomMs: number, comp: number, clock?: TimeMap): number {
     const ctx = this.ctx!;
-    const when = this.timingReady() ? this.roomToCtx(roomMs) - comp : ctx.currentTime;
+    // `clock` (a calibration run's clock: the LAN link, or the master's pinned mapping) overrides the live room clock
+    const when = this.timingReady() ? (clock ? this.audioClock.perfToCtx(clock.toLocalTime(roomMs)) : this.roomToCtx(roomMs)) - comp : ctx.currentTime;
     return Math.max(when, ctx.currentTime + 0.005);
   }
 
@@ -614,7 +616,7 @@ export class AudioEngine {
    * Calibration emission: auto-only compensation, raw to the destination (no EQ/spatial). `viaChain` (sync check):
    * through the click-test input of the output chain (limiter, output delay and gain, like playback's tail; not EQ/crossover).
    */
-  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto', viaChain = false): { startCtx: number; endCtx: number } | null {
+  emitAt(samples: Float32Array, roomMs: number, comp: 'auto' | 'full' = 'auto', viaChain = false, clock?: TimeMap): { startCtx: number; endCtx: number } | null {
     const ctx = this.ctx;
     if (!ctx) return null;
     const src = ctx.createBufferSource();
@@ -623,7 +625,7 @@ export class AudioEngine {
     const lb = this.loopback();
     if (lb) src.connect(lb);
     const c = comp === 'full' ? this.compensationSec() : this.autoCompensationSec();
-    const when = snapToSampleGrid(this.oneShotWhen(roomMs, c), 0, ctx.sampleRate).when;
+    const when = snapToSampleGrid(this.oneShotWhen(roomMs, c, clock), 0, ctx.sampleRate).when;
     src.start(when);
     return { startCtx: when, endCtx: when + src.buffer.duration };
   }

@@ -66,6 +66,14 @@ describe('protocol validation (trust boundary)', () => {
     expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, signal: 'chime' }] }).success).toBe(false);
   });
 
+  it('calibration rows may flag invalid emissions; a run can be cancelled', () => {
+    const rows = { type: 'CALIBRATION_ROWS', planId: 'p1', rows: [], valid: false, emissionValid: false, reason: 'clock moved' };
+    expect(parseClientMessage(rows).success).toBe(true);
+    expect(parseClientMessage({ ...rows, emissionValid: 'no' }).success).toBe(false);
+    expect(parseClientMessage({ type: 'CALIBRATION_CANCEL', planId: 'p1' }).success).toBe(true);
+    expect(parseServerMessage({ type: 'CALIBRATION_CANCELLED', planId: 'p1', seq: 3 }).success).toBe(true);
+  });
+
   it('server messages require a seq and a known type', () => {
     const pong = { type: 'PONG', t0: 1, ts_recv: 2, ts_send: 3 };
     expect(parseServerMessage({ ...pong, seq: 4 }).success).toBe(true);

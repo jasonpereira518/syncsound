@@ -12,14 +12,20 @@ import {
   calibrationRecordingMs,
   calibrationSignal,
   classPresetEq,
+  clockSettled,
   encodeWav,
   expectedArrivalMs,
+  frozenRoomMap,
+  runValidity,
   solveTune,
   SYNC_SEARCH_LATE_MS,
   TUNE_PERIOD_MS,
   type RecordingAnalysis,
   type RoomClock,
   type RowsByRecorder,
+  type RunSnapshot,
+  type SettleVerdict,
+  type TimeMap,
 } from '@syncsound/audio-core';
 import type {
   CalibrationDeviceResult,
@@ -77,6 +83,19 @@ const FREEZE_BEFORE_MS = 300;
 const ROWS_WAIT_MS = 4000;
 /** longest plan a device follows (a tune of 32 devices is ~50 s; anything longer is malformed), ms */
 const MAX_PLAN_MS = 60_000;
+/** the listener waits this long for its clocks to settle (hard criteria) before giving up, ms */
+const SETTLE_WAIT_MS = 30_000;
+/** …and this long for the soft criteria (rate estimates, jitter) before proceeding with a warning, ms */
+const SETTLE_SOFT_WAIT_MS = 20_000;
+const SETTLING_WARNING = 'The clocks were still settling; tune again in a minute for the best accuracy.';
+
+/** what the calibration controller needs to know about the clock path (from the room store) */
+export interface CalibrationEnv {
+  /** the clock path in use ('wan' or 'lan:<master>'): a change mid-run invalidates it */
+  clockPath: () => string;
+  /** the in-room clock link as the settle gate sees it */
+  linkState: () => 'none' | 'ready' | 'not-ready';
+}
 const HOST_ONLY = 'Only the host can tune this room (it is set to host-only control).';
 /** this device may start a run (the server checks too) */
 function mayControl(): boolean {
@@ -247,7 +266,14 @@ interface Run {
   rows: RowsByRecorder;
   /** recorders that reported a Bluetooth output */
   bluetooth: Set<string>;
+  /** devices whose clocks moved while they played their slot (their timing is left out), by id → reason */
+  faults: Record<string, string>;
   planId: string | null;
+}
+
+/** the clocks at the start of a run, to check at its end that they stayed put */
+interface ClockSnapshot extends RunSnapshot {
+  frozen: TimeMap;
 }
 
 export class CalibrationController {
@@ -262,7 +288,57 @@ export class CalibrationController {
     private readonly clock: () => RoomClock | null,
     /** apply measured positions / listener locally (and to the room) */
     private readonly applyScene: (p: Omit<SceneUpdate, 'type'>) => void,
+    private readonly env: CalibrationEnv,
   ) {}
+
+  /** the clocks as they are now, for a run-validity check later */
+  private snapshot(): ClockSnapshot {
+    const clock = this.clock()!;
+    return { path: this.env.clockPath(), resets: clock.estimate().resets, steps: this.engine.audioClock.steps, frozen: clock.frozenAt(performance.now()) };
+  }
+
+  /** did the clocks stay put since `before`? */
+  private validity(before: ClockSnapshot) {
+    const clock = this.clock();
+    if (!clock) return { valid: false, reason: 'the room clock went away during the run' };
+    const now = performance.now();
+    const moved = clock.toRoomTime(now) - before.frozen.toRoomTime(now);
+    return runValidity(before, { path: this.env.clockPath(), resets: clock.estimate().resets, steps: this.engine.audioClock.steps }, moved);
+  }
+
+  private settleVerdict(): SettleVerdict {
+    const e = this.clock()!.estimate();
+    return clockSettled({
+      converged: e.converged,
+      ageMs: e.ageMs,
+      jitterMs: e.jitterMs,
+      pendingSlewMs: e.pendingSlewMs,
+      driftSePpm: e.driftSePpm,
+      link: this.env.linkState(),
+      audioRateSePpm: this.engine.audioClock.longRate()?.sePpm ?? null,
+    });
+  }
+
+  /**
+   * Wait until this device's clocks are steady enough to time a run (see clockSettled): the hard criteria up to
+   * SETTLE_WAIT_MS (then an error), the soft ones up to SETTLE_SOFT_WAIT_MS (then a warning). Returns the warnings.
+   */
+  private async waitForSettled(run: { cancelled: boolean }, onProgress: (message: string) => void): Promise<string[]> {
+    const t0 = performance.now();
+    for (;;) {
+      if (run.cancelled) throw new Cancelled();
+      const v = this.settleVerdict();
+      if (v.ok) return [];
+      const waited = performance.now() - t0;
+      if (v.hard && waited > SETTLE_WAIT_MS) throw new Error(`The room clock hasn't settled yet (${v.reason}). Wait a moment and tune again.`);
+      if (!v.hard && waited > SETTLE_SOFT_WAIT_MS) {
+        console.info('[calibration] proceeding with an unsettled clock:', v.reason);
+        return [SETTLING_WARNING];
+      }
+      onProgress(`Letting the clocks settle… (${Math.round(waited / 1000)} s)`);
+      await sleep(250);
+    }
+  }
 
   /** every device receives the plan: play my slots (lazily); record for the listener if asked to */
   onPlan(plan: CalibrationPlan): void {
@@ -281,13 +357,29 @@ export class CalibrationController {
   }
 
   /** rows from another recorder of this device's run */
-  onRows(msg: { planId: string; recorderId: string; rows: CalibrationRow[]; valid: boolean; reason?: string; outputBluetooth?: boolean }): void {
+  onRows(msg: { planId: string; recorderId: string; rows: CalibrationRow[]; valid: boolean; reason?: string; outputBluetooth?: boolean; emissionValid?: boolean }): void {
     const run = this.run;
     if (!run || run.planId !== msg.planId) return;
     if (msg.outputBluetooth) run.bluetooth.add(msg.recorderId);
     console.info('[calibration] rows from', msg.recorderId, `${msg.rows.filter((r) => r.mMs !== null).length} heard`, msg.valid ? '' : msg.reason);
+    if (msg.emissionValid === false) run.faults[msg.recorderId] = msg.reason ?? 'its clock moved during the run';
     if (msg.valid) run.rows[msg.recorderId] = msg.rows;
-    else run.rows[msg.recorderId] = [];
+    else if (msg.rows.length || !(msg.recorderId in run.rows)) run.rows[msg.recorderId] = [];
+  }
+
+  /** the listener gave up (or left): stop playing and recording for its plan */
+  onCancelled(planId: string): void {
+    if (this.remote?.planId === planId) this.cancelRun(this.remote);
+    if (this.emittingPlanId === planId) this.stopEmitting();
+  }
+
+  private emittingPlanId: string | null = null;
+
+  private stopEmitting() {
+    if (this.planTimer) clearInterval(this.planTimer);
+    this.planTimer = null;
+    this.emittingPlanId = null;
+    patch('calibration', { emitting: false, nowPlaying: null });
   }
 
   /**
@@ -306,7 +398,12 @@ export class CalibrationController {
       .sort((a, b) => a.roomMs - b.roomMs);
     const endRoom = plan.startRoomTime + calibrationRecordingMs(plan.slots) + 300;
     if (this.planTimer) clearInterval(this.planTimer);
+    this.emittingPlanId = plan.id;
     patch('calibration', { emitting: true, nowPlaying: null });
+    // an emitter that neither listens nor records reports a clock that moved while it played (recorders fold the
+    // same check into their rows; the listener checks its own run)
+    const emitterOnly = !measure && plan.listenerId !== myId && !(plan.recorders === 'all' && this.canRecord(myId));
+    let snap: ClockSnapshot | null = null;
     const tick = () => {
       const clock = this.clock();
       if (!clock || !this.engine.ctx) return;
@@ -314,21 +411,31 @@ export class CalibrationController {
       while (pending.length && pending[0]!.roomMs < now + EMIT_AHEAD_MS) {
         const { roomMs, slot } = pending.shift()!;
         // without a ready clock emitAt would play "now", inside another device's window: drop the slot instead
-        if (roomMs > now + 50 && this.engine.timingReady())
-          this.engine.emitAt(calibrationSignal(slot.signal, slot.deviceIndex, ctx.sampleRate), roomMs, measure ? 'full' : 'auto', measure);
+        if (roomMs > now + 50 && this.engine.timingReady()) {
+          if (!snap) snap = this.snapshot();
+          this.engine.emitAt(calibrationSignal(slot.signal, slot.deviceIndex, ctx.sampleRate), roomMs, measure ? 'full' : 'auto', measure, clock);
+        }
       }
       const playing = measure
         ? null
         : (plan.slots.find((s) => now >= plan.startRoomTime + s.offsetMs - 100 && now < plan.startRoomTime + s.offsetMs + TUNE_PERIOD_MS - 100)?.deviceId ?? null);
       if (useRoomStore.getState().calibration.nowPlaying !== playing) patch('calibration', { nowPlaying: playing });
       if (now > endRoom && this.planTimer) {
-        clearInterval(this.planTimer);
-        this.planTimer = null;
-        patch('calibration', { emitting: false, nowPlaying: null });
+        this.stopEmitting();
+        if (emitterOnly && snap) {
+          const v = this.validity(snap);
+          if (!v.valid) this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows: [], valid: false, emissionValid: false, reason: v.reason });
+        }
       }
     };
     tick();
     this.planTimer = setInterval(tick, 250);
+  }
+
+  /** this device records for an all-recorders plan (a mic, or the loopback test input) */
+  private canRecord(myId: string): boolean {
+    const me = useRoomStore.getState().room?.devices.find((d) => d.id === myId);
+    return !!this.engine.loopback() || !!me?.caps.hasMic;
   }
 
   /**
@@ -336,14 +443,11 @@ export class CalibrationController {
    * is included) and the room clock. Frozen, an output-latency step or clock slew mid-run can't move the input
    * timeline; whatever offset it has is common to everything this recorder hears.
    */
-  private freezeMap(startCtx: number, sampleRate: number): (idx: number) => number {
-    const clock = this.clock()!;
+  private freezeMap(startCtx: number, sampleRate: number, frozen: TimeMap): (idx: number) => number {
+    // analytic: the audio clock's long-baseline rate and the room clock's drift slope (frozen: never its pending
+    // slew, which a finite difference would read as up to ±1000 ppm), anchored at the first recorded sample
     const ac = this.engine.audioClock;
-    const r0 = clock.toRoomTime(ac.ctxToPerf(startCtx));
-    // a short baseline: far ahead, the room clock's pending slew would leak into the rate (not common-mode)
-    const r1 = clock.toRoomTime(ac.ctxToPerf(startCtx + 1));
-    const perIdx = (r1 - r0) / sampleRate;
-    return (idx) => r0 + idx * perIdx;
+    return frozenRoomMap({ startCtx, sampleRate, audio: { perfAtStartCtx: ac.ctxToPerf(startCtx), ctxPerPerfMs: ac.slope() }, clock: frozen });
   }
 
   /** resolve once room time passes `roomMs` (or the run is cancelled) */
@@ -390,15 +494,16 @@ export class CalibrationController {
       await this.untilRoom(plan.startRoomTime - FREEZE_BEFORE_MS, remote);
       const startCtx = recorder.startCtx();
       if (startCtx === null) throw new Error('The microphone produced no audio.');
-      const toRoomMs = this.freezeMap(startCtx, ctx.sampleRate);
-      const clockAt = this.clock();
-      const steps = this.engine.audioClock.steps;
+      // a recorder whose clock is still being re-acquired can't time anything (its rate estimates only cost ranging accuracy)
+      const settled = this.settleVerdict();
+      const snap = this.snapshot();
+      const toRoomMs = this.freezeMap(startCtx, ctx.sampleRate, snap.frozen);
       await this.untilRoom(plan.startRoomTime + calibrationRecordingMs(plan.slots) + 300, remote);
       const rec = await recorder.stop();
       stopTracks();
-      const valid = this.clock() === clockAt && this.engine.audioClock.steps === steps;
+      const v = settled.ok || !settled.hard ? this.validity(snap) : { valid: false, reason: `its clock had not settled (${settled.reason})` };
       const a = analyzeRecording({ plan, recording: rec.samples, sampleRate: ctx.sampleRate, toRoomMs });
-      sendRows(a.rows, valid, valid ? undefined : 'clock source or audio output changed during the run');
+      this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows: a.rows, valid: v.valid, emissionValid: v.valid, outputBluetooth, ...(v.valid ? {} : { reason: v.reason!.slice(0, 200) }) });
     } catch (e) {
       if (!(e instanceof Cancelled)) sendRows([], false, errMsg(e)); // so the listener doesn't wait for us
     } finally {
@@ -421,7 +526,7 @@ export class CalibrationController {
    */
   async start(opts: { quick?: boolean } = {}): Promise<void> {
     if (this.run) return;
-    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), planId: null };
+    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), faults: {}, planId: null };
     this.run = run;
     const check = () => {
       if (run.cancelled) throw new Cancelled();
@@ -447,20 +552,33 @@ export class CalibrationController {
       this.pauseDuring(run);
 
       patch('calibration', { step: 'mic', message: 'Allow microphone access…' });
-      const { plan, rec, toRoomMs, valid, selfExcluded } = await this.record(
-        run,
-        deviceIds,
-        buildTuneSlots,
-        'calibrate',
-        opts.quick ? 'listener' : 'all',
-        () => patch('calibration', { message: 'Syncing clocks…' }),
-        () => patch('calibration', { step: 'recording', message: 'Listen: each speaker plays one chime in turn.' }),
-        (progress) => patch('calibration', { progress }),
-      );
+      // a run whose clocks moved is discarded and tried once more before giving up
+      let recorded: Awaited<ReturnType<typeof this.record>>;
+      for (let attempt = 0; ; attempt++) {
+        run.rows = {};
+        run.faults = {};
+        run.bluetooth.clear();
+        recorded = await this.record(
+          run,
+          deviceIds,
+          buildTuneSlots,
+          'calibrate',
+          opts.quick ? 'listener' : 'all',
+          (message) => patch('calibration', { message }),
+          () => patch('calibration', { step: 'recording', message: 'Listen: each speaker plays one chime in turn.' }),
+          (progress) => patch('calibration', { progress }),
+        );
+        if (recorded.valid) break;
+        console.warn('[calibration] run discarded:', recorded.reason);
+        if (attempt > 0) throw new Error(`This device's clocks moved during the run (${recorded.reason}). Run it again.`);
+        patch('calibration', { step: 'mic', progress: 0, message: `The clock moved during the run (${recorded.reason}) — trying once more…` });
+        await sleep(1000);
+        check();
+      }
+      const { plan, rec, toRoomMs, selfExcluded, settleWarnings } = recorded;
       patch('calibration', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
       await sleep(0); // let the UI paint before the heavy analysis
       const own = analyzeRecording({ plan, recording: rec.samples, sampleRate: ctx.sampleRate, toRoomMs });
-      if (!valid) throw new Error("This device's clock or audio output changed during the run. Run it again.");
       check();
 
       const emitters = plan.slots.map((s) => s.deviceId);
@@ -476,9 +594,13 @@ export class CalibrationController {
       }
       const rows: RowsByRecorder = { ...run.rows, [myId]: own.rows };
       for (const [id, r] of Object.entries(rows)) if (!r.length) delete rows[id];
+      // devices whose clocks moved while they played: their arrival says nothing about their latency
+      const faulted = Object.keys(run.faults);
+      if (faulted.length) for (const r of Object.values(rows)) for (const row of r) if (faulted.includes(row.emitterId)) row.mMs = null;
 
       const scene = useRoomStore.getState().room?.scene ?? room.scene;
       const devices = useRoomStore.getState().room?.devices ?? room.devices;
+      const nameOf = (id: string) => devices.find((d) => d.id === id)?.name ?? id;
       const report = solveTune({
         rows,
         listenerId: myId,
@@ -546,7 +668,9 @@ export class CalibrationController {
       const notes = [
         ...(selfExcluded ? [BT_SELF_WARNING] : []),
         ...(nudged.length ? [`Reset the manual delay nudge on ${nudged.map((d) => d.name).join(', ')}: the tune measures it now.`] : []),
-        ...report.warnings,
+        ...faulted.map((id) => `${nameOf(id)} wasn't timed: ${run.faults[id]}. Tune again to include it.`),
+        ...settleWarnings,
+        ...report.warnings.filter((w) => !faulted.some((id) => w.includes(`hear ${id}`))),
       ];
       patch('calibration', {
         step: 'done',
@@ -593,10 +717,18 @@ export class CalibrationController {
     buildSlots: (deviceIds: string[]) => CalibrationPlan['slots'],
     purpose: 'calibrate' | 'measure',
     recorders: 'listener' | 'all',
-    onWaiting: () => void,
+    onWaiting: (message: string) => void,
     onRecording: () => void,
     onProgress: (p: number) => void,
-  ): Promise<{ plan: CalibrationPlan; rec: { samples: Float32Array; startCtx: number }; toRoomMs: (idx: number) => number; valid: boolean; selfExcluded: boolean }> {
+  ): Promise<{
+    plan: CalibrationPlan;
+    rec: { samples: Float32Array; startCtx: number };
+    toRoomMs: (idx: number) => number;
+    valid: boolean;
+    reason?: string;
+    selfExcluded: boolean;
+    settleWarnings: string[];
+  }> {
     const check = () => {
       if (run.cancelled) throw new Cancelled();
     };
@@ -628,9 +760,12 @@ export class CalibrationController {
     // The clock/audio-clock mapping may still be converging (it needs ~1 s after joining). The mic is already
     // open (so the permission prompt stayed tied to the user's tap), so wait here instead of failing.
     if (!this.engine.timingReady()) {
-      onWaiting();
+      onWaiting('Syncing clocks…');
       await this.waitForTiming(run);
     }
+    // …and steady: a clock still catching up would time every chime against a moving reference
+    const settleWarnings = await this.waitForSettled(run, onWaiting);
+    check();
     onRecording();
     const plan = await new Promise<CalibrationPlan>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error("The server didn't start the run. Try again.")), 8000);
@@ -655,15 +790,15 @@ export class CalibrationController {
     await this.untilRoom(plan.startRoomTime - FREEZE_BEFORE_MS, run);
     const startCtx = recorder.startCtx();
     if (startCtx === null) throw new Error('The microphone produced no audio.');
-    const toRoomMs = this.freezeMap(startCtx, ctx.sampleRate);
-    const clockAt = this.clock();
-    const steps = this.engine.audioClock.steps;
+    const snap = this.snapshot();
+    const toRoomMs = this.freezeMap(startCtx, ctx.sampleRate, snap.frozen);
     await this.untilRoom(endRoom, run, (now) =>
       onProgress(Math.min(1, Math.max(0, (now - plan.startRoomTime) / (endRoom - plan.startRoomTime)))),
     );
     const rec = await recorder.stop();
     stream?.getTracks().forEach((t) => t.stop()); // mic off now, not after the rows wait and the solve
-    return { plan, rec, toRoomMs, valid: this.clock() === clockAt && this.engine.audioClock.steps === steps, selfExcluded };
+    const v = this.validity(snap);
+    return { plan, rec, toRoomMs, valid: v.valid, ...(v.valid ? {} : { reason: v.reason }), selfExcluded, settleWarnings };
   }
 
   /** pause playback for this run if this device may control it; resume the same track when the run ends */
@@ -683,7 +818,7 @@ export class CalibrationController {
   /** Sync check: every device clicks (time-staggered wideband chirps) through normal compensation; this device listens. */
   async measureSync(durationSec = 60): Promise<void> {
     if (this.run) return;
-    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), planId: null };
+    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), faults: {}, planId: null };
     this.run = run;
     patch('syncMeasure', { running: true, step: 'recording', progress: 0, message: 'Allow microphone access…', durationSec, devices: [], histogram: null, overall: null, warnings: [] });
     try {
@@ -693,16 +828,17 @@ export class CalibrationController {
       if (!mayControl()) throw new Error(HOST_ONLY);
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
       this.pauseDuring(run);
-      const { plan, rec, toRoomMs, selfExcluded } = await this.record(
+      const { plan, rec, toRoomMs, selfExcluded, valid, reason, settleWarnings } = await this.record(
         run,
         deviceIds,
         (ids) => buildSyncMeasurementSlots(ids, { durationSec }),
         'measure',
         'listener',
-        () => patch('syncMeasure', { message: 'Syncing clocks…' }),
+        (message) => patch('syncMeasure', { message }),
         () => patch('syncMeasure', { message: `Measuring for ${durationSec} s: every speaker clicks in turn, once a second.` }),
         (progress) => patch('syncMeasure', { progress }),
       );
+      if (!valid) throw new Error(`This device's clocks moved during the measurement (${reason}). Run it again.`);
       patch('syncMeasure', { step: 'analyzing', progress: 1, message: 'Analyzing…' });
       await sleep(0);
       const scene = useRoomStore.getState().room?.scene ?? room.scene;
@@ -726,7 +862,7 @@ export class CalibrationController {
         devices: report.devices.map(({ deviceId, detected, total, meanMs, stdMs, p95AbsMs, maxAbsMs }) => ({ deviceId, detected, total, meanMs, stdMs, p95AbsMs, maxAbsMs })),
         histogram: { edgesMs: report.histogram.edgesMs, counts: report.histogram.counts },
         overall: report.overall,
-        warnings: selfExcluded ? [BT_SELF_WARNING, ...report.warnings] : report.warnings,
+        warnings: [...(selfExcluded ? [BT_SELF_WARNING] : []), ...settleWarnings, ...report.warnings],
       });
     } catch (e) {
       if (e instanceof Cancelled || run.cancelled) patch('syncMeasure', { step: 'idle', message: 'Measurement cancelled.', progress: 0 });
@@ -745,8 +881,12 @@ export class CalibrationController {
   }
 
   cancel(): void {
+    const planId = this.run?.planId;
     for (const r of [this.run, this.remote]) if (r) this.cancelRun(r);
     if (this.run) this.run.planWaiter = null;
+    // tell the room: the other devices stop their chimes and recordings, and the room is free for the next tune
+    if (planId) this.send({ type: 'CALIBRATION_CANCEL', planId });
+    if (planId && this.emittingPlanId === planId) this.stopEmitting();
   }
 
   private cancelRun(r: { cancelled: boolean; cleanup: Array<() => void> }) {

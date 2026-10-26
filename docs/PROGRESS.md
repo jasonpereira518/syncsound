@@ -31,7 +31,8 @@
 
 - [x] S1 – Clocks that don't step: `rebase()` + gap/regime re-acquisition instead of `reset()`, age-bounded window, robust `fitLine`, long-baseline audio-clock rate, drift loop with measured dt / hold / learned-rate starts, `ReconcileGate` (suspend → fade + rebuild when ready), resync reschedules only if the mapping moved, `ClockLink` ready hold / mapping freshness / reconnect / mapping on pongs, Worker ticker; sims: pause/resume (5 & 30 min, sleep, suspend), 60-min wander, resync, LAN failover; e2e: resume spread, visibility (DECISIONS 59–68)
 - [ ] S1 on real hardware (HUMAN_TEST_CHECKLIST 20–22)
-- [ ] S2 – Calibration accuracy hardening (analytic frozen map, settled-clock gate, run validity, one tune at a time, tuneClock sim)
+- [x] S2 – Calibration accuracy hardening: analytic `frozenRoomMap`, the master's mapping pinned for a plan, `clockSettled` gate, `runValidity` + one retry + emitter faults, one tune at a time (`calibration_busy`, cancel), `tuneRoom.ts` + `tuneClock.test.ts` on real clocks (LAN head p95 3.27 → 0.74 ms) (DECISIONS 69–74)
+- [ ] S2 on real hardware (HUMAN_TEST_CHECKLIST 23)
 - [ ] S3 – Calibration that stays valid (tune invariant + server derivation, tune identity / syncState, late joiner, TuneStatus)
 - [ ] S4 – Simplest setup experience (one-screen setup, mic at join, prepare/ready, one "Tune" verb)
 - [ ] S5 – Docs and results

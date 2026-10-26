@@ -475,6 +475,37 @@ describe('Room devices + scene', () => {
     one(room.handle('c1', { type: 'CALIBRATION_START', slots: [ok], recorders: 'all' }, 1000), 'CALIBRATION_PLAN');
   });
 
+  it('calibration: one run at a time — busy until the result, a cancel, the listener leaving, or the run has long ended', () => {
+    const slots = [{ deviceId: 'g1', deviceIndex: 0, signal: 'tune' as const, offsetMs: 500, durationMs: 1100 }];
+    const start = (room: Room, conn: string, now: number) => room.handle(conn, { type: 'CALIBRATION_START', slots }, now);
+    // released by the result
+    let room = setup();
+    let plan = one(start(room, 'c2', 1000), 'CALIBRATION_PLAN').msg.plan;
+    expect(one(start(room, 'c1', 1100), 'ERROR').msg.code).toBe('calibration_busy');
+    expect(one(start(room, 'c2', 1100), 'ERROR').msg.code).toBe('calibration_busy'); // the listener itself too
+    room.handle('c2', { type: 'CALIBRATION_RESULT', planId: plan.id, results: [] }, 1200);
+    one(start(room, 'c1', 1300), 'CALIBRATION_PLAN');
+    // released by a cancel, which every device hears; only the listener may cancel
+    room = setup();
+    plan = one(start(room, 'c2', 1000), 'CALIBRATION_PLAN').msg.plan;
+    expect(one(room.handle('c1', { type: 'CALIBRATION_CANCEL', planId: plan.id }, 1100), 'ERROR').msg.code).toBe('forbidden');
+    expect(one(room.handle('c2', { type: 'CALIBRATION_CANCEL', planId: 'nope' }, 1100), 'ERROR').msg.code).toBe('unknown_plan');
+    const cancelled = one(room.handle('c2', { type: 'CALIBRATION_CANCEL', planId: plan.id }, 1100), 'CALIBRATION_CANCELLED');
+    expect(cancelled.to).toBe('all');
+    expect(cancelled.msg.planId).toBe(plan.id);
+    one(start(room, 'c1', 1200), 'CALIBRATION_PLAN');
+    // released when the listener leaves (everyone is told), and by time
+    room = setup();
+    plan = one(start(room, 'c2', 1000), 'CALIBRATION_PLAN').msg.plan;
+    expect(one(room.leave('c2', 1100), 'CALIBRATION_CANCELLED').msg.planId).toBe(plan.id);
+    one(start(room, 'c1', 1200), 'CALIBRATION_PLAN');
+    room = setup();
+    plan = one(start(room, 'c2', 1000), 'CALIBRATION_PLAN').msg.plan;
+    const endsAt = plan.startRoomTime + 500 + 1100 + 1000 + 200 + 5000; // recording + tail
+    expect(one(start(room, 'c1', endsAt - 1), 'ERROR').msg.code).toBe('calibration_busy');
+    one(start(room, 'c1', endsAt), 'CALIBRATION_PLAN');
+  });
+
   it('calibration: a guest in a host-only room may not start a run', () => {
     const room = setup();
     room.handle('ch', { type: 'SETTINGS_UPDATE', hostOnlyControl: true }, 900);

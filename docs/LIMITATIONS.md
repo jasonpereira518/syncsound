@@ -44,6 +44,15 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Headphones can't be tuned** (no mic hears them): they keep the browser-reported latency plus the manual slider.
 - **Clock asymmetry:** NTP-style sync can't observe asymmetric network paths. The bias (asymmetry/2, e.g.
   15 ms for a 30 ms asymmetry) gets absorbed by acoustic calibration; without calibration it remains.
+- **A tune waits for the clocks to settle** (S2): started within ~30 s of joining it shows "Letting the clocks
+  settle…" for up to 20 s (the audio clock's long-baseline rate needs 30 s of observations); on a bad network the
+  hard criteria can hold it up to 30 s and then refuse ("The room clock hasn't settled yet"). A device that joined
+  a minute earlier waits ~3 s.
+- **A room without a LAN clock master is clock-limited** (every device on the server clock, e.g. client isolation
+  on guest Wi-Fi): each device's WAN estimate moves by about a millisecond per minute at σ 5 ms jitter, so a tune
+  holds p95 ≈ 1.9 ms there (`tuneClock.test.ts`), not < 1 ms.
+- **A USB or external microphone on its own clock** (not the device's audio context) adds its own rate error to
+  the recorder map; the sims model the built-in path only.
 
 ## Verified only in simulation or headlessly (needs real devices; see HUMAN_TEST_CHECKLIST.md)
 

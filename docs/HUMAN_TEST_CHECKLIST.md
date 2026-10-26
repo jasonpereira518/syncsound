@@ -123,3 +123,8 @@ Record results in the table at the bottom.
 22. **LAN clock master leaves mid-song (S1).** Close the master's tab (the host's). On the others expect at most a
     few ms of wobble within ~3 s and no reschedule counter increment; within ~25 s the debug drawer's clock RTT
     should drop back to LAN values (a new master).
+23. **Tune right after joining (S2).** On real Wi-Fi, tap Tune within 10 s of opening the room: expect "Letting the
+    clocks settle…" for up to ~20 s, then the run. Measure sync afterwards: p95 < 1 ms. Then, with two laptops, tap
+    Tune on both at once: the second gets "Another device is tuning the room right now". Cancel a tune halfway: the
+    other devices' chimes stop at once. Switch a phone's output to Bluetooth *during* a tune: it should be reported
+    as not timed ("wasn't timed: the audio output changed during the run"), and the run should otherwise complete.

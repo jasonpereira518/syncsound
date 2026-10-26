@@ -149,6 +149,11 @@ export class AudioClockMap {
     return this.fit ? (this.fit.slope / NOMINAL - 1) * 1e6 : 0;
   }
 
+  /** AudioContext seconds per performance ms in use (the long-baseline slope once available, else the short one) */
+  slope(): number {
+    return this.line().slope;
+  }
+
   /** the long-baseline rate, or null while the long window is still too short to beat the short one */
   longRate(): AudioRate | null {
     const l = this.long;
