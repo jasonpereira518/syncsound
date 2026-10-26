@@ -134,6 +134,12 @@ export const AudioObject = z.object({
 });
 export type AudioObject = z.infer<typeof AudioObject>;
 
+export const SceneMotion = z.object({
+  periodSec: finite().min(1).max(120),
+  startRoomTime: finite(),
+});
+export type SceneMotion = z.infer<typeof SceneMotion>;
+
 export const Scene = z.object({
   room: z.object({ width: finite().min(1).max(100), depth: finite().min(1).max(100) }),
   objects: z.array(AudioObject).max(32),
@@ -151,6 +157,8 @@ export const Scene = z.object({
   upmix: z.boolean(),
   /** absent = 'custom' (scenes saved before layouts existed) */
   layout: LayoutId.optional(),
+  /** 8D: the whole mix circles the listener, one lap per periodSec, angle 0 at startRoomTime; null/absent = still */
+  motion: SceneMotion.nullable().optional(),
 });
 export type Scene = z.infer<typeof Scene>;
 
@@ -329,6 +337,7 @@ export const SceneUpdate = z.object({
   crossoverHz: Scene.shape.crossoverHz.optional(),
   upmix: z.boolean().optional(),
   layout: LayoutId.optional(),
+  motion: Scene.shape.motion,
 });
 export type SceneUpdate = z.infer<typeof SceneUpdate>;
 

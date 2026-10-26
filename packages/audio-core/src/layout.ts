@@ -67,10 +67,44 @@ export function autoAssign(layout: LayoutId, devices: Device[]): Record<string, 
   return out;
 }
 
+/**
+ * Slots for devices whose role doesn't belong to `layout` (a new joiner's 'Full', a role kept from another layout):
+ * each goes to the emptiest slot, ties in layout order, so in a standard layout every speaker plays. Only the
+ * devices that need a change are returned; subs stay subs. Non-routed layouts return {}.
+ */
+export function autoSlot(layout: LayoutId | undefined, devices: Pick<Device, 'id' | 'role' | 'joinedAt'>[]): Record<string, DeviceRole> {
+  if (!isRoutedLayout(layout)) return {};
+  const slots = LAYOUT_SLOTS[layout];
+  const count = new Map<DeviceRole, number>(slots.map((s) => [s, 0]));
+  const homeless = [];
+  for (const d of devices) {
+    if (d.role === 'Sub') continue;
+    if (count.has(d.role)) count.set(d.role, count.get(d.role)! + 1);
+    else homeless.push(d);
+  }
+  const out: Record<string, DeviceRole> = {};
+  for (const d of homeless.sort((a, b) => a.joinedAt - b.joinedAt)) {
+    const slot = slots.reduce((best, s) => (count.get(s)! < count.get(best)! ? s : best), slots[0]!);
+    count.set(slot, count.get(slot)! + 1);
+    out[d.id] = slot;
+  }
+  return out;
+}
+
+/**
+ * Whether stereo sources get the derived C / surround / ambience channels: always when a standard layout has
+ * slots beyond the front pair (so a centre or surround speaker is never silent), else only when the scene asks.
+ */
+export const upmixActive = (scene: Pick<Scene, 'layout' | 'upmix'>): boolean =>
+  scene.upmix || (isRoutedLayout(scene.layout) && LAYOUT_SLOTS[scene.layout].length > 2);
+
 /** ITU-style azimuths, degrees: 0 = ahead (−y), +ve = to the listener's right; 7.x moves the sides to ±90° */
 const SLOT_AZ: Record<Slot, number> = { L: -30, R: 30, C: 0, SL: -110, SR: 110, RL: -150, RR: 150 };
-const slotAz = (slot: Slot, layout: LayoutId) =>
+export const slotAzimuth = (slot: Slot, layout: LayoutId | undefined) =>
   layout === 'surround7' && (slot === 'SL' || slot === 'SR') ? Math.sign(SLOT_AZ[slot]) * 90 : SLOT_AZ[slot];
+
+/** radius of the slot circle around the listener, m */
+export const slotRadius = (room: Scene['room']) => Math.min(2.5, 0.45 * Math.min(room.width, room.depth));
 
 /**
  * Canonical device positions for slot assignments (time alignment + room diagram): each slot on a circle around
@@ -78,7 +112,7 @@ const slotAz = (slot: Slot, layout: LayoutId) =>
  */
 export function slotPositions(layout: LayoutId, roles: Record<string, DeviceRole>, scene: Scene): Record<string, Vec2> {
   const { room, listener } = scene;
-  const r = Math.min(2.5, 0.45 * Math.min(room.width, room.depth));
+  const r = slotRadius(room);
   const clamp = (p: Vec2): Vec2 => ({
     x: Math.max(-room.width / 2 + 0.3, Math.min(room.width / 2 - 0.3, p.x)),
     y: Math.max(-room.depth / 2 + 0.3, Math.min(room.depth / 2 - 0.3, p.y)),
@@ -94,7 +128,7 @@ export function slotPositions(layout: LayoutId, roles: Record<string, DeviceRole
         out[id] = clamp({ x: -room.width / 2 + fan, y: -room.depth / 2 });
         return;
       }
-      const a = (slotAz(role, layout) * Math.PI) / 180;
+      const a = (slotAzimuth(role, layout) * Math.PI) / 180;
       // fan along the circle's tangent
       out[id] = clamp({ x: listener.x + r * Math.sin(a) + fan * Math.cos(a), y: listener.y - r * Math.cos(a) + fan * Math.sin(a) });
     });

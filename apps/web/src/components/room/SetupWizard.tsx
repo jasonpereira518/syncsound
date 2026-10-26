@@ -163,7 +163,7 @@ function ChooseSound({ devices }: { devices: Device[] }) {
                 aria-pressed={d.role === slot}
                 data-testid={`assign-${d.id}`}
                 onClick={() => {
-                  act(() => roomActions.assignSlot(d.id, d.role === slot ? 'Full' : slot));
+                  act(() => roomActions.assignSlot(d.id, slot));
                   setSlot(null);
                 }}
                 className={`flex min-h-10 items-center gap-2 rounded-full border px-3 text-sm ${

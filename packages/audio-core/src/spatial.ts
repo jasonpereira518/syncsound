@@ -1,5 +1,6 @@
 import type { AudioObject, Device, Scene, Vec2 } from '@syncsound/protocol';
-import { isRoutedLayout, routedGains } from './layout';
+import { isRoutedLayout } from './layout';
+import { vbapGains } from './vbap';
 import { dbToGain } from './loudness';
 
 export const SPEED_OF_SOUND = 343;
@@ -68,13 +69,22 @@ export function participatingDevices(input: MixInput): Device[] {
   return base.some((d) => d.solo) ? base.filter((d) => d.solo) : base;
 }
 
+/** The devices objects pan over: participants (minus unassigned ones in a standard layout), subs only if all are subs. */
+export function pannerDevices(input: MixInput): Device[] {
+  const routed = isRoutedLayout(input.scene.layout);
+  const parts = participatingDevices(input).filter((d) => !routed || d.role !== 'Full');
+  const nonSub = parts.filter((d) => d.role !== 'Sub');
+  return nonSub.length ? nonSub : parts;
+}
+
 /**
  * Per-device mix from the shared scene.
  * - Participants: connected, positioned (scene.devices), unmuted devices; when any participant is solo, ONLY the
  *   solo devices participate (they also are the only ones panned across). Non-participants get outputGain 0.
- * - Panning: DBAP over participants except role 'Sub' (a Sub plays the bass bus only: objectGains all 0).
- *   Standard layouts (scene.layout routed) instead route each object's channel to the devices in its slot
- *   (routedGains, with fold-down); unassigned ('Full') devices don't participate there.
+ * - Panning: vbapGains over participants except role 'Sub' (a Sub plays the bass bus only: objectGains all 0).
+ *   Standard layouts (scene.layout routed) pan over their slots, so an untouched channel plays from its own slot
+ *   (folding to its neighbours when empty); unassigned ('Full') devices don't participate there.
+ *   Pass sceneAt(scene, roomMs) for the scene as heard while 8D motion is on.
  * - Bass managed (≥ 1 bass-capable participant; role 'Sub' counts as bass-capable): bass-capable devices get
  *   bassGain 1/√nBass and play full range (only their protective HP); others are high-passed at
  *   max(crossoverHz, rolloffHz, eq.highpassHz) and their lost lows go to the bass bus via bassObjectGains.
@@ -103,9 +113,7 @@ export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
       outputGain: 0,
     };
   }
-  const nonSub = parts.filter((d) => d.role !== 'Sub');
-  const panners = nonSub.length ? nonSub : parts;
-  const speakers = panners.map((d) => ({ id: d.id, pos: scene.devices[d.id]! }));
+  const panners = pannerDevices(input);
   const bassDevs = parts.filter(isBassDevice);
   const managed = bassDevs.length > 0;
   const smallIds = managed ? panners.filter((d) => !isBassDevice(d)).map((d) => d.id) : [];
@@ -116,7 +124,7 @@ export function computeDeviceMix(input: MixInput, deviceId: string): DeviceMix {
       bassObjectGains[o.id] = g;
       continue;
     }
-    const gains = routed ? routedGains(o.channel, panners) : dbapGains(o.position, speakers, { rolloff: scene.rolloff, blur: scene.blur });
+    const gains = vbapGains(o, panners, scene);
     objectGains[o.id] = (gains[deviceId] ?? 0) * g;
     bassObjectGains[o.id] = g * Math.sqrt(smallIds.reduce((s, id) => s + (gains[id] ?? 0) ** 2, 0));
   }

@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
-import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
+import { computeDeviceMix, freeSpot, layoutLabel, orbitAngle, pannerDevices, resizeRoom, sceneAt, suggestLayout, vbapGains, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
-import { act, isTypingTarget, useCanControl } from './shared';
+import { act, isTypingTarget, roomNowMs, useCanControl } from './shared';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
 type ScenePatch = Omit<SceneUpdate, 'type'>;
@@ -34,6 +34,35 @@ function patchFor(scene: Scene, t: Target): ScenePatch {
 }
 const sceneUpdate = (patch: ScenePatch, commit: boolean) => act(() => roomActions.updateScene(patch, { commit }));
 
+/** the layouts most rooms need, in the order people think of them; the rest sit under Advanced */
+const MAIN_LAYOUTS: LayoutId[] = ['stereo', 'lcr', 'surround5', 'surround7', 'party'];
+/** 8D speeds: seconds per lap */
+const SPEEDS = [
+  { label: 'Off', periodSec: null },
+  { label: 'Slow', periodSec: 16 },
+  { label: 'Medium', periodSec: 8 },
+  { label: 'Fast', periodSec: 4 },
+] as const;
+
+/** re-render ~20×/s while 8D is on, so the map shows where the sound is */
+function useOrbitTick(on: boolean) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    let raf = 0;
+    let last = 0;
+    const loop = (t: number) => {
+      if (t - last > 50) {
+        last = t;
+        setTick((n) => n + 1);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [on]);
+}
+
 /** Total linear level a device puts out for the scene (for the little meters). */
 const totalGain = (m: DeviceMix) => {
   const sq = Object.values(m.objectGains).reduce((a, g) => a + g * g, 0) + m.bassGain * m.bassGain;
@@ -46,6 +75,7 @@ export function Stage() {
   const canRedo = useRoomStore((s) => s.canRedo);
   const identifyFlash = useRoomStore((s) => s.identifyFlash);
   const canControl = useCanControl();
+  const clock = useRoomStore((s) => s.clock);
 
   const [draft, setDraft] = useState<Scene | null>(null); // optimistic scene while dragging / until the store echoes
   const [draftBase, setDraftBase] = useState<Scene | null>(null);
@@ -59,6 +89,10 @@ export function Stage() {
   const base = room?.scene ?? null;
   const scene = draft && (dragging || draftBase === base) ? draft : base;
   const devices = useMemo(() => (room?.devices ?? []).filter((d) => d.connected || (base && base.devices[d.id])), [room?.devices, base]);
+  const orbiting = !!scene?.motion;
+  useOrbitTick(orbiting);
+  // what is heard right now: with 8D on, the objects where they currently are on their lap
+  const shown = scene && orbiting ? sceneAt(scene, roomNowMs(clock)) : scene;
 
   // Undo / redo shortcuts
   useEffect(() => {
@@ -115,28 +149,29 @@ export function Stage() {
     [devices, scene],
   );
 
-  const selObj = sel?.kind === 'object' ? (scene?.objects.find((o) => o.id === sel.id) ?? null) : null;
+  const selObj = sel?.kind === 'object' ? (shown?.objects.find((o) => o.id === sel.id) ?? null) : null;
+  // the engine's own panner, so the lines show what each speaker really plays
   const selGains = useMemo(() => {
-    if (!selObj || !scene || speakers.length === 0) return null;
+    if (!selObj || !shown || !room || speakers.length === 0) return null;
     try {
-      return dbapGains(selObj.position, speakers, { rolloff: scene.rolloff, blur: scene.blur });
+      return vbapGains(selObj, pannerDevices({ scene: shown, devices: room.devices, masterVolume: room.volume }), shown);
     } catch {
       return null;
     }
-  }, [selObj, speakers, scene]);
+  }, [selObj, speakers, shown, room]);
 
   const mixes = useMemo(() => {
-    if (!scene || !room) return null;
+    if (!shown || !room) return null;
     const out: Record<string, DeviceMix> = {};
     try {
-      for (const s of speakers) out[s.id] = computeDeviceMix({ scene, devices: room.devices, masterVolume: room.volume }, s.id);
+      for (const s of speakers) out[s.id] = computeDeviceMix({ scene: shown, devices: room.devices, masterVolume: room.volume }, s.id);
       return out;
     } catch {
       return null;
     }
-  }, [scene, room, speakers]);
+  }, [shown, room, speakers]);
 
-  if (!room || !scene || !base) return null;
+  if (!room || !scene || !shown || !base) return null;
   const { W, D, pad, u } = geo;
 
   const clampSnap = (p: Vec2): Vec2 => {
@@ -228,6 +263,29 @@ export function Stage() {
   const suggested = suggestLayout(live.filter((d) => d.role !== 'Sub').length);
 
   const applyLayout = (layout: LayoutId) => act(() => roomActions.setLayout(layout));
+  const layoutNow = scene.layout ?? 'custom';
+  const mainLayouts = MAIN_LAYOUTS.includes(suggested) ? MAIN_LAYOUTS : [suggested, ...MAIN_LAYOUTS];
+  const moreLayouts = LayoutId.options.filter((l) => !mainLayouts.includes(l));
+  const layoutButton = (l: LayoutId) => (
+    <Button
+      key={l}
+      data-testid={`layout-${l}`}
+      aria-pressed={layoutNow === l}
+      variant={layoutNow === l ? 'primary' : undefined}
+      className="!min-h-9 rounded-full !px-3 text-xs"
+      onClick={() => applyLayout(l)}
+    >
+      {layoutLabel(l, hasSub)}
+      {l === suggested && <span className="ml-1 text-[10px] opacity-70">suggested</span>}
+    </Button>
+  );
+  // 8D: start a lap now, or change speed without a jump (keep the current angle)
+  const setOrbit = (periodSec: number | null) => {
+    if (periodSec === null) return sceneUpdate({ motion: null }, true);
+    const now = roomNowMs(clock);
+    const angle = orbitAngle(scene.motion, now);
+    sceneUpdate({ motion: { periodSec, startRoomTime: now - (angle / 360) * periodSec * 1000 } }, true);
+  };
 
   // grid lines every metre
   const gridX: number[] = [];
@@ -384,15 +442,15 @@ export function Stage() {
             })}
 
             {/* audio objects */}
-            {scene.objects.map((o) => (
+            {shown.objects.map((o) => (
               <StageItem
                 key={o.id}
                 t={{ kind: 'object', id: o.id }}
                 testid={`stage-object-${o.id}`}
-                label={`Sound object ${o.label} (${o.channel}) at ${fmtPos(o.position)}`}
+                label={`Sound object ${o.label} (${o.channel}) at ${fmtPos(o.position)}${orbiting ? ', circling (8D)' : ''}`}
                 p={o.position}
                 sel={sel}
-                canMove={canControl}
+                canMove={canControl && !orbiting}
                 handlers={{ onDown, onMove, onUp, onItemKey }}
                 name={o.label}
               >
@@ -417,7 +475,7 @@ export function Stage() {
           </svg>
           <Inspector
             sel={sel}
-            scene={scene}
+            scene={shown}
             devices={devices}
             gains={selGains}
             mixes={mixes}
@@ -434,22 +492,35 @@ export function Stage() {
           <legend className="sr-only">Stage controls</legend>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <div className="min-w-0">
-              <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layouts</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {LayoutId.options.map((l) => (
-                  <Button
-                    key={l}
-                    data-testid={`layout-${l}`}
-                    aria-pressed={(scene.layout ?? 'custom') === l}
-                    variant={(scene.layout ?? 'custom') === l ? 'primary' : undefined}
-                    className="!min-h-9 rounded-full !px-3 text-xs"
-                    onClick={() => applyLayout(l)}
-                  >
-                    {layoutLabel(l, hasSub)}
-                    {l === suggested && <span className="ml-1 text-[10px] opacity-70">suggested</span>}
-                  </Button>
-                ))}
+              <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layout</h3>
+              <div className="flex flex-wrap gap-1.5">{mainLayouts.map(layoutButton)}</div>
+              {layoutNow === 'party' && !orbiting && (
+                <p className="mt-2 text-xs text-ink-400">Every speaker plays the whole mix. Turn on 8D to send it round the room.</p>
+              )}
+            </div>
+            <div className="min-w-0">
+              <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">8D</h3>
+              <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="8D: the music circles the room">
+                {SPEEDS.map((o) => {
+                  const on = o.periodSec === null ? !orbiting : scene.motion?.periodSec === o.periodSec;
+                  return (
+                    <Button
+                      key={o.label}
+                      role="radio"
+                      aria-checked={on}
+                      data-testid={`orbit-${o.label.toLowerCase()}`}
+                      variant={on ? 'primary' : undefined}
+                      className="!min-h-9 rounded-full !px-3 text-xs"
+                      onClick={() => setOrbit(o.periodSec)}
+                    >
+                      {o.label}
+                    </Button>
+                  );
+                })}
               </div>
+              <p className="mt-2 text-xs text-ink-400">
+                {orbiting ? 'The music circles you, speaker to speaker.' : 'Drag a sound on the map to move it, or turn on 8D.'}
+              </p>
             </div>
             <AddObject
               disabled={scene.objects.length >= 32}
@@ -465,43 +536,20 @@ export function Stage() {
           {/* secondary settings stay folded so the map keeps the height */}
           <details className="group rounded-xl border border-ink-700">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-medium tracking-widest text-ink-400 uppercase hover:text-ink-100">
-              Rendering &amp; room size
+              Advanced
               <span aria-hidden className="text-base transition group-open:rotate-90">›</span>
             </summary>
             <div className="grid gap-3 px-3 pb-3 md:grid-cols-2">
+              <div className="min-w-0 md:col-span-2">
+                <h3 className="mb-2 text-xs text-ink-400">More layouts</h3>
+                <div className="flex flex-wrap gap-1.5">{moreLayouts.map(layoutButton)}</div>
+              </div>
               <Toggle
                 label="Time-align to listener"
                 description="Delay nearer speakers so sound arrives together"
                 checked={scene.propagationComp}
                 disabled={!canControl}
                 onChange={(v) => sceneUpdate({ propagationComp: v }, true)}
-              />
-              <Toggle
-                label="Stereo → surround upmix"
-                description="Spread 2-channel sources around the room"
-                checked={scene.upmix}
-                disabled={!canControl}
-                onChange={(v) => sceneUpdate({ upmix: v }, true)}
-              />
-              <RangeField
-                label="Rolloff"
-                min={0.1}
-                max={4}
-                step={0.1}
-                value={scene.rolloff}
-                format={(v) => `${v.toFixed(1)} (${(6 * v).toFixed(0)} dB/dist×2)`}
-                onLive={(v) => sceneUpdate({ rolloff: v }, false)}
-                onCommit={(v) => sceneUpdate({ rolloff: v }, true)}
-              />
-              <RangeField
-                label="Spatial blur"
-                min={0.01}
-                max={5}
-                step={0.01}
-                value={scene.blur}
-                format={(v) => `${v.toFixed(2)} m`}
-                onLive={(v) => sceneUpdate({ blur: v }, false)}
-                onCommit={(v) => sceneUpdate({ blur: v }, true)}
               />
               <RangeField
                 label="Bass crossover"

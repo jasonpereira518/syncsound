@@ -100,3 +100,13 @@ Record results in the table at the bottom.
       restore p95 < 1 ms without asking the other laptops for their microphones.
     - Close the LAN clock master's tab (the host) mid-song: the banner should appear on the others (clock path
       changed); a quick tune restores sync.
+
+19. **Speaker spots + 8D.** 4–5 phones/laptops around one chair, any stereo music file.
+    - Pick **5.1** on the Stage. Every speaker plays: the centre and both surrounds must not be silent.
+    - Change a speaker's spot from the Devices list (e.g. Front left → Surround right): it moves on the map, and the
+      speaker that held that spot takes the old one. Nothing goes quiet.
+    - Join one more phone: within a second it gets a spot (shown in its own screen) and plays.
+    - Drag the *Left* sound to a surround speaker on the map: it should now clearly come from that speaker alone.
+    - Turn on **8D → Medium**: the music should audibly circle you about once every 8 s, speaker to speaker, with every
+      device in step (no speaker lagging the sweep). Try Slow / Fast, then Off.
+    - Pick **Everywhere**: every speaker plays the full mix; with 8D on, the mix circles the room through all of them.

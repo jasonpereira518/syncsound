@@ -5,6 +5,7 @@ export * from './drift';
 export * from './remoteSync';
 export * from './spatial';
 export * from './layout';
+export * from './vbap';
 export * from './biquad';
 export * from './fft';
 export * from './signals';

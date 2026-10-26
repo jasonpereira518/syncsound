@@ -1,12 +1,28 @@
 'use client';
 import { useState } from 'react';
-import { DeviceRole, MAX_MANUAL_LATENCY_MS, type Device, type DevicePatch } from '@syncsound/protocol';
+import { isRoutedLayout, LAYOUT_SLOTS } from '@syncsound/audio-core';
+import { MAX_MANUAL_LATENCY_MS, type Device, type DevicePatch, type DeviceRole, type LayoutId } from '@syncsound/protocol';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Badge, CLASS_ICON, Icon, IconButton, Panel, RangeField, ROLE_COLOR, StatusDot, Toggle, fmtMs, fmtSigned } from '../ui';
+import { SLOT_NAME } from './RoomDiagram';
 import { act, currentTrack, syncStatusOf, useCanControl } from './shared';
 
-const ROLES = DeviceRole.options;
-const ROLE_LABEL: Record<DeviceRole, string> = { L: 'Left', R: 'Right', C: 'Centre', SL: 'Surround L', SR: 'Surround R', RL: 'Rear L', RR: 'Rear R', Sub: 'Sub', Full: 'Full range' };
+/**
+ * What a speaker can be in this layout: its slots plus Sub. Everywhere/Custom pan by position, so there a speaker is
+ * just a speaker (or the sub). A role from another layout is still listed so the select shows it until it's re-slotted.
+ */
+function roleOptions(layout: LayoutId | undefined, current: DeviceRole): { value: DeviceRole; label: string }[] {
+  const routed = isRoutedLayout(layout);
+  const opts: { value: DeviceRole; label: string }[] = routed
+    ? [...LAYOUT_SLOTS[layout].map((s) => ({ value: s as DeviceRole, label: SLOT_NAME[s] })), { value: 'Sub', label: SLOT_NAME.Sub }]
+    : [
+        { value: 'Full', label: 'Speaker' },
+        { value: 'Sub', label: SLOT_NAME.Sub },
+      ];
+  if (routed && !opts.some((o) => o.value === current)) opts.unshift({ value: current, label: current === 'Full' ? 'Finding a spot…' : SLOT_NAME[current] });
+  if (!routed && current !== 'Sub' && current !== 'Full') opts[0] = { value: current, label: 'Speaker' };
+  return opts;
+}
 
 const update = (patch: DevicePatch, id: string) => act(() => roomActions.updateDevice(patch, id));
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -61,6 +77,8 @@ function DeviceRow({ d }: { d: Device }) {
   const status = syncStatusOf(d, selfId, clock);
   const st = d.stats;
   const color = ROLE_COLOR[d.role];
+  const layout = useRoomStore((s) => s.room?.scene.layout);
+  const options = roleOptions(layout, d.role);
 
   return (
     <li
@@ -96,19 +114,20 @@ function DeviceRow({ d }: { d: Device }) {
           </div>
         </div>
         <label className="sr-only" htmlFor={`role-${d.id}`}>
-          Role for {d.name} ({ROLE_LABEL[d.role]})
+          Spot for {d.name}
         </label>
         <select
           id={`role-${d.id}`}
+          data-testid="role-select"
           value={d.role}
           disabled={!editable}
-          onChange={(e) => update({ role: e.target.value as DeviceRole }, d.id)}
-          className="h-11 w-20 shrink-0 rounded-xl border border-ink-600 bg-ink-800 px-2 font-mono text-sm disabled:opacity-50"
+          onChange={(e) => act(() => roomActions.assignSlot(d.id, e.target.value as DeviceRole))}
+          className="h-11 w-36 shrink-0 rounded-xl border border-ink-600 bg-ink-800 px-2 text-sm disabled:opacity-50"
           style={{ color }}
         >
-          {ROLES.map((r) => (
-            <option key={r} value={r} title={ROLE_LABEL[r]}>
-              {r}
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </select>

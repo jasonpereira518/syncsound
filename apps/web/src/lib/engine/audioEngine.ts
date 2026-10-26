@@ -11,6 +11,7 @@ import {
   clickTrack,
   computeDeviceMix,
   computeStart,
+  sceneAt,
   type RoomClock,
   type DeviceMix,
   type StartDecision,
@@ -64,6 +65,7 @@ export class AudioEngine {
   private readonly assets: AssetCache;
   private readonly drift = new DriftController();
   private intervals: Array<ReturnType<typeof setInterval>> = [];
+  private orbitTimer: ReturnType<typeof setInterval> | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private click: { src: AudioBufferSourceNode; startedCtx: number } | null = null;
   private clickBuffer: AudioBuffer | null = null;
@@ -125,6 +127,7 @@ export class AudioEngine {
     this.disposed = true;
     for (const i of this.intervals) clearInterval(i);
     this.intervals = [];
+    this.stopOrbit();
     navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange);
     void this.wakeLock?.release().catch(() => {});
     this.wakeLock = null;
@@ -253,9 +256,10 @@ export class AudioEngine {
   onRoomChanged(): void {
     const room = useRoomStore.getState().room;
     if (!room || !this.ctx || !this.chain) return;
+    const scene = this.heardScene(room);
     try {
       const myId = useRoomStore.getState().deviceId;
-      this.mix = computeDeviceMix({ scene: room.scene, devices: room.devices, masterVolume: room.volume }, myId);
+      this.mix = computeDeviceMix({ scene, devices: room.devices, masterVolume: room.volume }, myId);
     } catch (e) {
       setError(`Mix error: ${errMsg(e)}`);
       return;
@@ -267,16 +271,55 @@ export class AudioEngine {
       this.chain.setCrossover(room.scene.crossoverHz);
       this.chain.setHighpass(mix.highpassHz);
       this.chain.setEq(me()?.eq ?? null);
-      this.voice?.voice.apply(room.scene, mix);
-      this.external?.apply(room.scene, mix);
+      this.voice?.voice.apply(scene, mix);
+      this.external?.apply(scene, mix);
     } catch (e) {
       setError(`Audio graph error: ${errMsg(e)}`);
     }
+    if (room.scene.motion) this.startOrbit();
+    else this.stopOrbit();
     this.ensureAssets(room);
     const comp = this.compensationSec();
     if (Math.abs(comp - this.lastComp) > 0.0005 && this.clickOn) this.startClick();
     this.lastComp = comp;
     this.reconcile();
+  }
+
+  /**
+   * The scene as heard right now: with 8D on, objects turned to where they are at the room time this device's output
+   * reaches the air (now + its latency compensation), so every device pans the same sound to the same place.
+   */
+  private heardScene(room: RoomState) {
+    if (!room.scene.motion || !this.ctx || !this.timingReady()) return room.scene;
+    try {
+      return sceneAt(room.scene, this.ctxToRoom(this.ctx.currentTime) + this.compensationSec() * 1000);
+    } catch {
+      return room.scene;
+    }
+  }
+
+  /** 8D: re-pan ~30×/s (gains glide with SMOOTH_TAU, so the sweep is continuous); bus gains don't move */
+  private startOrbit() {
+    if (this.orbitTimer) return;
+    this.orbitTimer = setInterval(() => {
+      const room = useRoomStore.getState().room;
+      if (!room?.scene.motion || !this.ctx) return this.stopOrbit();
+      if (!this.voice && !this.external) return;
+      try {
+        const scene = this.heardScene(room);
+        const mix = computeDeviceMix({ scene, devices: room.devices, masterVolume: room.volume }, useRoomStore.getState().deviceId);
+        this.mix = mix;
+        this.voice?.voice.apply(scene, mix);
+        this.external?.apply(scene, mix);
+      } catch {
+        /* next tick */
+      }
+    }, 33);
+  }
+
+  private stopOrbit() {
+    if (this.orbitTimer) clearInterval(this.orbitTimer);
+    this.orbitTimer = null;
   }
 
   private ensureAssets(room: RoomState) {
@@ -347,7 +390,7 @@ export class AudioEngine {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     const voice = new Voice(ctx, src, buffer.numberOfChannels, this.chain!);
-    voice.apply(room.scene, this.mix!);
+    voice.apply(this.heardScene(room), this.mix!);
     const old = this.voice;
     if (old && old.stopAt === null) {
       voice.fade.gain.setValueAtTime(0, d.when);
@@ -610,7 +653,7 @@ export class AudioEngine {
     if (!node || !this.ctx || !this.chain) return;
     const v = new Voice(this.ctx, node, 2, this.chain);
     const room = useRoomStore.getState().room;
-    if (room && this.mix) v.apply(room.scene, this.mix);
+    if (room && this.mix) v.apply(this.heardScene(room), this.mix);
     v.fade.gain.value = 1;
     this.external = v;
   }
