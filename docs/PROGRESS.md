@@ -47,7 +47,7 @@
 ## Spotify pass (plan: sign in, browse, play tracks/playlists synced on every device)
 
 - [x] SP1 – Durable sign-in: `spotifyAuth.ts` (localStorage per device, PKCE refresh single-flight + Web Locks, rotated refresh token, invalid_grant → signed out, legacy migration), playback vs browse scopes, 403 classification (Premium / dev-mode allow-list), SDK prepared early + `activate()` inside the tap, auto-connect after join, `autoplay_failed` / lost-device flags, `SpotifyBanner` on every view (guests in host-only rooms can connect), disconnect
-- [ ] SP2 – Web API client (`spotifyApi.ts`: search ≤10/page, playlists, Liked Songs, albums, 429 gate, cache) + `MockSpotifyApi`
+- [x] SP2 – Web API client (`spotifyApi.ts`: search ≤10/page, playlists, Liked Songs, albums, 429 gate, cache) + `MockSpotifyApi`; follows the Feb 2026 Web API rules (playlist songs only for own/collaborative playlists via `/items`, entry `item`|`track`, no batch lookups)
 - [ ] SP3 – Protocol `queueMany` + Track metadata, server auto-advance for sync-only tracks with a duration, no fade into or out of them
 - [ ] SP4 – Client sync: output compensation for remote tracks, persisted seek/start leads, track-boundary hand-over, end guard, pause when the room isn't playing
 - [ ] SP5 – Spotify browse panel, cover art + metadata everywhere, readiness count, e2e `spotify-browse.spec.ts`

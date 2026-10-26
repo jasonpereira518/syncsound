@@ -8,7 +8,10 @@ import type { RemoteServiceStatus } from '@syncsound/protocol';
 import { spotifyClientId, spotifyConfigured, spotifyRedirectUri } from '../config';
 import { randomId } from '../device';
 import { loadScript } from './loadScript';
+import { isMockRemote } from './mockMode';
+import { SpotifyApi, type SpotifyCatalog } from './spotifyApi';
 import { BROWSE_SCOPES, PLAYBACK_SCOPES, SpotifyAuthError, classify403, spotifyAuth } from './spotifyAuth';
+import { MockSpotifyApi } from './spotifyMock';
 import type { RemotePlayerAdapter, RemotePosition } from './types';
 
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
@@ -392,3 +395,8 @@ export class SpotifyAdapter implements RemotePlayerAdapter {
     this.uri = null;
   }
 }
+
+let catalog: SpotifyCatalog | null = null;
+/** what the controller browses: the Web API under this device's sign-in, or fixtures with `?mockRemote=1` */
+export const spotifyCatalog = (): SpotifyCatalog =>
+  (catalog ??= isMockRemote() ? new MockSpotifyApi() : new SpotifyApi({ fetch: (path, init) => spotifyFetch(path, init) }));

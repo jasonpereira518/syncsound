@@ -19,6 +19,7 @@ import {
   type IconName,
   type TabDef,
 } from '../ui';
+import { normalizeRemoteId } from '@/lib/sources/types';
 import { act, attempt, currentTrack, errMsg, roomNowMs, useCanControl } from './shared';
 
 type Source = 'demo' | 'upload' | 'url' | 'spotify' | 'apple' | 'capture' | 'youtube' | 'video';
@@ -567,18 +568,6 @@ const REMOTE = {
   },
 } as const;
 
-function normalizeRemote(kind: 'spotify' | 'apple', raw: string): string | null {
-  const s = raw.trim();
-  if (kind === 'spotify') {
-    const m = /(?:spotify:track:|open\.spotify\.com\/(?:intl-[a-z]+\/)?track\/)([A-Za-z0-9]{22})/.exec(s);
-    if (m) return `spotify:track:${m[1]}`;
-    return /^[A-Za-z0-9]{22}$/.test(s) ? `spotify:track:${s}` : null;
-  }
-  const m = /[?&]i=(\d+)/.exec(s) ?? /\/song\/[^/]*\/(\d+)/.exec(s);
-  if (m?.[1]) return m[1];
-  return /^\d{5,}$/.test(s) ? s : null;
-}
-
 function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
   const status = useRoomStore((s) => s.remote[kind]);
   const message = useRoomStore((s) => s.remote.message);
@@ -620,7 +609,7 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
   };
   const queue = (e: FormEvent) => {
     e.preventDefault();
-    const norm = normalizeRemote(kind, id);
+    const norm = normalizeRemoteId(kind, id);
     if (!norm) return setErr(`That doesn't look like a ${meta.name} track.`);
     setErr(null);
     act(() => roomActions.queueRemote(kind, norm));
