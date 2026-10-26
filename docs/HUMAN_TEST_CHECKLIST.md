@@ -110,3 +110,13 @@ Record results in the table at the bottom.
     - Turn on **8D → Medium**: the music should audibly circle you about once every 8 s, speaker to speaker, with every
       device in step (no speaker lagging the sweep). Try Slow / Fast, then Off.
     - Pick **Everywhere**: every speaker plays the full mix; with 8D on, the mix circles the room through all of them.
+
+20. **Phone as the listener + iOS audio (Phase 2).** An iPhone (Safari) and an Android phone, plus 2–3 other speakers.
+    - Tune from the iPhone held at your head: the wizard says to hold it at ear height. The result should place the
+      seat on the phone, and timing at your head should sound tight (Measure sync from the same spot: p95 < 1 ms).
+    - Afterwards the iPhone is muted as a speaker with a note; unmuting it in Devices works.
+    - After the tune, music on the iPhone must be at normal loudspeaker volume (not quiet, not on the earpiece).
+    - Lock the iPhone mid-tune: the tune stops with "screen locked or you switched apps". Lock a *recording* phone
+      mid-tune: the tune still finishes, without that phone's distances.
+    - Play music, then take a call / trigger Siri on a speaker iPhone. When it ends, sound returns by itself or the
+      "Turn the sound back on" banner appears and one tap brings it back in sync.

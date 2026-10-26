@@ -13,7 +13,12 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Secure context:** microphone (calibration), `getDisplayMedia` (capture) and Wake Lock need HTTPS. Phones on
   `http://<LAN-IP>` can play, but can't calibrate or capture. See DEPLOY.md.
 - **iOS Safari** suspends audio in the background and some versions lack `outputLatency`. The app re-syncs and
-  reschedules on `visibilitychange`, but background playback on iOS is not possible.
+  reschedules on `visibilitychange`, but background playback on iOS is not possible. A call, Siri or another app
+  can also interrupt the page's audio; it resumes by itself when allowed, otherwise the room shows "Turn the sound
+  back on" (iOS needs a tap). A tune stops with an explanation if a listening or recording device's screen locks.
+- **iOS audio session while tuning:** the mic needs Safari's `play-and-record` session, which can route sound to the
+  earpiece or make it quieter. Every mic close sets the session back to `playback`; behaviour varies by iOS
+  version and is only checked on hardware (HUMAN_TEST_CHECKLIST item 20).
 - **Bluetooth output latency** is not reported by browsers. It needs acoustic calibration or the manual slider
   (±1000 ms). The schedule lead grows with the largest device compensation, so a Bluetooth room has a slightly
   slower response to play/seek (e.g. ~550 ms instead of ~250 ms).

@@ -6,7 +6,7 @@ import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon } from '../ui';
 import { RoomDiagram, SLOT_NAME } from './RoomDiagram';
 import { useJoinLink } from './RoomHeader';
-import { act } from './shared';
+import { act, placementHint } from './shared';
 
 const STANDARD = LayoutId.options.filter((l) => isRoutedLayout(l));
 const STEP_TITLES = ['Add your speakers', 'Choose your sound', 'Tune the room'] as const;
@@ -199,6 +199,7 @@ function Tune({ devices }: { devices: Device[] }) {
   const busy = (cal.running && cal.step !== 'done' && cal.step !== 'error') || sm.running;
   const jitterOf = (id: string) => (sm.step === 'done' ? sm.devices.find((m) => m.deviceId === id)?.stdMs : undefined);
   const selfId = useRoomStore((s) => s.deviceId);
+  const selfClass = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.deviceId)?.caps.deviceClass);
   const seconds = Math.round((devices.length * TUNE_PERIOD_MS) / 1000) + 7;
   const byId = new Map(devices.map((d) => [d.id, d]));
 
@@ -217,9 +218,9 @@ function Tune({ devices }: { devices: Device[] }) {
   return (
     <div className="space-y-4">
       <p className="text-ink-200">
-        Check that every speaker&rsquo;s own volume is all the way up (each one shows a reminder). Then sit where you usually listen with
-        this device in front of you and keep the room quiet. Each speaker plays a short sweep in turn, about {seconds} seconds in all, while
-        every laptop listens (each asks once for its microphone). SyncSound measures how far apart they are, lines them up in time at your
+        Check that every speaker&rsquo;s own volume is all the way up (each one shows a reminder). {placementHint(selfClass)} Keep the room
+        quiet. Each speaker plays a short sweep in turn, about {seconds} seconds in all, while every phone and laptop listens (each asks once
+        for its microphone) — keep their screens on. SyncSound measures how far apart they are, lines them up in time at your
         seat and matches their loudness.
       </p>
       {busy ? (

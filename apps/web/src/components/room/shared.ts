@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Device, RoomState, Track } from '@syncsound/protocol';
+import type { Device, DeviceClass, RoomState, Track } from '@syncsound/protocol';
 import { roomNowMs as engineRoomNowMs, useRoomStore } from '@/store/roomStore';
 import type { ClockStats } from '@/store/types';
 import type { SyncStatus } from '../ui';
@@ -8,6 +8,12 @@ import type { SyncStatus } from '../ui';
 export function useCanControl(): boolean {
   return useRoomStore((s) => s.isHost || !s.room?.settings.hostOnlyControl);
 }
+
+/** Where to put the tuning device: a phone is held at the head (its mic becomes the seat), anything else sits in front. */
+export const placementHint = (deviceClass: DeviceClass | undefined) =>
+  deviceClass === 'phone'
+    ? 'Sit where you usually listen and hold this phone at your head, at ear height, with the screen facing you. Keep still.'
+    : 'Sit where you usually listen with this device in front of you.';
 
 /** Room time now (ms). ClockSync works on performance.now() values, so offset = room − performance.now(). */
 export function roomNowMs(clock: ClockStats | null): number {

@@ -3,6 +3,7 @@
  * compensation, drift correction, spatial mix + EQ graph, click test, identify beeps.
  * Browser-only: create it from client code after a user gesture (`unlock()`).
  */
+import { setAudioSession } from '../audioSession';
 import { batterySaver, dueNow } from '../power';
 import {
   AudioClockMap,
@@ -106,13 +107,15 @@ export class AudioEngine {
     silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
     silent.connect(ctx.destination);
     silent.start(0);
-    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
-    if (session) session.type = 'playback';
+    setAudioSession('playback');
 
     this.chain = new OutputChain(ctx);
     ctx.onstatechange = () => {
       // a suspension freezes ctx time while perf time runs on → the mapping is no longer linear
       this.audioClock.reset();
+      // iOS 'interrupted' (a call, Siri, another app's audio): try to come back by ourselves once it ends; if the
+      // browser wants a tap for that, the room shows a "turn the sound back on" button (resume()).
+      if (ctx.state !== 'running' && ctx.state !== 'closed' && document.visibilityState === 'visible') void ctx.resume().catch(() => {});
       this.publish();
     };
     this.intervals.push(setInterval(() => this.observeClock(), 250));
@@ -141,6 +144,14 @@ export class AudioEngine {
     this.chain?.dispose();
     this.chain = null;
     void ctx?.close().catch(() => {});
+  }
+
+  /** MUST run inside a user gesture: bring a suspended / interrupted context back (iOS needs the tap) */
+  resume(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    setAudioSession('playback');
+    void ctx.resume().then(() => this.reconcile(true), () => {});
   }
 
   /** tab visible again: resume audio + wake lock; the caller re-bursts the clock then calls reconcile(true) */

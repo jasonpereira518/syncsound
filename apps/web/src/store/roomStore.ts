@@ -779,6 +779,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     useRoomStore.setState({ routeChanged: false, routeRestored: null });
   },
 
+  resumeAudio() {
+    session?.engine.resume(); // synchronous: must stay inside the tap's user activation
+  },
+
   async startCapture() {
     if (!session) return setError('Join the room first.');
     await session.capture.start();

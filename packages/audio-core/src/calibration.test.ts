@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CalibrationRow, Vec2 } from '@syncsound/protocol';
-import { beepBeep, SELF_OFFSET_M, solveTune, type RowsByRecorder, type TuneReport } from './calibration';
+import { beepBeep, headOffsetFor, SELF_OFFSET_M, solveTune, type RowsByRecorder, type TuneReport } from './calibration';
 import { propagationDelays, SPEED_OF_SOUND } from './spatial';
 
 const d = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -110,6 +110,25 @@ describe('solveTune', () => {
     const rep = solve(room);
     expect(d(rep.listener, rep.positions['L']!)).toBeCloseTo(0.4, 9);
     expect(rep.listener.y).toBeGreaterThan(rep.positions['L']!.y); // behind = +y (front is −y)
+    expect(headSpreadMs(room, rep)).toBeLessThan(0.01);
+  });
+
+  it('a phone held at the head: the head is the mic itself, and every device still aligns there', () => {
+    expect(headOffsetFor('phone')).toBe(0);
+    expect(headOffsetFor('laptop')).toBe(0.4);
+    expect(headOffsetFor('tablet')).toBe(0.4);
+    const devices = rough(room);
+    const rep = solveTune({
+      rows: rowsFor(room),
+      listenerId: 'L',
+      responses: {},
+      sampleRate: 48000,
+      scene: { devices, listener: { x: 0, y: 2 } },
+      deviceIds: room.map((x) => x.id),
+      placeHead: true,
+      headOffsetM: headOffsetFor('phone'),
+    });
+    expect(d(rep.listener, rep.positions['L']!)).toBeCloseTo(0, 9);
     expect(headSpreadMs(room, rep)).toBeLessThan(0.01);
   });
 

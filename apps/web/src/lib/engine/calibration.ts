@@ -14,6 +14,8 @@ import {
   classPresetEq,
   encodeWav,
   expectedArrivalMs,
+  headOffsetFor,
+  heldAtHead,
   solveTune,
   SYNC_SEARCH_LATE_MS,
   TUNE_PERIOD_MS,
@@ -31,6 +33,7 @@ import type {
   SceneUpdate,
 } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
+import { setAudioSession } from '../audioSession';
 import { chooseCalibrationInput, defaultOutputLabel, isBluetoothLabel } from '../device';
 import type { CalibrationDeviceUi } from '../../store/types';
 import type { AudioEngine } from './audioEngine';
@@ -164,11 +167,47 @@ const BT_SELF_WARNING =
   "This device plays through Bluetooth or headphones, so its own speaker wasn't measured (opening the mic " +
   "switches Bluetooth into call mode, which has a different delay). Run calibration from another device to measure it.";
 
+const HELD_MUTED_NOTE =
+  "This phone was the microphone at your seat, so it's now muted as a speaker (it would play right at your ear). " +
+  'Put it down somewhere else and unmute it in Devices if you want it to play too.';
+
+const HIDDEN_ERROR =
+  'The tune stopped because this screen locked or you switched apps (phones pause the microphone and sound in the ' +
+  'background). Keep this screen on and open, then run it again.';
+
 /**
  * Open a calibration mic, avoiding a Bluetooth headset mic (which would flip the headset into its hands-free
- * profile). `outputBluetooth`: this device's own output is (or was just switched to) Bluetooth.
+ * profile). `outputBluetooth`: this device's own output is (or was just switched to) Bluetooth. `release()` stops
+ * the mic and puts the iOS audio session back to loudspeaker playback; safe to call more than once.
  */
-async function openCalibrationMic(): Promise<{ stream: MediaStream; outputBluetooth: boolean }> {
+async function openCalibrationMic(): Promise<{ stream: MediaStream; outputBluetooth: boolean; release: () => void }> {
+  setAudioSession('play-and-record');
+  try {
+    const mic = await openMicStream();
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      mic.stream.getTracks().forEach((t) => t.stop());
+      setAudioSession('playback');
+    };
+    return { ...mic, release };
+  } catch (e) {
+    setAudioSession('playback');
+    throw e;
+  }
+}
+
+/** call `onHidden` once if this page is hidden (screen locked, app switched); returns the unsubscribe */
+function onPageHidden(onHidden: () => void): () => void {
+  const check = () => {
+    if (document.visibilityState === 'hidden') onHidden();
+  };
+  document.addEventListener('visibilitychange', check);
+  return () => document.removeEventListener('visibilitychange', check);
+}
+
+async function openMicStream(): Promise<{ stream: MediaStream; outputBluetooth: boolean }> {
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
@@ -248,6 +287,8 @@ interface Run {
   /** recorders that reported a Bluetooth output */
   bluetooth: Set<string>;
   planId: string | null;
+  /** why the run was stopped from outside (e.g. the page was hidden); null = the user cancelled */
+  reason: string | null;
 }
 
 export class CalibrationController {
@@ -373,17 +414,23 @@ export class CalibrationController {
     let stopTracks = () => {};
     const sendRows = (rows: CalibrationRow[], valid: boolean, reason?: string) =>
       this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows, valid, outputBluetooth, ...(reason ? { reason: reason.slice(0, 200) } : {}) });
+    // phones stop the mic in the background: tell the listener at once instead of sending a broken recording
+    remote.cleanup.push(
+      onPageHidden(() => {
+        sendRows([], false, 'its screen locked or it switched apps');
+        this.cancelRun(remote);
+      }),
+    );
     try {
       const ctx = this.engine.ctx!;
       let input: MediaStream | AudioNode;
       if (lb) input = lb;
       else {
         const mic = await openCalibrationMic();
-        const stream = mic.stream;
         outputBluetooth = mic.outputBluetooth;
-        stopTracks = () => stream.getTracks().forEach((t) => t.stop());
+        stopTracks = mic.release;
         remote.cleanup.push(stopTracks);
-        input = stream;
+        input = mic.stream;
       }
       const recorder = await startRecorder(ctx, input);
       remote.cleanup.push(() => recorder.abort());
@@ -421,7 +468,7 @@ export class CalibrationController {
    */
   async start(opts: { quick?: boolean } = {}): Promise<void> {
     if (this.run) return;
-    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), planId: null };
+    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), planId: null, reason: null };
     this.run = run;
     const check = () => {
       if (run.cancelled) throw new Cancelled();
@@ -430,7 +477,9 @@ export class CalibrationController {
       running: true,
       step: 'place',
       progress: 0,
-      message: 'Sit where you listen with this device and keep the room quiet.',
+      message: heldAtHead(useRoomStore.getState().room?.devices.find((d) => d.id === useRoomStore.getState().deviceId)?.caps.deviceClass ?? 'unknown')
+        ? 'Hold this phone at your head where you listen, keep still and keep the room quiet.'
+        : 'Sit where you listen with this device and keep the room quiet.',
       freqs: null,
       targetDb: null,
       devices: [],
@@ -443,6 +492,7 @@ export class CalibrationController {
       if (!ctx || !this.clock() || !room) throw new Error('Join the speaker array first.');
       if (!mayControl()) throw new Error(HOST_ONLY);
       const myId = st.deviceId;
+      const myClass = room.devices.find((d) => d.id === myId)?.caps.deviceClass ?? 'unknown';
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
       this.pauseDuring(run);
 
@@ -488,6 +538,7 @@ export class CalibrationController {
         scene,
         deviceIds: emitters,
         placeHead: !opts.quick,
+        headOffsetM: headOffsetFor(myClass),
         detached: [...devices.filter(isDetached).map((d) => d.id), ...run.bluetooth],
       });
       check();
@@ -529,6 +580,9 @@ export class CalibrationController {
       if (!this.send({ type: 'CALIBRATION_RESULT', planId: plan.id, results })) throw new Error('Lost the connection before the results could be saved.');
       // the manual nudge compensated exactly what was just measured: keeping it would double-count
       for (const d of nudged) this.send({ type: 'DEVICE_UPDATE', targetDeviceId: d.id, patch: { latencyMs: 0 } });
+      // a phone held at the head would play right at the listener's ear: mute it as a speaker (others carry the sound)
+      const mutedSelf = !opts.quick && heldAtHead(myClass) && heard.some((h) => h.deviceId !== myId) && !devices.find((d) => d.id === myId)?.muted;
+      if (mutedSelf) this.send({ type: 'DEVICE_UPDATE', patch: { muted: true } });
 
       const ui: CalibrationDeviceUi[] = report.devices.map((d) => ({
         deviceId: d.deviceId,
@@ -545,6 +599,7 @@ export class CalibrationController {
       const missing = report.devices.length - heard.length;
       const notes = [
         ...(selfExcluded ? [BT_SELF_WARNING] : []),
+        ...(mutedSelf ? [HELD_MUTED_NOTE] : []),
         ...(nudged.length ? [`Reset the manual delay nudge on ${nudged.map((d) => d.name).join(', ')}: the tune measures it now.`] : []),
         ...report.warnings,
       ];
@@ -559,7 +614,8 @@ export class CalibrationController {
       // the listener's own output wasn't measured, so its route-change prompt still stands
       if (!selfExcluded) useRoomStore.setState({ routeChanged: false });
     } catch (e) {
-      if (e instanceof Cancelled || run.cancelled) patch('calibration', { step: 'idle', message: 'Calibration cancelled.', progress: 0 });
+      if ((e instanceof Cancelled || run.cancelled) && run.reason) patch('calibration', { step: 'error', message: run.reason });
+      else if (e instanceof Cancelled || run.cancelled) patch('calibration', { step: 'idle', message: 'Calibration cancelled.', progress: 0 });
       else patch('calibration', { step: 'error', message: errMsg(e) });
     } finally {
       for (const c of run.cleanup) {
@@ -603,12 +659,20 @@ export class CalibrationController {
     const ctx = this.engine.ctx!;
     const lb = this.engine.loopback();
     let stream: MediaStream | null = null;
+    let release = () => {};
     let selfExcluded = false;
+    // a locked screen / switched app stops the mic and the sweeps on phones: stop with a reason, not garbage
+    run.cleanup.push(
+      onPageHidden(() => {
+        run.reason = HIDDEN_ERROR;
+        this.cancelRun(run);
+      }),
+    );
     if (!lb) {
       const mic = await openCalibrationMic();
-      const s = mic.stream;
-      run.cleanup.push(() => s.getTracks().forEach((t) => t.stop()));
-      stream = s;
+      run.cleanup.push(mic.release);
+      stream = mic.stream;
+      release = mic.release;
       const { room, deviceId } = useRoomStore.getState();
       selfExcluded = mic.outputBluetooth || room?.devices.find((d) => d.id === deviceId)?.caps.deviceClass === 'bluetooth';
     }
@@ -662,7 +726,7 @@ export class CalibrationController {
       onProgress(Math.min(1, Math.max(0, (now - plan.startRoomTime) / (endRoom - plan.startRoomTime)))),
     );
     const rec = await recorder.stop();
-    stream?.getTracks().forEach((t) => t.stop()); // mic off now, not after the rows wait and the solve
+    release(); // mic off now, not after the rows wait and the solve
     return { plan, rec, toRoomMs, valid: this.clock() === clockAt && this.engine.audioClock.steps === steps, selfExcluded };
   }
 
@@ -683,7 +747,7 @@ export class CalibrationController {
   /** Sync check: every device clicks (time-staggered wideband chirps) through normal compensation; this device listens. */
   async measureSync(durationSec = 60): Promise<void> {
     if (this.run) return;
-    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), planId: null };
+    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), planId: null, reason: null };
     this.run = run;
     patch('syncMeasure', { running: true, step: 'recording', progress: 0, message: 'Allow microphone access…', durationSec, devices: [], histogram: null, overall: null, warnings: [] });
     try {
@@ -729,7 +793,8 @@ export class CalibrationController {
         warnings: selfExcluded ? [BT_SELF_WARNING, ...report.warnings] : report.warnings,
       });
     } catch (e) {
-      if (e instanceof Cancelled || run.cancelled) patch('syncMeasure', { step: 'idle', message: 'Measurement cancelled.', progress: 0 });
+      if ((e instanceof Cancelled || run.cancelled) && run.reason) patch('syncMeasure', { step: 'error', message: run.reason });
+      else if (e instanceof Cancelled || run.cancelled) patch('syncMeasure', { step: 'idle', message: 'Measurement cancelled.', progress: 0 });
       else patch('syncMeasure', { step: 'error', message: errMsg(e) });
     } finally {
       for (const c of run.cleanup) {

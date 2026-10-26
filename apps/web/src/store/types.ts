@@ -191,6 +191,8 @@ export interface RoomActions {
   setClickTest(on: boolean): void;
   setBatterySaver(on: boolean): void;
   dismissRouteChange(): void;
+  /** MUST be called from a user gesture: resume audio the phone suspended or interrupted (iOS calls, Siri, other apps) */
+  resumeAudio(): void;
   /** Capture this tab / system audio and send it to every device (video mode 1). */
   startCapture(): Promise<void>;
   stopCapture(): void;

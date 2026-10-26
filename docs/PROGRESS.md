@@ -23,7 +23,8 @@
 - [ ] R7 – Native shells (later)
 - [x] Calibration v3 – one-tap "Tune room": every laptop records, BeepBeep ranging → measured layout, listener-row timing aligned at the head, one wideband sweep per device, staggered wideband sync check (sim: head p95 0.53 ms)
 - [ ] Calibration v3 on real hardware (HUMAN_TEST_CHECKLIST item 18)
-- [ ] Phase 2 – phones as the listener (held at the head), iOS audio-session/background constraints
+- [x] Phase 2 – phones as the listener (held at the head), iOS audio-session/background constraints (code + tests)
+- [ ] Phase 2 on real phones (HUMAN_TEST_CHECKLIST item 20)
 - [x] Gap pass: group-play button, one-step YouTube, rejoin prompt, volume-to-max prompt, re-sync on clock steps, Bluetooth wobble during tuning, room name in title, balance / "Only I can control" renames, tests (home flow with tuning + volume, group play + rejoin, Bluetooth wobble sim)
 - [x] Spatial pass: one sharp azimuth panner (`vbapGains`) for every layout, automatic upmix so C/surround slots always play, layout-aware role picker + auto-slotting of late joiners, 8D orbit (synced by room time), simpler Stage controls
 - [ ] Spatial pass on real speakers (HUMAN_TEST_CHECKLIST item 19)

@@ -4,7 +4,7 @@ import { downloadFailedRecording, hasFailedRecording } from '@/lib/engine/calibr
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { CalibrationUi } from '@/store/types';
 import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui';
-import { act, useCanControl } from './shared';
+import { act, placementHint, useCanControl } from './shared';
 import { SyncMeasurePanel } from './SyncMeasure';
 
 const STEPS = ['Sit where you listen with this device', 'Allow microphone', 'Tune: each speaker sweeps in turn', 'Done'];
@@ -30,6 +30,7 @@ export function CalibrationWizard() {
   const devices = useRoomStore((s) => s.room?.devices ?? null);
   const selfHasMic = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.deviceId)?.caps.hasMic ?? true);
   const selfId = useRoomStore((s) => s.deviceId);
+  const selfClass = useRoomStore((s) => s.room?.devices.find((d) => d.id === s.deviceId)?.caps.deviceClass);
   const engine = useRoomStore((s) => s.engine);
   const canControl = useCanControl();
   const [chartDevice, setChartDevice] = useState<string | null>(null);
@@ -50,8 +51,7 @@ export function CalibrationWizard() {
   return (
     <Panel title="Calibrate" icon="mic" className="lg:min-h-0 lg:flex-1">
       <p className="text-sm text-ink-300">
-        Sit where you listen with <strong className="text-ink-100">this device</strong>. Every speaker plays a short sweep in turn while every
-        laptop listens: SyncSound measures how far apart they are, each one&rsquo;s delay, level and frequency response, then lines them up at
+        {placementHint(selfClass)} Every speaker plays a short sweep in turn while every phone and laptop listens (keep their screens on): SyncSound measures how far apart they are, each one&rsquo;s delay, level and frequency response, then lines them up at
         your seat and EQs them.
       </p>
 

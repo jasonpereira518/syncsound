@@ -187,6 +187,17 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
   );
 }
 
+/** `on`, once it has stayed true for `ms` */
+function useLasting(on: boolean, ms: number) {
+  const [lasting, setLasting] = useState(false);
+  useEffect(() => {
+    if (!on) return setLasting(false);
+    const t = setTimeout(() => setLasting(true), ms);
+    return () => clearTimeout(t);
+  }, [on, ms]);
+  return lasting && on;
+}
+
 function Banners() {
   const routeChanged = useRoomStore((s) => s.routeChanged);
   const routeRestored = useRoomStore((s) => s.routeRestored);
@@ -194,8 +205,32 @@ function Banners() {
   const nowPlaying = useRoomStore((s) => s.calibration.nowPlaying);
   const nowPlayingName = useRoomStore((s) => (nowPlaying === s.deviceId ? null : s.room?.devices.find((d) => d.id === nowPlaying)?.name));
   const nowPlayingSelf = useRoomStore((s) => nowPlaying !== null && nowPlaying === s.deviceId);
+  // the phone paused this page's audio (a call, Siri, another app, the lock screen): one tap brings it back
+  const stopped = useRoomStore((s) => s.engine.unlocked && (s.engine.ctxState === 'suspended' || s.engine.ctxState === 'interrupted'));
+  const audioStopped = useLasting(stopped, 1500); // not the brief 'suspended' while audio starts or comes back by itself
   return (
     <>
+      {audioStopped && (
+        <div
+          role="alert"
+          data-testid="audio-stopped"
+          className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-warn/40 bg-warn/10 px-4 py-2 text-sm"
+        >
+          <Icon name="warning" className="size-5 shrink-0 text-warn" />
+          <p className="min-w-0 flex-1">
+            <strong className="text-warn">Your phone paused the sound on this speaker.</strong> Calls, Siri, other apps and the lock
+            screen do that. Keep this screen open while you listen.
+          </p>
+          <button
+            type="button"
+            data-testid="resume-audio"
+            onClick={() => roomActions.resumeAudio()}
+            className="min-h-11 rounded-lg bg-warn/20 px-3 font-medium text-ink-100 hover:bg-warn/30"
+          >
+            Turn the sound back on
+          </button>
+        </div>
+      )}
       {routeRestored && !routeChanged && (
         <div
           role="status"

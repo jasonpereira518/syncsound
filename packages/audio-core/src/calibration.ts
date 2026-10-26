@@ -1,4 +1,4 @@
-import type { CalibrationPlan, CalibrationRow, Scene, Vec2 } from '@syncsound/protocol';
+import type { CalibrationPlan, CalibrationRow, DeviceClass, Scene, Vec2 } from '@syncsound/protocol';
 import { commonTarget, fitEq, type EqFitResult } from './eq';
 import { loudnessTrims, volumeHints } from './loudness';
 import {
@@ -62,6 +62,11 @@ const COLOCATED_TOLERANCE_DB = 10;
 const NOMINAL_MS = { early: -100, late: 500 } as const;
 /** Default distance from the tuning laptop's mic to the listener's head (head sits behind the laptop), m. */
 export const HEAD_OFFSET_M = 0.4;
+
+/** A phone tunes held at the listener's head (mic = head); a laptop/tablet/desktop sits in front of it. */
+export const heldAtHead = (deviceClass: DeviceClass) => deviceClass === 'phone';
+/** mic → head distance for a tuning device of this class, m */
+export const headOffsetFor = (deviceClass: DeviceClass) => (heldAtHead(deviceClass) ? 0 : HEAD_OFFSET_M);
 
 /** Tune plan slots: one sweep per device, each in its own TUNE_PERIOD_MS slot. */
 export function buildTuneSlots(deviceIds: string[]): CalibrationPlan['slots'] {
