@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { MAX_UPLOAD_BYTES, type Track, type TrackKind } from '@syncsound/protocol';
+import { MAX_CROSSFADE_SEC, MAX_UPLOAD_BYTES, type Track, type TrackKind } from '@syncsound/protocol';
 import { positionAt } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import {
@@ -70,6 +70,7 @@ export function Library() {
       <fieldset disabled={!canControl} className="min-w-0">
         <legend className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Queue</legend>
         <Queue />
+        <CrossfadeField />
       </fieldset>
 
       <h3 className="mt-5 mb-1 text-xs font-medium tracking-widest text-ink-400 uppercase">Add audio</h3>
@@ -198,6 +199,27 @@ export function MasterVolume({ compact }: { compact?: boolean }) {
         format={(v) => `${Math.round(v * 100)}%`}
         onCommit={(v) => control({ type: 'volume', volume: v })}
         compact={compact}
+      />
+    </div>
+  );
+}
+
+/** host: how one track hands over to the next at its end (every device fades locally on the room timeline) */
+export function CrossfadeField() {
+  const isHost = useRoomStore((s) => s.isHost);
+  const value = useRoomStore((s) => s.room?.settings.crossfadeSec ?? 0);
+  if (!isHost) return null;
+  return (
+    <div className="mt-3" data-testid="crossfade">
+      <RangeField
+        label="Crossfade"
+        min={0}
+        max={MAX_CROSSFADE_SEC}
+        step={1}
+        value={value}
+        format={(v) => (v === 0 ? 'Gapless' : `${v} s`)}
+        hint="Blend each track into the next at its end"
+        onCommit={(v) => act(() => roomActions.updateSettings({ crossfadeSec: v }))}
       />
     </div>
   );

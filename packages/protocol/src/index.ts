@@ -23,6 +23,8 @@ export const MAX_MANUAL_LATENCY_MS = 1000;
 export const Id = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 export const Name = z.string().trim().min(1).max(40);
 const finite = () => z.number().finite();
+/** longest crossfade between tracks, s (room setting and the per-playback value derived from it) */
+export const MAX_CROSSFADE_SEC = 12;
 
 export const Vec2 = z.object({ x: finite().min(-50).max(50), y: finite().min(-50).max(50) });
 export type Vec2 = z.infer<typeof Vec2>;
@@ -182,6 +184,11 @@ export const Playback = z.object({
   startRoomTime: finite(),
   /** seconds into the track at startRoomTime (or the paused position) */
   trackOffset: finite().min(0),
+  /**
+   * set when the server advanced to this track at the end of the previous one: the previous track ends
+   * `crossfadeSec` after startRoomTime (0 = gapless join); absent for user-started playback
+   */
+  crossfadeSec: finite().min(0).max(MAX_CROSSFADE_SEC).optional(),
 });
 export type Playback = z.infer<typeof Playback>;
 
@@ -192,6 +199,8 @@ export const RoomSettings = z.object({
   videoBufferMs: finite().min(40).max(1000),
   /** lip-sync nudge, ms (+ve = audio later) */
   lipSyncNudgeMs: finite().min(-300).max(300),
+  /** blend each track into the next over this many seconds at its end; 0 = gapless */
+  crossfadeSec: finite().min(0).max(MAX_CROSSFADE_SEC),
 });
 export type RoomSettings = z.infer<typeof RoomSettings>;
 
@@ -366,6 +375,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
     hostOnlyControl: z.boolean().optional(),
     videoBufferMs: RoomSettings.shape.videoBufferMs.optional(),
     lipSyncNudgeMs: RoomSettings.shape.lipSyncNudgeMs.optional(),
+    crossfadeSec: RoomSettings.shape.crossfadeSec.optional(),
     password: z.string().max(100).nullable().optional(),
   }),
   z.object({ type: z.literal('STATS'), stats: DeviceStats }),
@@ -410,6 +420,8 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
     startRoomTime: finite(),
     trackOffset: finite().min(0),
     trackId: z.string().nullable(),
+    /** auto-advance: the previous track ends this many seconds after startRoomTime (0 = gapless) */
+    crossfadeSec: Playback.shape.crossfadeSec,
   }),
   z.object({ type: z.literal('SCENE'), scene: Scene }),
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
@@ -508,6 +520,10 @@ export const SERVER_PORT_DEFAULT = 8787;
 /** every scheduled action must be at least max(device RTT) + this far in the future */
 export const SCHEDULE_SAFETY_MARGIN_MS = 150;
 export const MIN_SCHEDULE_LEAD_MS = 250;
+/** auto-advance SCHEDULEs are sent this much earlier than the lead requires (lead may grow before it fires) */
+export const AUTO_ADVANCE_MARGIN_MS = 300;
+/** at the end of the queue the stop is scheduled this far past the last track's end (its source has ended by then) */
+export const QUEUE_END_STOP_MS = 100;
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export const defaultEq = (): DeviceEq => ({
@@ -523,6 +539,7 @@ export const defaultSettings = (): RoomSettings => ({
   hasPassword: false,
   videoBufferMs: 150,
   lipSyncNudgeMs: 0,
+  crossfadeSec: 0,
 });
 
 export const defaultScene = (): Scene => ({

@@ -26,3 +26,4 @@
 - [x] Tune sound + leveling: one swoosh → chime per device (no auto click run), median loudness with ≤ +6 dB boost ahead of the limiter, K-weighted level, listener excluded from the median (DECISIONS 55–58)
 - [ ] Phase 2 – phones as the listener (held at the head), iOS audio-session/background constraints
 - [x] Gap pass: group-play button, one-step YouTube, rejoin prompt, volume-to-max prompt, re-sync on clock steps, Bluetooth wobble during tuning, room name in title, balance / "Only I can control" renames, tests (home flow with tuning + volume, group play + rejoin, Bluetooth wobble sim)
+- [x] Gapless auto-advance at track end + "Crossfade" room setting (server-timed SCHEDULEs, equal-power fades on the room timeline, durations learned from the first decode; DECISIONS 59–61, HUMAN_TEST_CHECKLIST 20)

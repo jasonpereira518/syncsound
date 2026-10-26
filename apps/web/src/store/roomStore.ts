@@ -162,6 +162,25 @@ function handleMessage(msg: ServerMessage) {
   }
 }
 
+/**
+ * A track queued before anyone knew its length (a web link, a file too big to decode before upload) gets its
+ * duration and channel count from the first device that decodes it, so the room can auto-advance at its end.
+ * Re-queueing a known track only fills in those fields on the server.
+ */
+function learnTrackInfo(trackId: string, info: { durationSec: number; channels: number }) {
+  const st = useRoomStore.getState();
+  const t = st.room?.queue.find((q) => q.id === trackId);
+  if (!t || (t.durationSec !== undefined && t.channels !== undefined)) return;
+  if (!st.isHost && st.room?.settings.hostOnlyControl) return; // CONTROL would be refused
+  if (!Number.isFinite(info.durationSec) || info.durationSec <= 0) return;
+  const track: Track = {
+    ...t,
+    durationSec: t.durationSec ?? info.durationSec,
+    channels: t.channels ?? Math.min(8, Math.max(1, Math.round(info.channels))),
+  };
+  session?.client.send({ type: 'CONTROL', command: { type: 'queue', track } });
+}
+
 /** host only: give multichannel / upmixed sources matching objects once per (track, channels, upmix) */
 function maybeAutoObjects(s: Session, room: RoomState) {
   if (!useRoomStore.getState().isHost) return;
@@ -363,6 +382,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       onRouteChange: () => {
         if (session) void onRouteChange(session);
       },
+      onDecoded: learnTrackInfo,
     });
     try {
       engine.unlock(); // synchronous: must stay inside the click's user activation
