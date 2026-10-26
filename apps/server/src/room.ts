@@ -4,6 +4,7 @@
  */
 import {
   AUTO_ADVANCE_MARGIN_MS,
+  MAX_QUEUE,
   QUEUE_END_STOP_MS,
   defaultEq,
   defaultScene,
@@ -674,12 +675,15 @@ export class Room {
     return pos;
   }
 
-  /** room ms at which the current track ends under the current playback; null unless a rendered track with a known duration is playing */
+  /**
+   * room ms at which the current track ends under the current playback; null unless a track with a known duration is
+   * playing (rendered tracks learn theirs when decoded; Spotify tracks carry theirs from the catalog)
+   */
   endRoomTime(): number | null {
     const p = this.state.playback;
     if (p.status !== 'playing') return null;
     const track = this.state.queue.find((q) => q.id === p.trackId);
-    if (!track || track.sourceClass !== 'rendered' || !track.durationSec) return null;
+    if (!track || !track.durationSec) return null;
     return p.startRoomTime + Math.max(0, track.durationSec - p.trackOffset) * 1000;
   }
 
@@ -694,9 +698,10 @@ export class Room {
     const remainingMs = Math.max(0, this.state.queue[i]!.durationSec! - p.trackOffset) * 1000;
     const nextMs = next.durationSec ? next.durationSec * 1000 : Infinity;
     // a fade never covers more than half of either track (a short track is still heard on its own, and its
-    // fade-in has ended before its fade-out starts); sync-only (SDK-owned) tracks can't overlap: plain hand-over
-    const fadeMs =
-      next.sourceClass === 'rendered' ? Math.min(this.state.settings.crossfadeSec * 1000, remainingMs / 2, nextMs / 2) : 0;
+    // fade-in has ended before its fade-out starts); sync-only (SDK-owned) tracks never overlap anything, going
+    // in or coming out (Spotify forbids mixing its audio): plain hand-over
+    const bothRendered = this.state.queue[i]!.sourceClass === 'rendered' && next.sourceClass === 'rendered';
+    const fadeMs = bothRendered ? Math.min(this.state.settings.crossfadeSec * 1000, remainingMs / 2, nextMs / 2) : 0;
     return { targetRoomTime: end - fadeMs, end, next };
   }
 
@@ -809,11 +814,42 @@ export class Room {
           // re-queueing a known track only fills in what the first queue didn't know yet (learned when decoded)
           if (existing.durationSec === undefined && cmd.track.durationSec !== undefined) existing.durationSec = cmd.track.durationSec;
           if (existing.channels === undefined && cmd.track.channels !== undefined) existing.channels = cmd.track.channels;
+          for (const k of ['artist', 'album', 'artworkUrl'] as const)
+            if (existing[k] === undefined && cmd.track[k] !== undefined) existing[k] = cmd.track[k];
         } else {
-          if (this.state.queue.length >= 200) throw new RoomError('queue_full', 'queue is full');
+          if (this.state.queue.length >= MAX_QUEUE) throw new RoomError('queue_full', 'queue is full');
           this.state.queue.push({ ...cmd.track, ...(sender && { addedBy: sender.id }) });
         }
         if (p.trackId === null) startAt(cmd.track.id, 0, 'stopped');
+        return [this.stateMsg('all', now)];
+      }
+      case 'queueMany': {
+        if (cmd.playIndex !== undefined) {
+          const capturing = this.state.captureHostId;
+          if (capturing !== null && this.deviceConn.has(capturing))
+            throw new RoomError('capture_active', 'stop sharing audio first');
+        }
+        const q = this.state.queue;
+        const tag = (t: Track): Track => ({ ...t, ...(sender && { addedBy: sender.id }) });
+        // validate first, then change the queue: all or nothing
+        const fresh = cmd.mode === 'replace' ? cmd.tracks : cmd.tracks.filter((t) => !q.some((x) => x.id === t.id));
+        const keep = cmd.mode === 'replace' ? 0 : q.length;
+        if (keep + fresh.length > MAX_QUEUE) throw new RoomError('queue_full', 'queue is full');
+        if (cmd.mode === 'replace') q.splice(0, q.length, ...fresh.map(tag));
+        else if (cmd.mode === 'insert') {
+          const after = cmd.afterTrackId !== undefined ? q.findIndex((t) => t.id === cmd.afterTrackId) : idx();
+          q.splice(after < 0 ? q.length : after + 1, 0, ...fresh.map(tag));
+        } else q.push(...fresh.map(tag));
+        if (cmd.playIndex !== undefined) {
+          startAt(cmd.tracks[cmd.playIndex]!.id, 0, 'playing');
+          return schedule('play');
+        }
+        if (p.trackId === null || !q.some((t) => t.id === p.trackId)) {
+          // the current track was replaced away: stop on the new first track
+          const wasActive = p.trackId !== null && p.status !== 'stopped';
+          startAt(q[0]?.id ?? null, 0, 'stopped');
+          if (wasActive) return schedule('stop');
+        }
         return [this.stateMsg('all', now)];
       }
       case 'remove': {

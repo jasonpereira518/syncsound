@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultScene, isValidRoomCode, parseClientMessage, parseServerMessage } from './index';
+import { QueueTrack, Track, defaultScene, isValidRoomCode, parseClientMessage, parseServerMessage } from './index';
 
 describe('protocol', () => {
   it('validates room codes', () => {
@@ -110,5 +110,53 @@ describe('protocol validation (trust boundary)', () => {
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', data: { kind: 'offer', sdp: 'x'.repeat(20001) } }).success).toBe(false);
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', ch: 'clock', data: { kind: 'hangup' } }).success).toBe(true);
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', ch: 'video', data: { kind: 'hangup' } }).success).toBe(false);
+  });
+});
+
+describe('Spotify queue inputs', () => {
+  const ID = 'A'.repeat(22);
+  const sp = (extra: Record<string, unknown> = {}) => ({
+    id: 't1',
+    title: 'Song',
+    kind: 'spotify',
+    sourceClass: 'remote',
+    remoteId: `spotify:track:${ID}`,
+    durationSec: 200,
+    artist: 'Band',
+    album: 'LP',
+    artworkUrl: 'https://i.scdn.co/image/ab67616d00001e02',
+    ...extra,
+  });
+  const queue = (track: unknown) => parseClientMessage({ type: 'CONTROL', command: { type: 'queue', track } }).success;
+  const many = (cmd: Record<string, unknown>) => parseClientMessage({ type: 'CONTROL', command: { type: 'queueMany', mode: 'append', ...cmd } }).success;
+
+  it('needs one song and its duration; artwork only from Spotify image hosts', () => {
+    expect(queue(sp())).toBe(true);
+    expect(queue(sp({ durationSec: undefined }))).toBe(false); // the room can't advance past it
+    expect(queue(sp({ remoteId: `spotify:playlist:${ID}` }))).toBe(false);
+    expect(queue(sp({ sourceClass: 'rendered' }))).toBe(false);
+    expect(queue(sp({ artworkUrl: 'https://evil.example/x.png' }))).toBe(false);
+    expect(queue(sp({ artworkUrl: 'https://image-cdn-ak.spotifycdn.com/image/x' }))).toBe(true);
+    expect(queue(sp({ artworkUrl: 'http://i.scdn.co/image/x' }))).toBe(false);
+    // other remote sources keep their rules
+    expect(queue({ id: 'a1', title: 'S', kind: 'apple', sourceClass: 'remote', remoteId: '1440833098' })).toBe(true);
+  });
+
+  it('queueMany: 1–100 unique tracks, playIndex within the batch', () => {
+    const batch = (n: number) => Array.from({ length: n }, (_, i) => sp({ id: `t${i}` }));
+    expect(many({ tracks: batch(3), playIndex: 2, mode: 'replace' })).toBe(true);
+    expect(many({ tracks: batch(3), playIndex: 3 })).toBe(false);
+    expect(many({ tracks: [] })).toBe(false);
+    expect(many({ tracks: batch(100) })).toBe(true);
+    expect(many({ tracks: batch(101) })).toBe(false);
+    expect(many({ tracks: [sp(), sp()] })).toBe(false); // duplicate ids
+    expect(many({ tracks: batch(1), mode: 'shuffle' })).toBe(false);
+    expect(many({ tracks: [sp({ durationSec: undefined })] })).toBe(false);
+    expect(many({ tracks: batch(2), mode: 'insert', afterTrackId: 't9' })).toBe(true);
+  });
+
+  it('room state keeps accepting Spotify tracks without a duration (an older server may hold some)', () => {
+    expect(Track.safeParse(sp({ durationSec: undefined })).success).toBe(true);
+    expect(QueueTrack.safeParse(sp({ durationSec: undefined })).success).toBe(false);
   });
 });

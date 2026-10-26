@@ -891,7 +891,23 @@ describe('Room auto-advance', () => {
     const cEnd = bEnd - 1000 + 10_000;
     s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
     expect(s).toMatchObject({ trackId: 's', startRoomTime: cEnd, crossfadeSec: 0 });
-    expect(room.nextDueAt()).toBeNull(); // a sync-only track has no server-side end
+    expect(room.nextDueAt()).toBeNull(); // no duration known: the room can't tell when it ends
+  });
+
+  it('a Spotify track with its duration auto-advances, with no fade into or out of it', () => {
+    const room = setup();
+    room.handle('ch', { type: 'SETTINGS_UPDATE', crossfadeSec: 6 }, 1000);
+    const sp = (id: string, sec: number): Track => ({ ...remote(id), durationSec: sec });
+    for (const t of [sp('s1', 20), sp('s2', 30), track('r', 40), sp('s3', 30)]) room.handle('ch', ctl({ type: 'queue', track: t }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 2000); // s1: 2250 → 22250
+    const s1End = 22_000 + LEAD;
+    expect(room.endRoomTime()).toBe(s1End);
+    let s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 's2', startRoomTime: s1End, crossfadeSec: 0 }); // remote → remote
+    s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 'r', startRoomTime: s1End + 30_000, crossfadeSec: 0 }); // remote → rendered
+    s = one(room.tick(room.nextDueAt()!), 'SCHEDULE').msg;
+    expect(s).toMatchObject({ trackId: 's3', startRoomTime: s1End + 70_000, crossfadeSec: 0 }); // rendered → remote
   });
 
   it('a late tick never starts earlier than now + lead; the crossfade shrinks to what is left', () => {
@@ -955,5 +971,72 @@ describe('Room auto-advance', () => {
     expect(cfgs.at(-1)?.settings.crossfadeSec).toBe(6);
     const again = mkRoom({ settings: cfgs.at(-1)!.settings as never });
     expect(again.state.settings.crossfadeSec).toBe(6);
+  });
+});
+
+describe('Room queueMany', () => {
+  const sp = (id: string, sec = 30): Track => ({ id, title: id, kind: 'spotify', sourceClass: 'remote', remoteId: `spotify:track:${id}`, durationSec: sec });
+  const many = (tracks: Track[], mode: 'append' | 'insert' | 'replace', extra: { afterTrackId?: string; playIndex?: number } = {}) =>
+    ctl({ type: 'queueMany', tracks, mode, ...extra });
+  const ids = (room: Room) => room.state.queue.map((t) => t.id);
+
+  it('appends in one STATE and selects the first track of an empty room', () => {
+    const room = setup();
+    const out = room.handle('c1', many([sp('a'), sp('b'), sp('c')], 'append'), 1000);
+    expect(of(out, 'SCHEDULE')).toHaveLength(0);
+    expect(one(out, 'STATE').to).toBe('all');
+    expect(ids(room)).toEqual(['a', 'b', 'c']);
+    expect(room.state.queue.every((t) => t.addedBy === 'g1')).toBe(true);
+    expect(room.state.playback).toMatchObject({ trackId: 'a', status: 'stopped' });
+    // already-queued ids are skipped, not duplicated
+    room.handle('c1', many([sp('c'), sp('d')], 'append'), 1000);
+    expect(ids(room)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('inserts after the current track (Play next) or after a given track', () => {
+    const room = setup();
+    room.handle('ch', many([sp('a'), sp('b'), sp('c')], 'append'), 1000);
+    room.handle('ch', ctl({ type: 'play', trackId: 'b' }), 1000);
+    room.handle('ch', many([sp('n1'), sp('n2')], 'insert'), 1000);
+    expect(ids(room)).toEqual(['a', 'b', 'n1', 'n2', 'c']);
+    room.handle('ch', many([sp('x')], 'insert', { afterTrackId: 'a' }), 1000);
+    expect(ids(room)).toEqual(['a', 'x', 'b', 'n1', 'n2', 'c']);
+    room.handle('ch', many([sp('y')], 'insert', { afterTrackId: 'gone' }), 1000);
+    expect(ids(room).at(-1)).toBe('y');
+  });
+
+  it('replace + playIndex: swaps the queue and starts that track in one SCHEDULE', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('old', 100) }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 1000);
+    const out = room.handle('ch', many([sp('p1'), sp('p2'), sp('p3')], 'replace', { playIndex: 1 }), 5000);
+    expect(one(out, 'SCHEDULE').msg).toMatchObject({ action: 'play', trackId: 'p2', trackOffset: 0, startRoomTime: 5000 + MIN_SCHEDULE_LEAD_MS });
+    expect(one(out, 'STATE').msg.roomState.queue.map((t) => t.id)).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it('replace without playIndex stops what was playing and selects the new first track', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('old', 100) }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 1000);
+    const out = room.handle('ch', many([sp('p1')], 'replace'), 5000);
+    expect(one(out, 'SCHEDULE').msg).toMatchObject({ action: 'stop', trackId: 'p1' });
+    expect(room.state.playback).toMatchObject({ trackId: 'p1', status: 'stopped' });
+  });
+
+  it('is all or nothing when the queue would overflow, and obeys host-only control', () => {
+    const room = setup();
+    const batch = (from: number, n: number) => Array.from({ length: n }, (_, i) => sp(`t${from + i}`));
+    room.handle('ch', many(batch(0, 100), 'append'), 1000);
+    room.handle('ch', many(batch(100, 90), 'append'), 1000);
+    expect(one(room.handle('ch', many(batch(190, 11), 'append'), 1000), 'ERROR').msg.code).toBe('queue_full');
+    expect(room.state.queue).toHaveLength(190);
+    room.handle('ch', many(batch(190, 10), 'append'), 1000);
+    expect(room.state.queue).toHaveLength(200);
+    // replace counts only the new tracks
+    room.handle('ch', many(batch(500, 3), 'replace'), 1000);
+    expect(room.state.queue).toHaveLength(3);
+
+    room.handle('ch', { type: 'SETTINGS_UPDATE', hostOnlyControl: true }, 1000);
+    expect(one(room.handle('c1', many([sp('z')], 'append'), 1000), 'ERROR').msg.code).toBe('forbidden');
   });
 });

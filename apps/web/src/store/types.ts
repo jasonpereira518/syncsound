@@ -238,7 +238,8 @@ export interface RoomActions {
   /** MUST be called synchronously from a click: start (or take back) Spotify playback on this device */
   startSpotifyHere(): void;
   connectApple(): Promise<void>;
-  queueRemote(kind: 'spotify' | 'apple', remoteId: string, title?: string): void;
+  /** Spotify songs are looked up first (length + cover art); rejects when the lookup fails */
+  queueRemote(kind: 'spotify' | 'apple', remoteId: string, title?: string): Promise<void>;
   /** Mode 2: register the <video> element to be driven by the room clock (muted; audio is rendered). */
   attachVideo(el: HTMLVideoElement | null): void;
   /** clear store.error (always implemented by roomActions) */
