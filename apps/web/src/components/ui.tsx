@@ -1,5 +1,5 @@
 'use client';
-import { useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import type { DeviceClass, DeviceRole, ObjectChannel } from '@syncsound/protocol';
 
 // ---------- icons (24px grid, stroke) ----------
@@ -47,6 +47,9 @@ const PATHS = {
   qr: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z',
   globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z',
+  more: 'M5 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM19 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z',
+  leave: 'M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10',
+  settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
 } as const;
 export type IconName = keyof typeof PATHS;
 
@@ -122,10 +125,10 @@ export const fmtTime = (sec: number | null | undefined) => {
 
 type Variant = 'primary' | 'ghost' | 'outline' | 'danger';
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-accent text-accent-ink hover:brightness-110 font-semibold shadow-[0_0_24px_-6px_var(--color-accent)]',
-  ghost: 'text-ink-200 hover:bg-ink-700/60',
-  outline: 'border border-ink-600 text-ink-100 hover:border-ink-400 hover:bg-ink-800',
-  danger: 'border border-bad/50 text-bad hover:bg-bad/10',
+  primary: 'bg-accent text-accent-ink hover:brightness-110 font-medium',
+  ghost: 'text-ink-200 hover:bg-ink-800',
+  outline: 'border border-ink-700 text-ink-100 hover:border-ink-500 hover:bg-ink-850',
+  danger: 'border border-bad/40 text-bad hover:bg-bad/10',
 };
 
 export function Button({
@@ -136,7 +139,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm transition disabled:cursor-not-allowed disabled:opacity-45 ${VARIANT[variant]} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm transition disabled:cursor-not-allowed disabled:opacity-45 ${VARIANT[variant]} ${className}`}
       {...rest}
     />
   );
@@ -155,8 +158,8 @@ export function IconButton({
       aria-label={label}
       title={label}
       aria-pressed={pressed}
-      className={`inline-flex size-11 shrink-0 items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-40 ${
-        pressed ? 'border-accent/70 bg-accent/15 text-accent' : 'border-ink-600 text-ink-200 hover:border-ink-400 hover:bg-ink-800'
+      className={`inline-flex size-11 shrink-0 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        pressed ? 'bg-accent/15 text-accent' : 'text-ink-300 hover:bg-ink-800 hover:text-ink-100'
       } ${className}`}
       {...rest}
     >
@@ -165,34 +168,31 @@ export function IconButton({
   );
 }
 
+/** A plain column section (no card): small heading row + actions, then a body that scrolls when height-constrained. */
 export function Panel({
   title,
-  icon,
   actions,
   children,
   className = '',
+  headerClassName = '',
   id,
 }: {
   title: string;
-  icon?: IconName;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** e.g. `lg:sr-only` where tabs above already name the panel */
+  headerClassName?: string;
   id?: string;
 }) {
   const hid = useId();
   return (
-    <section
-      id={id}
-      aria-labelledby={hid}
-      className={`flex min-w-0 flex-col rounded-2xl border border-ink-700/80 bg-ink-900/80 p-4 backdrop-blur ${className}`}
-    >
-      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 id={hid} className="flex items-center gap-2 font-display text-lg font-semibold tracking-tight">
-          {icon && <Icon name={icon} className="size-5 text-accent" />}
+    <section id={id} aria-labelledby={hid} className={`flex min-w-0 flex-col ${className}`}>
+      <header className={`mb-2 flex min-h-11 flex-wrap items-center justify-between gap-2 ${headerClassName}`}>
+        <h2 id={hid} className="text-sm font-semibold text-ink-200">
           {title}
         </h2>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="-mr-2 flex flex-wrap items-center gap-0.5">{actions}</div>}
       </header>
       {/* body scrolls when the panel is height-constrained (desktop shell); px keeps focus rings unclipped */}
       <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1">{children}</div>
@@ -202,14 +202,14 @@ export function Panel({
 
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'accent' | 'warn' | 'bad' | 'ok' }) {
   const tones = {
-    neutral: 'border-ink-600 text-ink-300',
-    accent: 'border-accent/50 text-accent bg-accent/10',
-    warn: 'border-warn/50 text-warn bg-warn/10',
-    bad: 'border-bad/50 text-bad bg-bad/10',
-    ok: 'border-ok/50 text-ok bg-ok/10',
+    neutral: 'bg-ink-800 text-ink-300',
+    accent: 'bg-accent/10 text-accent',
+    warn: 'bg-warn/10 text-warn',
+    bad: 'bg-bad/10 text-bad',
+    ok: 'bg-ok/10 text-ok',
   } as const;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${tones[tone]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs whitespace-nowrap ${tones[tone]}`}>
       {children}
     </span>
   );
@@ -221,9 +221,7 @@ export function StatusDot({ status, label, testid = 'sync-status' }: { status: S
   const color = status === 'ok' ? 'bg-ok' : status === 'warn' ? 'bg-warn' : 'bg-bad';
   return (
     <span data-testid={testid} data-status={status} className="inline-flex items-center gap-1.5 text-xs text-ink-300">
-      <span className={`relative inline-block size-2.5 rounded-full ${color}`} aria-hidden>
-        {status === 'ok' && <span className={`absolute inset-0 rounded-full ${color} animate-ping opacity-40`} />}
-      </span>
+      <span className={`inline-block size-2 shrink-0 rounded-full ${color}`} aria-hidden />
       {label ?? STATUS_TEXT[status]}
     </span>
   );
@@ -258,12 +256,12 @@ export function Toggle({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition disabled:opacity-40 ${
-          checked ? 'border-accent bg-accent/30' : 'border-ink-600 bg-ink-800'
+        className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition disabled:opacity-40 ${
+          checked ? 'bg-accent' : 'bg-ink-700'
         }`}
       >
         <span
-          className={`inline-block size-5 rounded-full transition-transform ${checked ? 'translate-x-6 bg-accent' : 'translate-x-1 bg-ink-400'}`}
+          className={`inline-block size-4 rounded-full transition-transform ${checked ? 'translate-x-5 bg-accent-ink' : 'translate-x-1 bg-ink-300'}`}
         />
       </button>
     </div>
@@ -347,7 +345,7 @@ export function RangeField({
           <input
             type="number"
             aria-label={`${label} (number)`}
-            className="h-11 w-20 shrink-0 rounded-lg border border-ink-600 bg-ink-850 px-2 text-right font-mono text-sm tabular"
+            className="h-11 w-20 shrink-0 rounded-lg border border-ink-700 bg-ink-850 px-2 text-right font-mono text-sm tabular"
             min={min}
             max={max}
             step={step}
@@ -441,4 +439,157 @@ export const tabPanelProps = (idPrefix: string, id: string) => ({
 });
 
 export const inputClass =
-  'h-11 w-full min-w-0 rounded-xl border border-ink-600 bg-ink-850 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:border-accent sm:text-sm';
+  'h-11 w-full min-w-0 rounded-lg border border-ink-700 bg-ink-850 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:border-accent sm:text-sm';
+
+export const selectClass = 'h-11 shrink-0 rounded-lg border border-ink-700 bg-ink-850 px-2 text-sm disabled:opacity-50';
+
+// ---------- overlays ----------
+
+/** Modal sheet on a native <dialog>: bottom sheet on phones, centred panel from sm up. Esc / backdrop click close it. */
+export function Sheet({
+  open,
+  onClose,
+  title,
+  children,
+  testid,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  testid?: string;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    else if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      aria-label={title}
+      data-testid={testid}
+      onClose={onClose}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      className="fixed inset-x-0 top-auto bottom-0 m-0 max-h-[88dvh] w-full max-w-none rounded-t-xl border border-ink-700 bg-ink-900 p-0 text-ink-100 backdrop:bg-ink-950/70 sm:inset-0 sm:m-auto sm:h-fit sm:max-w-lg sm:rounded-xl"
+    >
+      <div className="flex max-h-[88dvh] flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-ink-800 py-1 pr-1 pl-4">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <IconButton icon="x" label="Close" onClick={onClose} />
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">{children}</div>
+      </div>
+    </dialog>
+  );
+}
+
+/** Small popover anchored under its button (popover API: top layer, light dismiss, Esc). */
+export function Menu({
+  label,
+  icon,
+  text,
+  children,
+  testid,
+  panelClassName = 'w-56',
+}: {
+  label: string;
+  icon?: IconName;
+  text?: string;
+  children: ReactNode;
+  testid?: string;
+  panelClassName?: string;
+}) {
+  const id = useId();
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const place = () => {
+    const b = btn.current?.getBoundingClientRect();
+    const p = pop.current;
+    if (!b || !p) return;
+    const w = p.offsetWidth;
+    p.style.left = `${Math.max(8, Math.min(b.right - w, window.innerWidth - w - 8))}px`;
+    p.style.top = `${Math.max(8, Math.min(b.bottom + 4, window.innerHeight - p.offsetHeight - 8))}px`;
+  };
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        popoverTarget={id}
+        aria-label={text ? undefined : label}
+        title={label}
+        aria-expanded={open}
+        data-testid={testid}
+        className={`inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg text-sm transition ${text ? 'min-w-11 sm:px-3' : 'size-11'} ${
+          open ? 'bg-ink-800 text-ink-100' : 'text-ink-300 hover:bg-ink-800 hover:text-ink-100'
+        }`}
+      >
+        {icon && <Icon name={icon} />}
+        {/* phones: icon only, the text stays as the accessible name */}
+        {text && <span className={icon ? 'max-sm:sr-only' : undefined}>{text}</span>}
+      </button>
+      <div
+        ref={pop}
+        id={id}
+        popover="auto"
+        aria-label={label}
+        onToggle={(e) => {
+          const isOpen = (e.nativeEvent as ToggleEvent).newState === 'open';
+          setOpen(isOpen);
+          if (isOpen) place();
+        }}
+        className={`fixed m-0 max-h-[80dvh] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink-700 bg-ink-900 p-1 text-ink-100 shadow-lg ${panelClassName}`}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
+
+/** A full-width row inside a Menu; closes the menu, then runs. */
+export function MenuItem({ onClick, children, testid }: { onClick: () => void; children: ReactNode; testid?: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      onClick={(e) => {
+        e.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover();
+        onClick();
+      }}
+      className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-ink-200 hover:bg-ink-800 hover:text-ink-100"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Fold-out section: a quiet summary row with a chevron. */
+export function Disclosure({
+  summary,
+  children,
+  defaultOpen,
+  className = '',
+  testid,
+}: {
+  summary: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+  testid?: string;
+}) {
+  return (
+    <details className={`group ${className}`} open={defaultOpen} data-testid={testid}>
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm text-ink-400 hover:text-ink-100 [&::-webkit-details-marker]:hidden">
+        {summary}
+        <span aria-hidden className="ml-auto grid size-4 place-items-center transition group-open:rotate-90">
+          ›
+        </span>
+      </summary>
+      {children}
+    </details>
+  );
+}

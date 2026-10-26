@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, waitConverged, waitForSchedule } from './helpers';
+import { createRoom, joinRoom, newPage, openSource, pageErrors, waitConverged, waitForSchedule } from './helpers';
 
 // Video mode 2 (local file): audio decoded + scheduled like music; the muted <video> follows the room clock.
 // The test video (canvas + tone, webm) is generated in-browser with MediaRecorder — no binary fixtures.
@@ -44,7 +44,7 @@ test('local video: muted picture tracks the room timeline', async ({ browser }) 
     return btoa(s);
   });
 
-  await page.getByRole('tab', { name: /video file/i }).click();
+  await openSource(page, /video file/i);
   await page.locator('input[type="file"][accept="video/*"]').setInputFiles({
     name: 'test-video.webm',
     mimeType: 'video/webm',

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, waitConverged } from './helpers';
+import { createRoom, joinRoom, newPage, openSource, pageErrors, waitConverged } from './helpers';
 
 type Remote = { spotify: string; apple: string; errorMs: number | null; meanAbsErrorMs: number | null; seeks: number };
 type St = { remote: Remote; engine: { bufferState: string }; room: { devices: Array<{ name: string; stats: { remoteErrorMs: number | null } | null }> } };
@@ -20,7 +20,7 @@ test('sync-only remote source: mock players converge and report measured error',
   await waitConverged(guest.page);
 
   for (const p of [host.page, guest.page]) {
-    await p.getByRole('tab', { name: /^spotify/i }).click();
+    await openSource(p, /^spotify/i);
     await p.getByRole('button', { name: /connect spotify/i }).click();
     await expect.poll(async () => (await st(p)).remote.spotify).toBe('ready');
   }

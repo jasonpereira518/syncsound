@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, waitConverged } from './helpers';
+import { createRoom, joinRoom, newPage, openSource, pageErrors, waitConverged } from './helpers';
 
 type Cap = { active: boolean; receiving: boolean; silent: boolean; error: string | null; peers: number; pipelineDelayMs: number | null };
 const cap = (p: Page) =>
   p.evaluate(() => (window as unknown as { __syncsound: { getState(): { capture: Cap } } }).__syncsound.getState().capture);
 
 async function startCapture(page: Page) {
-  await page.getByRole('tab', { name: /browser tab/i }).click();
+  await openSource(page, /browser tab/i);
   await page.getByRole('button', { name: /start capture/i }).click();
 }
 

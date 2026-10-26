@@ -4,6 +4,7 @@ import {
   joinRoom,
   newPage,
   pageErrors,
+  queueDemo,
   schedules,
   spread,
   waitConverged,
@@ -40,7 +41,7 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
 
   // --- queue a demo track and play ---
   await host.page.getByRole('tab', { name: /library/i }).click({ timeout: 1500 }).catch(() => {});
-  await host.page.getByTestId('demo-asset').filter({ hasText: /click/i }).first().click();
+  await queueDemo(host.page, /click/i);
   await expect(host.page.getByTestId('queue-item').first()).toBeVisible();
   await host.page.getByTestId('play-pause').click();
 

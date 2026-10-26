@@ -4,16 +4,16 @@ import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { ConnStatus } from '@/store/types';
-import { Badge, Icon, IconButton } from '../ui';
-import { DebugDrawer } from './DebugDrawer';
+import { Button, Icon, Menu, MenuItem } from '../ui';
+import { DebugDrawer, toggleDebug } from './DebugDrawer';
 
-const CONN: Record<ConnStatus, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
-  idle: { label: 'Offline', tone: 'neutral' },
-  connecting: { label: 'Connecting', tone: 'warn' },
-  open: { label: 'Connected', tone: 'ok' },
-  reconnecting: { label: 'Reconnecting', tone: 'warn' },
-  closed: { label: 'Disconnected', tone: 'bad' },
-  error: { label: 'Connection error', tone: 'bad' },
+const CONN: Record<ConnStatus, { label: string; dot: string }> = {
+  idle: { label: 'Offline', dot: 'bg-ink-400' },
+  connecting: { label: 'Connecting', dot: 'bg-warn' },
+  open: { label: 'Connected', dot: 'bg-ok' },
+  reconnecting: { label: 'Reconnecting', dot: 'bg-warn' },
+  closed: { label: 'Disconnected', dot: 'bg-bad' },
+  error: { label: 'Connection error', dot: 'bg-bad' },
 };
 
 /** this room's join link and its QR code (data URL, null until rendered) */
@@ -30,12 +30,10 @@ export function useJoinLink(): { code: string; joinUrl: string; qr: string | nul
   return { code, joinUrl, qr };
 }
 
-/** debug: show the debug drawer toggle (Advanced only); extra: buttons placed before Leave */
+/** debug: mount the debug drawer and offer it in the ⋯ menu (Advanced only); extra: buttons placed before the menu */
 export function RoomHeader({ name, debug = false, extra }: { name?: string; debug?: boolean; extra?: ReactNode }) {
   const router = useRouter();
   const conn = useRoomStore((s) => s.conn);
-  const isHost = useRoomStore((s) => s.isHost);
-  const deviceCount = useRoomStore((s) => s.room?.devices.filter((d) => d.connected).length ?? 0);
   const { code, joinUrl, qr } = useJoinLink();
   const [bigQr, setBigQr] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -62,62 +60,58 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
   const c = CONN[conn];
 
   return (
-    <header className="flex shrink-0 items-center gap-3 px-3 py-2">
-      <button
-        type="button"
-        onClick={() => setBigQr(true)}
-        aria-label="Show QR code to join"
-        className="shrink-0 overflow-hidden rounded-lg border border-ink-600 bg-white p-0.5 transition hover:border-accent"
-      >
-        {qr ? (
-          <img src={qr} alt="" className="size-10" />
-        ) : (
-          <span className="grid size-10 place-items-center text-ink-950">
-            <Icon name="qr" className="size-5" />
+    <header className="flex shrink-0 items-center gap-2 border-b border-ink-800 px-3 py-1 sm:px-4">
+      <p className="flex min-w-0 flex-1 items-center gap-2.5">
+        {name && <span className="truncate font-medium text-ink-100">{name}</span>}
+        <span className="sr-only">Room code </span>
+        <span data-testid="room-code" className="font-mono text-sm tracking-[0.14em] text-ink-300">
+          {code}
+        </span>
+        <span title={c.label} className="flex items-center gap-1.5 text-xs text-ink-400">
+          <span aria-hidden className={`size-2 shrink-0 rounded-full ${c.dot}`} />
+          <span role="status" className={conn === 'open' ? 'sr-only' : undefined}>
+            {c.label}
           </span>
-        )}
-      </button>
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
-        <p className="leading-none">
-          {name && <span className="mr-3 font-display text-xl font-semibold text-ink-100">{name}</span>}
-          <span className="sr-only">Room code </span>
-          <span data-testid="room-code" className="font-mono text-2xl font-bold tracking-[0.16em] text-accent">
-            {code}
-          </span>
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={c.tone}>
-            <span aria-hidden className={`size-1.5 rounded-full ${c.tone === 'ok' ? 'bg-ok' : c.tone === 'warn' ? 'bg-warn' : c.tone === 'bad' ? 'bg-bad' : 'bg-ink-400'}`} />
-            <span role="status">{c.label}</span>
-          </Badge>
-          {/* phones: connection status only, so the header stays one row */}
-          <span className="contents max-sm:hidden">
-            {isHost && (
-              <Badge tone="accent">
-                <Icon name="crown" className="size-3.5" /> Host
-              </Badge>
-            )}
-            <Badge>
-              {deviceCount} speaker{deviceCount === 1 ? '' : 's'}
-            </Badge>
-          </span>
+        </span>
+      </p>
+      <Menu label="Invite speakers" icon="share" text="Share" panelClassName="w-72 p-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setBigQr(true)}
+            aria-label="Show QR code full screen"
+            className="shrink-0 rounded-md bg-white p-1"
+          >
+            {qr ? <img src={qr} alt="" className="size-20" /> : <span className="block size-20" />}
+          </button>
+          <div className="min-w-0">
+            <p className="font-mono text-xl tracking-[0.16em] text-ink-100">{code}</p>
+            <p className="truncate text-xs text-ink-400">{joinUrl.replace(/^https?:\/\//, '')}</p>
+          </div>
         </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {/* phones get the native share sheet instead of copy, to keep the header on one row */}
-        <IconButton
-          icon={copied ? 'check' : 'link'}
-          label={copied ? 'Link copied' : 'Copy join link'}
-          onClick={copy}
-          className={`border-transparent ${canShare ? 'max-sm:hidden' : ''}`}
-        />
-        {canShare && <IconButton icon="share" label="Share join link" onClick={share} className="border-transparent sm:hidden" />}
-        {debug && <DebugDrawer />}
-        {extra}
-        <button type="button" onClick={leave} className="min-h-11 rounded-xl px-3 text-sm text-ink-400 hover:bg-ink-800 hover:text-ink-100">
-          Leave
-        </button>
-      </div>
+        <div className="mt-3 flex gap-2">
+          <Button className="flex-1" onClick={copy}>
+            <Icon name={copied ? 'check' : 'link'} className="size-4" /> {copied ? 'Copied' : 'Copy link'}
+          </Button>
+          {canShare && (
+            <Button className="flex-1" onClick={share}>
+              <Icon name="share" className="size-4" /> Share
+            </Button>
+          )}
+        </div>
+      </Menu>
+      {extra}
+      <Menu label="More" icon="more" panelClassName="w-48">
+        {debug && (
+          <MenuItem testid="debug-toggle" onClick={toggleDebug}>
+            <Icon name="bug" className="size-4" /> Debug info <kbd className="ml-auto font-mono text-xs text-ink-500">D</kbd>
+          </MenuItem>
+        )}
+        <MenuItem onClick={leave}>
+          <Icon name="leave" className="size-4" /> Leave room
+        </MenuItem>
+      </Menu>
+      {debug && <DebugDrawer />}
       <span className="sr-only" aria-live="polite">
         {copied ? 'Link copied to clipboard' : ''}
       </span>
@@ -127,24 +121,17 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
           role="dialog"
           aria-modal="true"
           aria-label="Join QR code"
-          className="fixed inset-0 z-[60] grid place-items-center bg-ink-950/90 p-6 backdrop-blur"
+          className="fixed inset-0 z-[60] grid place-items-center bg-ink-950/95 p-6"
           onClick={() => setBigQr(false)}
           onKeyDown={(e) => e.key === 'Escape' && setBigQr(false)}
         >
           <div className="flex w-full max-w-sm flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
-            {qr && (
-              <img src={qr} alt={`QR code linking to ${joinUrl}`} className="w-full rounded-2xl bg-white p-3" />
-            )}
-            <p className="font-mono text-4xl font-bold tracking-[0.2em] text-accent">{code}</p>
+            {qr && <img src={qr} alt={`QR code linking to ${joinUrl}`} className="w-full rounded-xl bg-white p-3" />}
+            <p className="font-mono text-4xl tracking-[0.2em] text-ink-100">{code}</p>
             <p className="max-w-full truncate font-mono text-xs text-ink-400">{joinUrl}</p>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => setBigQr(false)}
-              className="min-h-12 rounded-xl border border-ink-600 px-6 text-ink-100 hover:border-ink-400"
-            >
+            <Button autoFocus onClick={() => setBigQr(false)}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       )}

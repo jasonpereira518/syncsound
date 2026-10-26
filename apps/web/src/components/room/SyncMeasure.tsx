@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { roomActions, useRoomStore } from '@/store/roomStore';
-import { Badge, Button } from '../ui';
+import { Badge, Button, selectClass } from '../ui';
 import { act } from './shared';
 
 const DURATIONS = [10, 30, 60] as const;
@@ -17,20 +17,17 @@ export function SyncMeasurePanel() {
   const maxCount = Math.max(1, ...(m.histogram?.counts ?? [1]));
 
   return (
-    <section className="mt-6 border-t border-ink-700 pt-4" aria-labelledby="sync-measure-title">
-      <h3 id="sync-measure-title" className="text-xs font-medium tracking-widest text-ink-400 uppercase">
+    <section className="mt-2 border-t border-ink-800 pt-3" aria-labelledby="sync-measure-title">
+      <h3 id="sync-measure-title" className="text-sm text-ink-200">
         Measure sync
       </h3>
-      <p className="mt-1 text-sm text-ink-400">
-        Every speaker clicks once per second in its own frequency band; this microphone measures how far apart they
-        really arrive. Run it after calibrating, from the listening position.
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <p className="mt-0.5 text-xs text-ink-400">Every speaker clicks; this microphone measures how far apart they land.</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm text-ink-300">
-          Duration
+          <span className="sr-only">Duration</span>
           <select
             data-testid="sync-measure-duration"
-            className="rounded-lg border border-ink-600 bg-ink-850 px-2 py-2"
+            className={selectClass}
             value={duration}
             disabled={busy}
             onChange={(e) => setDuration(Number(e.target.value))}
@@ -46,19 +43,18 @@ export function SyncMeasurePanel() {
           <Button onClick={() => act(() => roomActions.cancelCalibration())}>Cancel</Button>
         ) : (
           <Button
-            variant="primary"
             data-testid="sync-measure-start"
             disabled={calRunning}
             onClick={() => act(() => roomActions.startSyncMeasurement(duration))}
           >
-            Start measurement
+            Measure
           </Button>
         )}
       </div>
       {m.step !== 'idle' && (
         <div data-testid="sync-measure-status" data-step={m.step} className="mt-3" aria-live="polite">
           {busy && (
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-700" role="progressbar" aria-valuenow={Math.round(m.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Measurement progress">
+            <div className="h-1 w-full overflow-hidden rounded-full bg-ink-800" role="progressbar" aria-valuenow={Math.round(m.progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Measurement progress">
               <div className="h-full bg-accent transition-[width]" style={{ width: `${m.progress * 100}%` }} />
             </div>
           )}

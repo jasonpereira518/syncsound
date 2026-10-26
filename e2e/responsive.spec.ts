@@ -30,9 +30,13 @@ test('360 px: landing + room have no horizontal scroll; join works by keyboard',
   await expect(page.getByTestId('room-health')).toBeVisible();
   expect(await page.evaluate(noHorizontalScroll), 'no horizontal scroll on Now Playing').toBe(true);
   await openAdvanced(page);
-  for (const tab of [/library/i, /stage/i, /devices/i, /calibrat/i]) {
+  for (const tab of [/library/i, /stage/i, /speakers/i, /calibrat/i]) {
     await page.getByRole('tab', { name: tab }).last().click();
     expect(await page.evaluate(noHorizontalScroll), `no horizontal scroll on ${tab}`).toBe(true);
   }
+  await page.getByRole('tab', { name: /library/i }).last().click();
+  await page.getByTestId('add-audio').click();
+  await expect(page.getByTestId('add-sheet')).toBeVisible();
+  expect(await page.evaluate(noHorizontalScroll), 'no horizontal scroll with the Add sheet open').toBe(true);
   await ctx.close();
 });

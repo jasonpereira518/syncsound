@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, spread, waitConverged, waitForSchedule } from './helpers';
+import { createRoom, joinRoom, newPage, openSource, pageErrors, spread, waitConverged, waitForSchedule } from './helpers';
 
 type Win = {
   __syncsound: {
@@ -24,7 +24,7 @@ test('upload a 5.1 file: channel-aware objects + synchronized playback', async (
   await waitConverged(host.page);
   await waitConverged(guest.page);
 
-  await host.page.getByRole('tab', { name: /^music file$/i }).click();
+  await openSource(host.page, /^music file$/i);
   const file = resolve(import.meta.dirname, '../apps/server/data/demo/surround-51-test.wav');
   await host.page.locator('input[type="file"]').first().setInputFiles(file);
   for (const p of [host.page, guest.page]) {

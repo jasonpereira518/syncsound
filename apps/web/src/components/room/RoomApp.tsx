@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useRoomStore, roomActions } from '@/store/roomStore';
 import { rememberLastRoom } from '@/lib/home';
 import { getRoomInfo } from '@/lib/roomClient';
-import { Icon, Tabs, fmtSigned, tabPanelProps, type TabDef } from '../ui';
+import { Button, Icon, Tabs, fmtSigned, tabPanelProps, type TabDef } from '../ui';
 import { CalibrationWizard } from './CalibrationWizard';
 import { DeviceList, SpeakerCard } from './DeviceList';
 import { JoinGate } from './JoinGate';
@@ -20,7 +20,7 @@ type RoomTab = 'library' | 'stage' | 'devices' | 'calibrate';
 const TABS: TabDef<RoomTab>[] = [
   { id: 'library', label: 'Library', icon: 'music' },
   { id: 'stage', label: 'Stage', icon: 'stage' },
-  { id: 'devices', label: 'Devices', icon: 'devices' },
+  { id: 'devices', label: 'Speakers', icon: 'devices' },
   { id: 'calibrate', label: 'Calibrate', icon: 'mic' },
 ];
 const SIDE_TABS = TABS.slice(2);
@@ -81,7 +81,7 @@ export function RoomApp({ code }: { code: string }) {
       type="button"
       data-testid={view === 'advanced' ? 'view-simple' : 'view-advanced'}
       onClick={() => go(view === 'advanced' ? (isHost ? 'controls' : 'speaker') : 'advanced')}
-      className="min-h-11 rounded-xl px-3 text-sm text-ink-300 hover:bg-ink-800 hover:text-ink-100"
+      className="min-h-11 shrink-0 rounded-lg px-3 text-sm text-ink-300 hover:bg-ink-800 hover:text-ink-100"
     >
       {view === 'advanced' ? 'Simple view' : 'Advanced'}
     </button>
@@ -122,7 +122,7 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
   const panel = (id: RoomTab) => ({
     ...tabPanelProps('room', id),
     'aria-labelledby': `room-tab-${id}${id === 'devices' || id === 'calibrate' ? ` side-tab-${id}` : ''}`,
-    className: `${tab === id ? 'block' : 'hidden'} min-w-0 lg:min-h-0 ${
+    className: `${tab === id ? 'block' : 'hidden'} min-w-0 lg:min-h-0 ${id === 'library' || id === 'stage' ? 'lg:px-4 lg:pt-2 lg:pb-3' : ''} ${
       id === 'library' || id === 'stage'
         ? 'lg:block'
         : side === id
@@ -137,7 +137,7 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
       <Banners />
       <main
         id="main"
-        className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 lg:grid lg:grid-cols-[17rem_minmax(0,1fr)_20rem] lg:gap-3 lg:overflow-hidden xl:grid-cols-[19rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[22rem_minmax(0,1fr)_26rem]"
+        className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-4 lg:grid lg:grid-cols-[17rem_minmax(0,1fr)_20rem] lg:divide-x lg:divide-ink-800 lg:overflow-hidden lg:p-0 xl:grid-cols-[19rem_minmax(0,1fr)_22rem] 2xl:grid-cols-[22rem_minmax(0,1fr)_26rem]"
       >
         <div {...panel('library')}>
           <Library />
@@ -145,7 +145,7 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
         <div {...panel('stage')}>
           <Stage />
         </div>
-        <div className="max-lg:contents lg:flex lg:min-h-0 lg:flex-col lg:gap-2">
+        <div className="max-lg:contents lg:flex lg:min-h-0 lg:flex-col lg:px-4 lg:pb-3">
           <Tabs
             tabs={SIDE_TABS}
             value={side}
@@ -153,11 +153,11 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
             label="Speaker tools"
             idPrefix="side"
             panelPrefix="room"
-            className="hidden gap-1 rounded-xl border border-ink-700/80 bg-ink-900/80 p-1 lg:grid lg:grid-cols-2"
-            tabClassName="!min-h-9 rounded-lg aria-selected:bg-ink-700/70"
+            className="mb-2 hidden gap-5 border-b border-ink-800 lg:flex"
+            tabClassName="-mb-px !min-h-12 border-b-2 border-transparent !px-0 font-medium aria-selected:border-accent aria-selected:text-ink-100"
           />
           <div {...panel('devices')}>
-            <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+            <div className="flex flex-col gap-3 lg:-mx-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-1">
               {!isHost && <SpeakerCard />}
               <DeviceList />
             </div>
@@ -170,7 +170,7 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
       <Player />
       <nav
         aria-label="Room sections"
-        className="border-t border-ink-700 bg-ink-950 pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="border-t border-ink-800 bg-ink-950 pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         <Tabs
           tabs={TABS}
@@ -200,63 +200,42 @@ function Banners() {
         <div
           role="status"
           data-testid="route-restored"
-          className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm"
+          className="flex flex-wrap items-center gap-x-3 border-b border-ink-800 px-4 py-1 text-sm"
         >
-          <Icon name="bluetooth" className="size-5 shrink-0 text-accent" />
-          <p className="min-w-0 flex-1">
-            <strong className="text-accent">Audio output changed to {routeRestored.label}.</strong> Using its saved
-            calibration ({fmtSigned(routeRestored.calibratedLatencyMs, 0)} ms). Re-sync if it sounds out of step.
+          <Icon name="bluetooth" className="size-4 shrink-0 text-ink-400" />
+          <p className="min-w-0 flex-1 basis-56 py-2">
+            Output changed to {routeRestored.label}, using its saved sync ({fmtSigned(routeRestored.calibratedLatencyMs, 0)} ms).
           </p>
-          <button
-            type="button"
-            onClick={() => act(() => roomActions.dismissRouteChange())}
-            className="min-h-11 rounded-lg px-3 text-ink-200 hover:bg-ink-800"
-          >
+          <Button variant="ghost" className="ml-auto" onClick={() => act(() => roomActions.dismissRouteChange())}>
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
       {routeChanged && (
-        <div
-          role="status"
-          className="mx-3 mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-warn/40 bg-warn/10 px-4 py-2 text-sm"
-        >
-          <Icon name="warning" className="size-5 shrink-0 text-warn" />
-          <p className="min-w-0 flex-1">
-            <strong className="text-warn">This speaker&rsquo;s audio delay changed.</strong> Headphones or Bluetooth add delay
-            the browser doesn&rsquo;t report. Re-sync from where you sit (about 1 s per speaker).
-          </p>
-          <button
-            type="button"
-            data-testid="banner-resync"
-            onClick={() => act(() => roomActions.startCalibration({ quick: true }))}
-            className="min-h-11 rounded-lg bg-warn/20 px-3 font-medium text-ink-100 hover:bg-warn/30"
-          >
-            Re-sync now
-          </button>
-          <button
-            type="button"
-            onClick={() => act(() => roomActions.dismissRouteChange())}
-            className="min-h-11 rounded-lg px-3 text-ink-200 hover:bg-ink-800"
-          >
-            Dismiss
-          </button>
+        <div role="status" className="flex flex-wrap items-center gap-x-3 border-b border-ink-800 px-4 py-1 text-sm">
+          <Icon name="warning" className="size-4 shrink-0 text-warn" />
+          <p className="min-w-0 flex-1 basis-56 py-2">This speaker&rsquo;s audio delay changed (headphones or Bluetooth?).</p>
+          <div className="ml-auto flex">
+            <Button variant="ghost" data-testid="banner-resync" className="text-warn" onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
+              Re-sync now
+            </Button>
+            <Button variant="ghost" onClick={() => act(() => roomActions.dismissRouteChange())}>
+              Dismiss
+            </Button>
+          </div>
         </div>
       )}
       {emitting && (
         <div
           role="status"
-          className="fixed top-3 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-accent bg-ink-950/95 px-4 py-2 text-sm shadow-[0_0_30px_-4px_var(--color-accent)]"
+          className="fixed top-3 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-ink-700 bg-ink-900 px-4 py-2 text-sm shadow-lg"
         >
-          <span className="relative inline-flex size-3">
-            <span className="absolute inset-0 animate-ping rounded-full bg-accent" />
-            <span className="relative size-3 rounded-full bg-accent" />
-          </span>
+          <span aria-hidden className="size-2 animate-pulse rounded-full bg-accent" />
           {nowPlayingSelf
             ? 'Tuning: this speaker is playing its sweep'
             : nowPlayingName
               ? `Tuning: ${nowPlayingName} is playing`
-              : 'Tuning the room — keep it quiet for a moment'}
+              : 'Tuning the room, keep it quiet'}
         </div>
       )}
     </>
@@ -277,9 +256,9 @@ function Toasts() {
         <div
           key={t.id}
           role="alert"
-          className="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-xl border border-bad/50 bg-ink-900/95 px-4 py-3 text-sm shadow-xl backdrop-blur"
+          className="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-lg border border-ink-700 bg-ink-900 px-4 py-3 text-sm shadow-lg"
         >
-          <Icon name="warning" className="mt-0.5 size-5 shrink-0 text-bad" />
+          <Icon name="warning" className="mt-0.5 size-4 shrink-0 text-bad" />
           <p className="min-w-0 flex-1 break-words">{t.msg}</p>
           <button
             type="button"

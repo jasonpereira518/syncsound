@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 import { LayoutId, ObjectChannel, type AudioObject, type Device, type Scene, type SceneUpdate, type Vec2 } from '@syncsound/protocol';
 import { computeDeviceMix, dbapGains, freeSpot, layoutLabel, resizeRoom, suggestLayout, type DeviceMix } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
-import { Badge, Button, CHANNEL_COLOR, Icon, IconButton, Panel, RangeField, ROLE_COLOR, Toggle, inputClass } from '../ui';
+import { CHANNEL_COLOR, Icon, IconButton, Menu, Panel, RangeField, ROLE_COLOR, Toggle, inputClass, selectClass } from '../ui';
 import { act, isTypingTarget, useCanControl } from './shared';
 
 type Target = { kind: 'object' | 'device' | 'listener'; id: string };
@@ -241,28 +241,84 @@ export function Stage() {
   return (
     <Panel
       title="Stage"
-      icon="stage"
       className="lg:h-full"
       actions={
         <>
           <IconButton icon="undo" label="Undo (Ctrl/Cmd+Z)" disabled={!canControl || !canUndo} onClick={() => act(() => roomActions.undo())} />
           <IconButton icon="redo" label="Redo (Shift+Ctrl/Cmd+Z)" disabled={!canControl || !canRedo} onClick={() => act(() => roomActions.redo())} />
           <IconButton icon="grid" label={`Snap to ${SNAP} m grid`} pressed={snap} onClick={() => setSnap(!snap)} />
+          <Menu label="Add sound object" icon="plus" testid="stage-add-object" panelClassName="w-72 p-3">
+            <AddObject
+              disabled={!canControl || scene.objects.length >= 32}
+              onAdd={(o) => {
+                const taken = [base.listener, ...Object.values(base.devices), ...base.objects.map((x) => x.position)];
+                const position = clampSnap(freeSpot({ x: 0, y: -D / 4 }, taken, base.room, Math.max(0.8, 2 * u)));
+                const objects = [...base.objects, { ...o, position }];
+                sceneUpdate({ objects }, true);
+                setSel({ kind: 'object', id: o.id });
+              }}
+            />
+          </Menu>
+          <Menu label="Rendering and room size" icon="settings" testid="stage-settings" panelClassName="w-80 p-3">
+            <fieldset disabled={!canControl} className="grid min-w-0 gap-3">
+              <legend className="sr-only">Rendering and room size</legend>
+              <Toggle
+                label="Time-align to listener"
+                checked={scene.propagationComp}
+                disabled={!canControl}
+                onChange={(v) => sceneUpdate({ propagationComp: v }, true)}
+              />
+              <Toggle label="Stereo → surround upmix" checked={scene.upmix} disabled={!canControl} onChange={(v) => sceneUpdate({ upmix: v }, true)} />
+              <RangeField
+                label="Rolloff"
+                min={0.1}
+                max={4}
+                step={0.1}
+                value={scene.rolloff}
+                format={(v) => `${v.toFixed(1)} (${(6 * v).toFixed(0)} dB/dist×2)`}
+                onLive={(v) => sceneUpdate({ rolloff: v }, false)}
+                onCommit={(v) => sceneUpdate({ rolloff: v }, true)}
+              />
+              <RangeField
+                label="Spatial blur"
+                min={0.01}
+                max={5}
+                step={0.01}
+                value={scene.blur}
+                format={(v) => `${v.toFixed(2)} m`}
+                onLive={(v) => sceneUpdate({ blur: v }, false)}
+                onCommit={(v) => sceneUpdate({ blur: v }, true)}
+              />
+              <RangeField
+                label="Bass crossover"
+                min={40}
+                max={250}
+                step={5}
+                value={scene.crossoverHz}
+                format={(v) => `${v} Hz`}
+                onCommit={(v) => sceneUpdate({ crossoverHz: v }, true)}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <RangeField label="Room width" min={2} max={30} step={0.5} value={W} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: v, depth: D }), true)} />
+                <RangeField label="Room depth" min={2} max={30} step={0.5} value={D} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: W, depth: v }), true)} />
+              </div>
+            </fieldset>
+          </Menu>
         </>
       }
     >
-      {/* desktop: the map takes whatever height the controls leave */}
-      <div className="flex flex-col gap-3 lg:h-full">
+      {/* desktop: the map takes whatever height the layout row leaves */}
+      <div className="flex flex-col gap-2 lg:h-full">
         {!canControl && (
-          <p className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2 text-sm text-ink-300">
-            <Icon name="lock" className="mr-1 inline size-4 align-[-3px]" /> The host has locked the stage. You can look, not move.
+          <p className="flex items-center gap-2 text-sm text-ink-400">
+            <Icon name="lock" className="size-4" /> Stage locked by the host.
           </p>
         )}
         <p id="stage-help" className="sr-only">
           Top-down map of the room, front stage at the top. Drag items, or focus one with Tab and use the arrow keys to move it by 0.1 metres (Shift
           for 0.5). Delete removes a selected sound object.
         </p>
-        <div className="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-950 lg:min-h-48 lg:flex-1">
+        <div className="relative overflow-hidden rounded-lg border border-ink-800 bg-ink-950 lg:min-h-48 lg:flex-1">
           <svg
             ref={svgRef}
             data-testid="stage-svg"
@@ -273,32 +329,27 @@ export function Stage() {
             aria-describedby="stage-help"
             onPointerDown={(e) => !(e.target as Element).closest('.stage-item') && setSel(null)}
           >
-            <defs>
-              <radialGradient id="stage-glow">
-                <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.18" />
-                <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
-              </radialGradient>
-            </defs>
-            <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={u * 0.3} fill="var(--color-ink-900)" stroke="var(--color-ink-600)" strokeWidth={u * 0.05} />
+            <rect x={-W / 2} y={-D / 2} width={W} height={D} rx={u * 0.2} fill="var(--color-ink-900)" stroke="var(--color-ink-700)" strokeWidth={u * 0.04} />
             {gridX.map((x) => (
-              <line key={`gx${x}`} x1={x} x2={x} y1={-D / 2} y2={D / 2} stroke="var(--color-ink-700)" strokeWidth={x === 0 ? u * 0.04 : u * 0.02} />
+              <line key={`gx${x}`} x1={x} x2={x} y1={-D / 2} y2={D / 2} stroke="var(--color-ink-800)" strokeWidth={x === 0 ? u * 0.035 : u * 0.02} />
             ))}
             {gridY.map((y) => (
-              <line key={`gy${y}`} y1={y} y2={y} x1={-W / 2} x2={W / 2} stroke="var(--color-ink-700)" strokeWidth={y === 0 ? u * 0.04 : u * 0.02} />
+              <line key={`gy${y}`} y1={y} y2={y} x1={-W / 2} x2={W / 2} stroke="var(--color-ink-800)" strokeWidth={y === 0 ? u * 0.035 : u * 0.02} />
             ))}
-            <rect x={-W / 2} y={-D / 2} width={W} height={u * 0.18} fill="var(--color-accent)" opacity={0.5} />
-            <text x={0} y={-D / 2 - pad * 0.35} textAnchor="middle" fontSize={fs} fill="var(--color-ink-400)" letterSpacing={u * 0.1} className="font-mono">
-              FRONT · STAGE
+            <line x1={-W / 2} x2={W / 2} y1={-D / 2} y2={-D / 2} stroke="var(--color-ink-500)" strokeWidth={u * 0.08} />
+            <text x={0} y={-D / 2 - pad * 0.35} textAnchor="middle" fontSize={fs * 0.85} fill="var(--color-ink-400)">
+              Front
             </text>
             <text x={W / 2} y={D / 2 + pad * 0.3} textAnchor="end" fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
               {W} × {D} m
             </text>
-            <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-500)" className="font-mono">
-              {Object.keys(tray).length > 0 ? 'unplaced: drag into the room ↑' : canControl ? 'drag to move · click to inspect' : 'click to inspect'}
-            </text>
+            {Object.keys(tray).length > 0 && (
+              <text x={-W / 2} y={D / 2 + pad * 0.3} fontSize={fs * 0.8} fill="var(--color-ink-400)">
+                Drag into the room ↑
+              </text>
+            )}
 
             {/* listener */}
-            <circle cx={lis.x} cy={lis.y} r={u * 2.2} fill="url(#stage-glow)" pointerEvents="none" />
             <StageItem
               t={{ kind: 'listener', id: 'listener' }}
               testid="stage-listener"
@@ -430,94 +481,37 @@ export function Stage() {
           </span>
         </div>
 
-        <fieldset disabled={!canControl} className="min-w-0 space-y-3 lg:max-h-[45%] lg:shrink-0 lg:overflow-y-auto lg:px-1">
-          <legend className="sr-only">Stage controls</legend>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <div className="min-w-0">
-              <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Layouts</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {LayoutId.options.map((l) => (
-                  <Button
-                    key={l}
-                    data-testid={`layout-${l}`}
-                    aria-pressed={(scene.layout ?? 'custom') === l}
-                    variant={(scene.layout ?? 'custom') === l ? 'primary' : undefined}
-                    className="!min-h-9 rounded-full !px-3 text-xs"
-                    onClick={() => applyLayout(l)}
-                  >
-                    {layoutLabel(l, hasSub)}
-                    {l === suggested && <span className="ml-1 text-[10px] opacity-70">suggested</span>}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <AddObject
-              disabled={scene.objects.length >= 32}
-              onAdd={(o) => {
-                const taken = [base.listener, ...Object.values(base.devices), ...base.objects.map((x) => x.position)];
-                const position = clampSnap(freeSpot({ x: 0, y: -D / 4 }, taken, base.room, Math.max(0.8, 2 * u)));
-                const objects = [...base.objects, { ...o, position }];
-                sceneUpdate({ objects }, true);
-                setSel({ kind: 'object', id: o.id });
-              }}
-            />
+        <fieldset disabled={!canControl} className="min-w-0 shrink-0">
+          <legend className="sr-only">Speaker layout</legend>
+          <div className="flex flex-wrap items-center gap-x-0.5">
+            <span aria-hidden className="mr-1 shrink-0 text-xs text-ink-500">
+              Layout
+            </span>
+            {LayoutId.options.map((l) => {
+              const on = (scene.layout ?? 'custom') === l;
+              return (
+                <button
+                  key={l}
+                  type="button"
+                  data-testid={`layout-${l}`}
+                  aria-pressed={on}
+                  title={l === suggested ? 'Suggested for this many speakers' : undefined}
+                  onClick={() => applyLayout(l)}
+                  className={`relative min-h-11 shrink-0 rounded-md px-2.5 text-sm whitespace-nowrap transition disabled:opacity-50 ${
+                    on ? 'bg-ink-800 text-ink-100' : 'text-ink-400 hover:text-ink-100'
+                  }`}
+                >
+                  {layoutLabel(l, hasSub)}
+                  {l === suggested && (
+                    <>
+                      <span aria-hidden className="absolute top-2 right-1 size-1 rounded-full bg-accent" />
+                      <span className="sr-only"> (suggested)</span>
+                    </>
+                  )}
+                </button>
+              );
+            })}
           </div>
-          {/* secondary settings stay folded so the map keeps the height */}
-          <details className="group rounded-xl border border-ink-700">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-medium tracking-widest text-ink-400 uppercase hover:text-ink-100">
-              Rendering &amp; room size
-              <span aria-hidden className="text-base transition group-open:rotate-90">›</span>
-            </summary>
-            <div className="grid gap-3 px-3 pb-3 md:grid-cols-2">
-              <Toggle
-                label="Time-align to listener"
-                description="Delay nearer speakers so sound arrives together"
-                checked={scene.propagationComp}
-                disabled={!canControl}
-                onChange={(v) => sceneUpdate({ propagationComp: v }, true)}
-              />
-              <Toggle
-                label="Stereo → surround upmix"
-                description="Spread 2-channel sources around the room"
-                checked={scene.upmix}
-                disabled={!canControl}
-                onChange={(v) => sceneUpdate({ upmix: v }, true)}
-              />
-              <RangeField
-                label="Rolloff"
-                min={0.1}
-                max={4}
-                step={0.1}
-                value={scene.rolloff}
-                format={(v) => `${v.toFixed(1)} (${(6 * v).toFixed(0)} dB/dist×2)`}
-                onLive={(v) => sceneUpdate({ rolloff: v }, false)}
-                onCommit={(v) => sceneUpdate({ rolloff: v }, true)}
-              />
-              <RangeField
-                label="Spatial blur"
-                min={0.01}
-                max={5}
-                step={0.01}
-                value={scene.blur}
-                format={(v) => `${v.toFixed(2)} m`}
-                onLive={(v) => sceneUpdate({ blur: v }, false)}
-                onCommit={(v) => sceneUpdate({ blur: v }, true)}
-              />
-              <RangeField
-                label="Bass crossover"
-                min={40}
-                max={250}
-                step={5}
-                value={scene.crossoverHz}
-                format={(v) => `${v} Hz`}
-                onCommit={(v) => sceneUpdate({ crossoverHz: v }, true)}
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <RangeField label="Room width" min={2} max={30} step={0.5} value={W} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: v, depth: D }), true)} />
-                <RangeField label="Room depth" min={2} max={30} step={0.5} value={D} format={(v) => `${v} m`} onCommit={(v) => sceneUpdate(resizeRoom(base, { width: W, depth: v }), true)} />
-              </div>
-            </div>
-          </details>
         </fieldset>
       </div>
     </Panel>
@@ -638,16 +632,14 @@ function Inspector({
   const mix = dev ? mixes?.[dev.id] : undefined;
   return (
     // desktop: floats over the map so selecting never resizes it; phones: sits under the map
-    <div className="border-t border-ink-700 bg-ink-850/95 p-3 text-sm backdrop-blur lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-72 lg:overflow-y-auto lg:rounded-xl lg:border lg:shadow-xl">
+    <div className="border-t border-ink-800 bg-ink-900 p-3 text-sm lg:absolute lg:top-2 lg:right-2 lg:max-h-[calc(100%-1rem)] lg:w-64 lg:overflow-y-auto lg:rounded-lg lg:border lg:border-ink-700 lg:shadow-lg">
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 truncate font-medium">{sel.kind === 'listener' ? 'Listener (sweet spot)' : (obj?.label ?? dev?.name)}</p>
         <div className="flex shrink-0 items-center gap-1">
           {obj && (
-            <Button variant="danger" className="!min-h-9 !px-3" disabled={!canControl} onClick={() => onDelete(obj.id)}>
-              <Icon name="trash" className="size-4" /> Delete
-            </Button>
+            <IconButton icon="trash" label={`Delete ${obj.label}`} className="!size-9 hover:!text-bad" disabled={!canControl} onClick={() => onDelete(obj.id)} />
           )}
-          <IconButton icon="x" label="Close inspector" className="!size-9 border-transparent" onClick={onClose} />
+          <IconButton icon="x" label="Close inspector" className="!size-9" onClick={onClose} />
         </div>
       </div>
       <p className="mt-1 font-mono text-xs text-ink-400">{pos ? fmtPos(pos) : 'not placed'}</p>
@@ -671,12 +663,20 @@ function Inspector({
       )}
       {obj && !gains && <p className="mt-2 text-xs text-ink-500">Place connected speakers in the room to see this object&rsquo;s gains.</p>}
       {mix && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Badge>out {(20 * Math.log10(Math.max(totalGain(mix), 1e-4))).toFixed(1)} dB</Badge>
-          <Badge>delay {(mix.delaySec * 1000).toFixed(2)} ms</Badge>
-          <Badge>HP {mix.highpassHz ? `${Math.round(mix.highpassHz)} Hz` : 'none'}</Badge>
-          {mix.bassGain > 0 && <Badge tone="accent">bass bus</Badge>}
-        </div>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
+          <dt className="text-ink-400">Output</dt>
+          <dd className="text-right font-mono tabular">{(20 * Math.log10(Math.max(totalGain(mix), 1e-4))).toFixed(1)} dB</dd>
+          <dt className="text-ink-400">Delay</dt>
+          <dd className="text-right font-mono tabular">{(mix.delaySec * 1000).toFixed(2)} ms</dd>
+          <dt className="text-ink-400">High-pass</dt>
+          <dd className="text-right font-mono tabular">{mix.highpassHz ? `${Math.round(mix.highpassHz)} Hz` : 'none'}</dd>
+          {mix.bassGain > 0 && (
+            <>
+              <dt className="text-ink-400">Bass</dt>
+              <dd className="text-right">on the bass bus</dd>
+            </>
+          )}
+        </dl>
       )}
     </div>
   );
@@ -693,7 +693,7 @@ function AddObject({ onAdd, disabled }: { onAdd: (o: Omit<AudioObject, 'position
   };
   return (
     <form onSubmit={submit} className="space-y-2">
-      <h3 className="text-xs font-medium tracking-widest text-ink-400 uppercase">Add sound object</h3>
+      <h3 className="text-sm text-ink-300">Add sound object</h3>
       <div className="flex gap-2">
         <label htmlFor="obj-label" className="sr-only">Object label</label>
         <input id="obj-label" maxLength={40} placeholder="Stem: vocals" value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass} />
@@ -702,7 +702,7 @@ function AddObject({ onAdd, disabled }: { onAdd: (o: Omit<AudioObject, 'position
           id="obj-channel"
           value={channel}
           onChange={(e) => setChannel(e.target.value as ObjectChannel)}
-          className="h-11 shrink-0 rounded-xl border border-ink-600 bg-ink-850 px-2 font-mono text-sm"
+          className={`${selectClass} font-mono`}
         >
           {CHANNELS.map((c) => (
             <option key={c} value={c}>
@@ -710,7 +710,7 @@ function AddObject({ onAdd, disabled }: { onAdd: (o: Omit<AudioObject, 'position
             </option>
           ))}
         </select>
-        <IconButton icon="plus" label="Add object" type="submit" disabled={disabled} />
+        <IconButton icon="plus" label="Add object" type="submit" disabled={disabled} className="bg-ink-800" />
       </div>
     </form>
   );

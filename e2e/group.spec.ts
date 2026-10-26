@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinRoom, newPage, pageErrors, waitConverged, waitForSchedule } from './helpers';
+import { joinRoom, newPage, pageErrors, queueDemo, waitConverged, waitForSchedule } from './helpers';
 
 // Two rooms in one home: the owner plays the current track in both at once (same start instant), and a speaker
 // that leaves gets "Rejoin <room>" on the landing page.
@@ -26,7 +26,7 @@ test('group play starts two home rooms together; speakers get a rejoin button', 
   await waitConverged(owner.page);
   await waitConverged(kitchenSpeaker.page);
 
-  await owner.page.getByTestId('demo-asset').filter({ hasText: /click/i }).first().click();
+  await queueDemo(owner.page, /click/i);
   await owner.page.getByTestId(`group-room-${kitchen}`).click();
   await owner.page.getByTestId('group-play').click();
 

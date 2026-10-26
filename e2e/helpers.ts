@@ -48,6 +48,25 @@ export async function joinRoom(page: Page, code: string, name: string, opts: { a
   if (opts.advanced !== false) await openAdvanced(page);
 }
 
+/** open the library's Add sheet on one audio source (tab names: "Demo tracks", "Music file", "Spotify"…) */
+export async function openSource(page: Page, name: RegExp): Promise<void> {
+  await page.getByTestId('add-audio').click();
+  await page.getByRole('tab', { name }).click();
+}
+
+/** queue the first demo track whose title matches; queuing from the Add sheet closes it */
+export async function queueDemo(page: Page, title: RegExp): Promise<void> {
+  await openSource(page, /demo tracks/i);
+  await page.getByTestId('demo-asset').filter({ hasText: title }).first().click();
+  await expect(page.getByTestId('add-sheet')).toBeHidden();
+}
+
+/** unfold the calibrate panel's Tools section (click test, EQ A/B, sync measurement) */
+export async function openCalibrationTools(page: Page): Promise<void> {
+  const tools = page.getByTestId('calibration-tools');
+  if ((await tools.getAttribute('open')) === null) await tools.locator('summary').click();
+}
+
 /** from any simple view (a host's first visit opens the setup wizard: skip it) to the Advanced view */
 export async function openAdvanced(page: Page): Promise<void> {
   const later = page.getByTestId('wizard-later');

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRoom, joinRoom, newPage, pageErrors, schedules, waitConverged, waitForSchedule } from './helpers';
+import { createRoom, joinRoom, newPage, pageErrors, queueDemo, schedules, waitConverged, waitForSchedule } from './helpers';
 
 // Manual latency (+ve = this device plays earlier, e.g. to cancel unreported Bluetooth delay): the device must
 // start its audio that much earlier in context time while its *predicted heard instant* stays on the shared timeline.
@@ -12,7 +12,7 @@ test('manual latency offset shifts the start but keeps the heard instant aligned
   await joinRoom(guest.page, code, 'Guest');
   await waitConverged(host.page);
   await waitConverged(guest.page);
-  await host.page.getByTestId('demo-asset').filter({ hasText: /click/i }).first().click();
+  await queueDemo(host.page, /click/i);
   await host.page.getByTestId('play-pause').click();
   const g0 = await waitForSchedule(guest.page, (s) => s.action === 'play');
   expect(g0.compensationSec).toBeCloseTo(0, 3);
