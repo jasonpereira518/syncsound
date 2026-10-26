@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { BrandLink } from '@/components/Brand';
+import { Icon } from '@/components/ui';
 import { handleSpotifyCallback } from '@/lib/sources/spotify';
 
 /** Spotify OAuth (PKCE) redirect target: finish the token exchange, then go back to the room. */
@@ -26,19 +28,23 @@ export default function SpotifyCallbackPage() {
   }, []);
 
   return (
-    <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 px-4">
-      <h1 className="font-display text-3xl font-bold tracking-tight">{error ? 'Spotify sign-in failed' : 'Connecting Spotify…'}</h1>
+    <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 px-5">
+      <BrandLink className="mb-4" />
+      <h1 className="font-display text-3xl font-semibold tracking-[-0.03em]">{error ? 'Spotify sign-in failed' : 'Connecting Spotify…'}</h1>
       {error ? (
         <>
           <p role="alert" className="text-bad">
             {error}
           </p>
-          <Link href="/" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent px-5 font-semibold text-accent-ink">
-            Back to SyncSound
+          <Link href="/" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-accent px-6 font-semibold text-accent-ink transition hover:bg-accent-bright"
+          >
+            <Icon name="home" className="size-4" /> Back to SyncSound
           </Link>
         </>
       ) : (
-        <p className="text-ink-300">Finishing sign-in and taking you back to your room.</p>
+        <p className="flex items-center gap-2 text-ink-200">
+          <Icon name="spinner" className="size-4 shrink-0 animate-spin text-ink-300" /> Finishing sign-in and taking you back to your room.
+        </p>
       )}
     </main>
   );
