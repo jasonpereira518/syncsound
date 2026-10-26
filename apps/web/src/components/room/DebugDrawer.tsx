@@ -84,6 +84,7 @@ function DebugBody() {
             <Row k="playbackRate" v={engine.playbackRate.toFixed(5)} />
             <Row k="corrections" v={`rate ${engine.corrections.rate} · resched ${engine.corrections.reschedule}`} />
             <Row k="tick gap" v={fmtMs(engine.tickGapMs, 0)} />
+            <Row k="output steps" v={String(engine.audioSteps)} />
             <Row k="buffer" v={`${engine.bufferState}${engine.loadedTrackId ? ` (${engine.loadedTrackId.slice(0, 8)})` : ''}`} />
             <Row k="wake lock" v={engine.wakeLock ? 'held' : 'no'} />
           </dl>

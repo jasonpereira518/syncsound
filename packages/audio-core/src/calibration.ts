@@ -250,6 +250,8 @@ export interface TuneInput {
   /** devices known to play through an external output (Bluetooth): never ranged */
   detached?: string[];
   headOffsetM?: number;
+  /** display names for the warnings (ids otherwise) */
+  names?: Record<string, string>;
 }
 
 export interface TuneDevice {
@@ -348,9 +350,10 @@ export function solveTune(input: TuneInput): TuneReport {
       if (stress > 0.1) warnings.push("The measured distances don't fit a flat layout well — re-run with the room quiet.");
     }
   }
+  const nameOf = (id: string) => input.names?.[id] ?? id;
   const unranged = input.deviceIds.filter((id) => id !== L && !ranged.includes(id) && cell(rows, L, id));
   if (Object.keys(rows).length > 1 && unranged.length)
-    warnings.push(`Placed by hand (not measured): ${unranged.join(', ')} — drag them to where they really are.`);
+    warnings.push(`Placed by hand (not measured): ${unranged.map(nameOf).join(', ')} — drag them to where they really are.`);
 
   const mic = positions[L] ?? input.scene.listener;
   const head = input.placeHead && positions[L] ? polar(mic, 180, input.headOffsetM ?? HEAD_OFFSET_M) : input.scene.listener;
@@ -388,12 +391,13 @@ export function solveTune(input: TuneInput): TuneReport {
     d.arrivalMs = d.arrivalMs! - minArrival;
   }
   for (const d of devices) {
-    if (!d.heard) warnings.push(`Couldn't hear ${d.deviceId} — is its volume up?`);
-    else if (d.clipped) warnings.push(`${d.deviceId} was too loud for the microphone — turn it down a little and re-run.`);
-    if (d.heard && d.distanceM === null) warnings.push(`${d.deviceId} has no position, so its distance wasn't subtracted.`);
+    const name = nameOf(d.deviceId);
+    if (!d.heard) warnings.push(`Couldn't hear ${name} — is its volume up?`);
+    else if (d.clipped) warnings.push(`${name} was too loud for the microphone — turn it down a little and re-run.`);
+    if (d.heard && d.distanceM === null) warnings.push(`${name} has no position, so its distance wasn't subtracted.`);
     const m = cell(rows, L, d.deviceId)?.mMs;
     if (m != null && (m < NOMINAL_MS.early || m > NOMINAL_MS.late))
-      warnings.push(`${d.deviceId} arrived ${Math.round(m)} ms from its slot — unusual timing, results may be off.`);
+      warnings.push(`${name} arrived ${Math.round(m)} ms from its slot — unusual timing, results may be off.`);
   }
 
   const noisy = heard.flatMap((d) => {

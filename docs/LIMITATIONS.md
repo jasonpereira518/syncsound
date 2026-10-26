@@ -73,8 +73,8 @@ An honest list of what is not done, what can't be verified without hardware, and
 
 ## Known gaps and simplifications
 
-- **EQ convergence below 280 Hz:** the 200 Hz–8 kHz pairwise spread drops 37 % (spec target 40 %). Over
-  280 Hz–8 kHz, where every device's EQ may act, it drops 80 %. Below 280 Hz the phone (300 Hz high-pass) may not
+- **EQ convergence below 280 Hz:** the 200 Hz–8 kHz pairwise spread drops 41 % (spec target 40 %). Over
+  275 Hz–8 kHz, where every device's EQ may act, it drops 83 %. Below 280 Hz the phone (300 Hz high-pass) may not
   be boosted by rule, so in the app that band goes through bass management to bass-capable devices instead.
 - **Clock drift estimate under heavy jitter:** with σ ≥ 5 ms jitter and 1 Hz pings, drift is within ±5 ppm only
   after ~300 s (at 120 s: 5.0 ppm with σ 5 ms, up to 44.5 ppm with σ 30 ms). The offset error stays < 6 ms max
@@ -134,7 +134,17 @@ An honest list of what is not done, what can't be verified without hardware, and
   hears a stereo laptop's two speakers separately (≈ ±3 dB bias), which would add error where the prior is right.
   Phase 2 (a phone held at the head as the listener) removes the near-field step.
 - **Tabs on older code can't take part in a chime tune.** They reject the `'tune'` plan and are reported "not
-  heard"; reload them.
+  heard"; reload them. Tabs from before S4 (no `micPermission` in their caps) are not waited for in the prepare
+  phase: they open their mic when the plan arrives, so a room with one keeps the old 3.5 s start lead.
+- **The microphone is asked for at join** (one prompt, inside the join tap; `?noMicProbe` turns it off). On iOS
+  Safari a `getUserMedia` grant lives with the page's audio session: the probe is stopped at once, and whether
+  that leaves playback and the later tune untouched on every iOS version is a hardware item (checklist 25). A
+  device that denies the mic still plays; it is just never asked to record and is placed by hand.
+- **Distances fix the shape of the room, not its mirror image.** The tune fits the measured distances onto the
+  host's rough picture, so left and right can come out swapped when the picture had them swapped; "Adjust layout"
+  (tap the spots again) fixes it, and the timing is unaffected either way (it is aligned at the head, not by name).
+- **A tune started from the setup screen moves on to Now Playing by itself** when it finishes; its result lingers
+  there for 20 s. A tune that fails stays on the setup screen with the error and a retry.
 - **Room creation and uploads** are rate-limited per remote address in-process. Behind a proxy, use a trusted
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked

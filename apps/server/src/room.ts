@@ -6,6 +6,9 @@ import {
   defaultEq,
   defaultScene,
   defaultSettings,
+  CALIBRATION_PREPARE_DEADLINE_MS,
+  type CalibrationPlan,
+  type CalibrationSlot,
   type ClientMessage,
   type Device,
   type DevicePatch,
@@ -74,6 +77,8 @@ export interface RoomDeps {
   passwordHash?: string | null;
   passwords: { hash(pw: string): string; verify(pw: string, stored: string): boolean };
   profiles?: { get(deviceId: string): Profile | undefined; set(deviceId: string, p: Profile): void };
+  /** how long a prepared run waits for its recorders (tests shorten it) */
+  prepareDeadlineMs?: number;
   /** used only for PONG ts_send; defaults to performance time */
   clock?: () => number;
 }
@@ -112,6 +117,24 @@ class RoomError extends Error {
   }
 }
 
+interface ActiveRun {
+  id: string;
+  listenerId: string;
+  /** room time until which the room is busy with this run */
+  endsAt: number;
+  /** set while the run waits for its recorders' mics */
+  prepare?: {
+    expected: Set<string>;
+    ready: Set<string>;
+    deadline: number;
+    slots: CalibrationSlot[];
+    purpose: CalibrationPlan['purpose'];
+    recorders: CalibrationPlan['recorders'];
+    /** a connected recorder on older code (no `micPermission`) will open its mic when the plan arrives */
+    legacy: boolean;
+  };
+}
+
 export class Room {
   readonly state: RoomState;
   private readonly isHostKey: (key: string) => boolean;
@@ -126,7 +149,7 @@ export class Room {
   /** recent calibration plans → their listener (only it may submit results; recorders' rows go to it) */
   private readonly plans: Array<{ id: string; listenerId: string }> = [];
   /** the run in progress: one at a time, since every device plays every plan it receives */
-  private activeRun: { id: string; listenerId: string; endsAt: number } | null = null;
+  private activeRun: ActiveRun | null = null;
   private lastStatsBroadcast = -Infinity;
   private placed = 0;
   /** room ms since which no device is connected (null while someone is connected) */
@@ -330,6 +353,41 @@ export class Room {
     return out;
   }
 
+  /** room time at which `tick()` has something to do (a prepared run's deadline), or null */
+  due(): number | null {
+    return this.activeRun?.prepare?.deadline ?? null;
+  }
+
+  /** time-driven work (the transport calls it when `due()` has passed): plan a prepared run whose deadline passed */
+  tick(now: number): Outbound[] {
+    const run = this.activeRun;
+    if (!run?.prepare || now < run.prepare.deadline) return [];
+    return [this.planPrepared(run, now)];
+  }
+
+  /** the plan of a prepared run: broadcast once every expected recorder answered, or at the deadline */
+  private planPrepared(run: ActiveRun, now: number): Outbound {
+    const { slots, purpose, recorders, legacy } = run.prepare!;
+    // a recorder that opens its mic only when the plan arrives (an older tab) still needs the long lead
+    const plan = this.makePlan(run, slots, purpose, recorders, now, legacy ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS);
+    delete run.prepare;
+    return this.out('all', { type: 'CALIBRATION_PLAN', plan });
+  }
+
+  private makePlan(run: ActiveRun, slots: CalibrationSlot[], purpose: CalibrationPlan['purpose'], recorders: CalibrationPlan['recorders'], now: number, minLead: number): CalibrationPlan {
+    const plan: CalibrationPlan = {
+      id: run.id,
+      listenerId: run.listenerId,
+      startRoomTime: now + Math.max(this.lead(), minLead),
+      slots,
+      ...(purpose ? { purpose } : {}),
+      ...(recorders ? { recorders } : {}),
+    };
+    const recordingMs = calibrationRecordingMs(slots, purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined);
+    run.endsAt = plan.startRoomTime + recordingMs + CALIBRATION_ACTIVE_TAIL_MS;
+    return plan;
+  }
+
   /** drop devices disconnected longer than maxAgeMs; returns the DEVICE_LIST broadcast if anything changed */
   prune(now: number, maxAgeMs: number): Outbound[] {
     const gone = [...this.disconnectedAt].filter(([, t]) => now - t > maxAgeMs).map(([id]) => id);
@@ -448,17 +506,43 @@ export class Room {
         const id = crypto.randomUUID();
         this.plans.push({ id, listenerId: sender.id });
         if (this.plans.length > 16) this.plans.shift();
-        const plan = {
-          id,
-          listenerId: sender.id,
-          startRoomTime: now + Math.max(this.lead(), msg.recorders === 'all' ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS),
-          slots: msg.slots,
-          ...(msg.purpose ? { purpose: msg.purpose } : {}),
-          ...(msg.recorders ? { recorders: msg.recorders } : {}),
-        };
-        const recordingMs = calibrationRecordingMs(msg.slots, msg.purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined);
-        this.activeRun = { id, listenerId: sender.id, endsAt: plan.startRoomTime + recordingMs + CALIBRATION_ACTIVE_TAIL_MS };
+        const run: ActiveRun = { id, listenerId: sender.id, endsAt: 0 };
+        this.activeRun = run;
+        if (msg.prepare && msg.recorders === 'all') {
+          // prepare phase: the recorders that can answer open their mics now; the plan follows the last answer or
+          // the deadline, with a short lead (nobody opens a mic when it arrives — unless an older tab is in the room)
+          const others = this.state.devices.filter((d) => d.connected && d.id !== sender.id && d.caps.hasMic);
+          const expected = others.filter((d) => d.caps.micPermission !== undefined && d.caps.micPermission !== 'denied' && d.caps.deviceClass !== 'bluetooth');
+          const deadline = now + (this.deps.prepareDeadlineMs ?? CALIBRATION_PREPARE_DEADLINE_MS);
+          run.prepare = {
+            expected: new Set(expected.map((d) => d.id)),
+            ready: new Set(),
+            deadline,
+            slots: msg.slots,
+            purpose: msg.purpose,
+            recorders: msg.recorders,
+            legacy: others.some((d) => d.caps.micPermission === undefined),
+          };
+          run.endsAt = deadline + CALIBRATION_ALL_LEAD_MS; // until the plan sets the real end
+          if (!expected.length) return [this.planPrepared(run, now)];
+          return [this.out('all', { type: 'CALIBRATION_PREPARE', planId: id, listenerId: sender.id, recorderIds: [...run.prepare.expected], deadlineRoomTime: deadline })];
+        }
+        const plan = this.makePlan(run, msg.slots, msg.purpose, msg.recorders, now, msg.recorders === 'all' ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS);
         return [this.out('all', { type: 'CALIBRATION_PLAN', plan })];
+      }
+      case 'CALIBRATION_READY': {
+        const run = this.activeRun;
+        if (!run?.prepare || run.id !== msg.planId || !run.prepare.expected.has(sender.id)) return [];
+        run.prepare.ready.add(sender.id);
+        const to = this.deviceConn.get(run.listenerId);
+        const out: Outbound[] = [];
+        if (to !== undefined) out.push(this.out([to], { type: 'CALIBRATION_READY', planId: run.id, recorderId: sender.id, ok: msg.ok, ...(msg.reason ? { reason: msg.reason } : {}) }));
+        if ([...run.prepare.expected].every((id) => run.prepare!.ready.has(id))) out.push(this.planPrepared(run, now));
+        return out;
+      }
+      case 'CAPS_UPDATE': {
+        sender.caps = msg.caps;
+        return [this.deviceList('all')];
       }
       case 'CALIBRATION_CANCEL': {
         const plan = this.plans.find((p) => p.id === msg.planId);

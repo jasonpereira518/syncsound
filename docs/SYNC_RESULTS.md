@@ -244,6 +244,18 @@ heard) can be compared directly. This checks the whole scheduling pipeline in re
 | WebRTC capture (Mode 1): guest pipeline-delay estimate | 66 ms (compensated by the buffer) |
 | Spotify/Apple **mock** players (sync-only), after 9 s | −29 / +23 ms, mean \|err\| 66–95 ms, 2–3 seeks |
 
+The setup experience is measured in taps and in what each screen says (`home.spec.ts`, `calibration.spec.ts`):
+
+| Scenario | Asserted |
+|---|---|
+| Host: landing → tuned room → playing | **3 taps** to a tuned room ("Set up my home" lands in the room; join; "Tune the room" applies the suggested stereo layout), **5** to playing |
+| Guest | **1 tap** (the mic is granted inside it: the host's list reads "Mic ready", `caps.micPermission === 'granted'`, no banner in the first 3 s) |
+| Prepare → ready | the guest's `recorderStep` reaches `ready` before the plan; the host's screen then moves on to Now Playing by itself with "1 of 2 speakers tuned" (a loopback mic hears only its own device) |
+| A recorder whose mic takes 2.5 s | the listener reads "Waiting for Slowpoke's microphone…", then its prepared mic records the run (rows heard) |
+| A recorder whose mic takes 30 s | skipped at the 8 s deadline, named ("Locked phone didn't answer in time…"), the run completes |
+| A second Tune during a run | "Another device is tuning the room right now" at once on the second device; the first run completes |
+| A tune from Now Playing | its progress and result show right there (`tune-status`), and the state survives a reload ("1 of 2 speakers tuned") |
+
 ## 7. Class B (sync-only) simulation (`remote.test.ts`)
 
 Mock SDK player: seek latency N(300, 40) ms, ±20 ms position noise, 10 ms quantization, +300 ppm drift, and a

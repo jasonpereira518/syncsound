@@ -26,6 +26,7 @@ export const initialState = (): RoomStoreState => ({
     corrections: { rate: 0, reschedule: 0 },
     compensationMs: 0,
     tickGapMs: 0,
+    audioSteps: 0,
     eqBypassed: false,
     clickTest: false,
     wakeLock: false,
@@ -43,6 +44,8 @@ export const initialState = (): RoomStoreState => ({
     emitting: false,
     nowPlaying: null,
     quick: false,
+    waitingFor: [],
+    recorderStep: 'idle',
   },
   syncMeasure: {
     running: false,

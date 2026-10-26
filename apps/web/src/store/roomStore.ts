@@ -9,9 +9,11 @@ import {
   calibrationRecordingMs,
   defaultObjectsFor,
   isRoutedLayout,
+  nextFreeSlot,
   placeForLayout,
   presetLayout,
   resyncNeedsReschedule,
+  suggestLayout,
   SYNC_SEARCH_LATE_MS,
   type RoomClock,
 } from '@syncsound/audio-core';
@@ -30,7 +32,8 @@ import {
   type Track,
 } from '@syncsound/protocol';
 import { serverUrl } from '../lib/config';
-import { batteryLevel, buildCaps, getDeviceId, randomId, rememberName, storage } from '../lib/device';
+import { batteryLevel, buildCaps, getDeviceId, probeMic, probeMicEnabled, randomId, rememberName, storage, type MicPermission } from '../lib/device';
+import { tuneStatus } from '../lib/tuneStatus';
 import { recallOutputTune, rememberOutputTune, routeChangeAction, type OutputTune } from '../lib/outputMemory';
 import { AudioEngine } from '../lib/engine/audioEngine';
 import { CalibrationController, presetPatch } from '../lib/engine/calibration';
@@ -155,7 +158,9 @@ function handleMessage(msg: ServerMessage) {
       });
       break;
     case 'SCENE':
-      if (!recentLocalSceneEdit()) setRoom((r) => ({ ...r, scene: msg.scene }));
+      // a local edit in flight wins over an echo for the fields this device edits; the tune reference is the
+      // server's alone (a tuning device has just applied its measured positions when the result's SCENE arrives)
+      setRoom((r) => ({ ...r, scene: recentLocalSceneEdit() ? { ...r.scene, tune: msg.scene.tune } : msg.scene }));
       break;
     case 'DEVICE_LIST':
       setRoom((r) => ({ ...r, devices: msg.devices }));
@@ -174,6 +179,12 @@ function handleMessage(msg: ServerMessage) {
     }
     case 'CALIBRATION_ROWS':
       s.calibration.onRows(msg);
+      break;
+    case 'CALIBRATION_PREPARE':
+      s.calibration.onPrepare(msg);
+      break;
+    case 'CALIBRATION_READY':
+      s.calibration.onReady(msg);
       break;
     case 'CALIBRATION_CANCELLED':
       s.calibration.onCancelled(msg.planId);
@@ -240,6 +251,33 @@ function markStale(kind: 'route' | 'clock' | 'output') {
   if (d && d.tuneId !== null && d.tuneStale !== kind) roomActions.updateDevice({ tuneStale: kind });
 }
 
+function sendCaps(s: Session) {
+  s.client.send({ type: 'CAPS_UPDATE', caps: s.caps });
+}
+
+/**
+ * The mic probe answered: caps carry the permission and (labels are readable now) the output; a first-known
+ * output restores its remembered tune. The room learns about it through CAPS_UPDATE.
+ */
+async function afterMicProbe(s: Session, perm: MicPermission) {
+  let caps: DeviceCaps;
+  try {
+    caps = await buildCaps(s.engine.ctx);
+  } catch {
+    return;
+  }
+  if (session !== s) return;
+  s.caps = { ...caps, micPermission: perm };
+  const prev = s.outputLabel;
+  if (caps.outputLabel) s.outputLabel = caps.outputLabel;
+  if (!prev && caps.outputLabel) {
+    const r = recallOutputTune(storage(), caps.outputLabel);
+    const me = myDevice();
+    if (r && me && (r.tuneId !== me.tuneId || r.tuneArrivalMs !== me.tuneArrivalMs)) restoreOutputTune(caps.outputLabel, r);
+  }
+  sendCaps(s);
+}
+
 /** re-read caps + output label; returns the new label (undefined when hidden) */
 async function refreshOutput(s: Session): Promise<string | undefined> {
   const caps = await buildCaps(s.engine.ctx);
@@ -259,6 +297,7 @@ async function onRouteChange(s: Session) {
   if (session !== s) return;
   const action = routeChangeAction(s.outputLabel, next, recallOutputTune(storage(), next));
   if (next) s.outputLabel = next;
+  sendCaps(s); // the room sees the new output (a Bluetooth speaker on a guest, say)
   switch (action.kind) {
     case 'none':
       return;
@@ -423,6 +462,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       useRoomStore.setState({ conn: 'error' });
       return setError(errMsg(e));
     }
+    // the mic is asked for here, inside the same tap (iOS needs the gesture), so a tune never has to prompt
+    // mid-run; the output step and the devicechange the probe causes are not route changes
+    const probe = probeMicEnabled() ? probeMic() : null;
+    if (probe) engine.quietRouteStepsFor(5000);
     rememberName(displayName);
     joining = roomCode;
     let caps: DeviceCaps;
@@ -492,6 +535,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     };
     session = s;
     s.cleanup.push(watchOutputCalibration(s));
+    if (probe) void probe.then((perm) => afterMicProbe(s, perm));
 
     s.cleanup.push(
       useRoomStore.subscribe((st, prev) => {
@@ -751,6 +795,26 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     };
     sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track } });
     return track;
+  },
+
+  async tune() {
+    const room = useRoomStore.getState().room;
+    if (!session || !room) return setError('Join the room first.');
+    const live = room.devices.filter((d) => d.connected);
+    const mode = tuneStatus(live, room.scene.tune).mode;
+    // everything synchronous before the mic is awaited: the layout, then any speaker without a spot
+    const layout = room.scene.layout;
+    if (!isRoutedLayout(layout)) roomActions.setLayout(suggestLayout(live.length - live.filter((d) => d.role === 'Sub').length));
+    else {
+      const roles = Object.fromEntries(live.map((d) => [d.id, d.role]));
+      for (const d of live) {
+        if (d.role !== 'Full') continue;
+        const slot = nextFreeSlot(layout, roles);
+        roles[d.id] = slot;
+        roomActions.assignSlot(d.id, slot);
+      }
+    }
+    await roomActions.startCalibration({ quick: mode === 'quick' });
   },
 
   async startCalibration(opts) {

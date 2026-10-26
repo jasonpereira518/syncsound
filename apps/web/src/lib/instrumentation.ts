@@ -10,6 +10,14 @@ export interface ScheduleRecord {
   offset: number;
   compensationSec: number;
   late: boolean;
+  /** how far ahead of `startRoomTime` (by this device's room clock) the schedule was acted on, ms; negative = after it */
+  arrivedLeadMs: number;
+  /** audio-clock steps confirmed so far on this device */
+  audioSteps: number;
+  /** ctx→perf of the context's current time minus performance.now() at scheduling, ms (≈ 0 when the map is current) */
+  mapSkewMs: number;
+  /** audio-clock observations held back as a possible step at scheduling */
+  pendingSteps: number;
   /** epoch ms at which this device believes track position `trackOffset` is heard */
   expectedHeardEpochMs: number;
 }

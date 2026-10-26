@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { chooseCalibrationInput, defaultOutputLabel, detectDeviceClass, isBluetoothLabel } from './device';
+import { chooseCalibrationInput, defaultOutputLabel, detectDeviceClass, isBluetoothLabel, micPermissionOf } from './device';
+
+describe('micPermissionOf', () => {
+  it('maps the Permissions API states and nothing else', () => {
+    expect(micPermissionOf('granted')).toBe('granted');
+    expect(micPermissionOf('denied')).toBe('denied');
+    expect(micPermissionOf('prompt')).toBe('prompt');
+    expect(micPermissionOf(undefined)).toBe('unknown');
+    expect(micPermissionOf('weird')).toBe('unknown');
+  });
+});
 
 const input = (deviceId: string, label: string) => ({ kind: 'audioinput' as const, deviceId, label });
 

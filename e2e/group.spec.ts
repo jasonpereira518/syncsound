@@ -10,7 +10,9 @@ test('group play starts two home rooms together; speakers get a rejoin button', 
 
   await owner.page.goto('/');
   await owner.page.getByTestId('create-home').click();
-  await owner.page.waitForURL(/\/h\//);
+  await owner.page.waitForURL(/\/room\//); // a new home lands in its room; the home page holds the room list
+  const homeId = await owner.page.evaluate(() => JSON.parse(localStorage.getItem('syncsound:home') ?? '{}').homeId as string);
+  await owner.page.goto(`/h/${homeId}`);
   await expect(owner.page.locator('[data-testid^="open-room-"]')).toHaveCount(1);
   await owner.page.getByTestId('new-room-name').fill('Kitchen');
   await owner.page.getByTestId('add-room').click();

@@ -11,13 +11,23 @@ listener's head**. Laptops first; phones later.
 ### Run
 
 1. The listener opens its mic, settles 1.5 s, waits for its clocks to settle (`clockSettled`, below) and sends
-   `CALIBRATION_START` with `recorders: 'all'`. The server refuses a second run while one is active
-   (`calibration_busy`), stamps `startRoomTime = now + max(lead, 3.5 s)` and broadcasts the plan. The LAN clock
-   master pins its mapping for the whole run (`holdMapping`): every device then times the run on one snapshot of the
-   WAN estimate, so its movement cancels between every emitter and every recorder.
-2. Every other device with a usable mic opens it as soon as the plan arrives (never a Bluetooth-headset mic, which
-   would flip the headset into its hands-free profile) and records until the plan ends. No mic / no permission →
-   it still plays, it just isn't ranged.
+   `CALIBRATION_START` with `recorders: 'all', prepare: true`. The server refuses a second run while one is active
+   (`calibration_busy`) and broadcasts `CALIBRATION_PREPARE` naming the recorders it expects: every connected device
+   with a mic whose permission is known and not denied (`caps.micPermission`, asked for at join) and that does not
+   play through Bluetooth. Each of them opens its mic now (never a Bluetooth-headset mic, which would flip the
+   headset into its hands-free profile), lets the output step that can cause settle for 1.5 s, and answers
+   `CALIBRATION_READY` (ok, or why not: "no microphone", "busy with its own measurement"…); the listener shows
+   "Waiting for <name>'s microphone…". At the last answer, or at the deadline (8 s, `CALIBRATION_PREPARE_DEADLINE_MS`),
+   the server stamps `startRoomTime = now + max(lead, 1.5 s)` and broadcasts the plan; a recorder that never
+   answered is skipped and named in the result, one that declined is named with its reason. The lead is 3.5 s
+   only when a tab on older code (no `micPermission` in its caps) is in the room, because it will open its mic
+   when the plan arrives; a `CALIBRATION_START` without `prepare` (older tabs, sync checks) keeps that one-shot
+   path. The LAN clock master pins its mapping for the whole run (`holdMapping`): every device then times the run
+   on one snapshot of the WAN estimate, so its movement cancels between every emitter and every recorder.
+2. A prepared recorder records through the mic it already holds; a recorder that was not asked (older code)
+   opens its mic as soon as the plan arrives. Either way it records until the plan ends. No mic / no permission →
+   it still plays, it just isn't ranged. A prepared mic that never sees its plan (the run was cancelled, the
+   listener gave up) is released 4 s after the deadline.
 3. Each device plays **one 1.1 s swoosh → chime** (`tuneSignalParts`) in its own 1.55 s slot (`buildTuneSlots`): a
    0.6 s exponential sweep, 20 Hz–20 kHz, −12 dBFS peak (30 ms fade-in; above 14 kHz tapered to −10 dB at 20 kHz,
    which takes the shrill edge off without touching the 1–12 kHz arrival band), landing on a 0.5 s bell chime (C6

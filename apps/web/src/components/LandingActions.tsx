@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode } from '@syncsound/protocol';
 import Link from 'next/link';
-import { addRoom, createHome, lastRoom, savedHome } from '@/lib/home';
+import { addRoom, createHome, getHome, lastRoom, savedHome } from '@/lib/home';
 import { createRoom } from '@/lib/roomClient';
 import { Icon } from './ui';
 
@@ -30,13 +30,18 @@ export function LandingActions() {
   }, []);
 
   const onHome = async () => {
-    if (home) return router.push(`/h/${home}`);
     setCreating(true);
     setCreateError(null);
     try {
+      if (home) {
+        // a home with one room opens straight into it; several → the home page
+        const view = await getHome(home).catch(() => null);
+        router.push(view && view.rooms.length === 1 ? `/room/${view.rooms[0]!.id}` : `/h/${home}`);
+        return;
+      }
       const id = await createHome();
-      await addRoom(id, 'Living room');
-      router.push(`/h/${id}`);
+      const room = await addRoom(id, 'Living room');
+      router.push(`/room/${room.id}`);
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : 'Could not set up your home.');
       setCreating(false);

@@ -27,14 +27,15 @@ import {
   type SettleVerdict,
   type TimeMap,
 } from '@syncsound/audio-core';
-import type {
-  CalibrationDeviceResult,
-  CalibrationPlan,
-  CalibrationRow,
-  ClientMessage,
-  Device,
-  DevicePatch,
-  SceneUpdate,
+import {
+  CALIBRATION_PREPARE_DEADLINE_MS,
+  type CalibrationDeviceResult,
+  type CalibrationPlan,
+  type CalibrationRow,
+  type ClientMessage,
+  type Device,
+  type DevicePatch,
+  type SceneUpdate,
 } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
 import { chooseCalibrationInput, defaultOutputLabel, isBluetoothLabel } from '../device';
@@ -88,6 +89,15 @@ const SETTLE_WAIT_MS = 30_000;
 /** …and this long for the soft criteria (rate estimates, jitter) before proceeding with a warning, ms */
 const SETTLE_SOFT_WAIT_MS = 20_000;
 const SETTLING_WARNING = 'The clocks were still settling; tune again in a minute for the best accuracy.';
+/** a prepared recorder lets its output settle this long after opening the mic before answering READY, ms */
+const PREPARE_SETTLE_MS = 1500;
+/** test hook `?slowMic=<ms>`: a recorder takes this long to open its mic (a slow phone, a locked screen) */
+const slowMicMs = (): number => {
+  if (typeof location === 'undefined') return 0;
+  const v = Number(new URLSearchParams(location.search).get('slowMic'));
+  return Number.isFinite(v) && v > 0 ? v : 0;
+};
+const list = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
 /** what the calibration controller needs to know about the clock path (from the room store) */
 export interface CalibrationEnv {
@@ -97,6 +107,8 @@ export interface CalibrationEnv {
   linkState: () => 'none' | 'ready' | 'not-ready';
 }
 const HOST_ONLY = 'Only the host can tune this room (it is set to host-only control).';
+/** this device is playing or recording for another device's run: say so now instead of after the settle wait */
+const BUSY = 'Another device is tuning the room right now. Wait for it to finish.';
 /** this device may start a run (the server checks too) */
 function mayControl(): boolean {
   const st = useRoomStore.getState();
@@ -249,6 +261,9 @@ function explainNotHeard(a: RecordingAnalysis): string {
   return `No speakers were heard (${detail}). Turn every device's volume up, unmute them, and keep this device within a few meters.`;
 }
 
+const prepareOf = (run: Run): Run['prepare'] => run.prepare;
+const nameOfDevice = (id: string) => useRoomStore.getState().room?.devices.find((d) => d.id === id)?.name ?? 'a speaker';
+
 /** class preset (no-mic fallback) for a device */
 export function presetPatch(device: Device): DevicePatch {
   const p = classPresetEq(device.caps.deviceClass);
@@ -269,6 +284,21 @@ interface Run {
   /** devices whose clocks moved while they played their slot (their timing is left out), by id → reason */
   faults: Record<string, string>;
   planId: string | null;
+  /** the prepare phase of this run: who was asked to open a mic, and who answered what ('ok' or the reason) */
+  prepare: { planId: string; expected: string[]; answered: Record<string, string> } | null;
+}
+
+/** this device recording for someone else's plan (all-recorders tune) */
+interface Remote {
+  planId: string;
+  cancelled: boolean;
+  cleanup: Array<() => void>;
+  /** the mic opened ahead of the plan (CALIBRATION_PREPARE), waiting for it */
+  prepared: { recorder: Recorder; stopTracks: () => void; outputBluetooth: boolean } | null;
+  /** why this device could not prepare (answered READY ok:false; repeated when the plan arrives) */
+  failed: string | null;
+  /** the plan arrived and is being captured */
+  capturing: boolean;
 }
 
 /** the clocks at the start of a run, to check at its end that they stayed put */
@@ -278,8 +308,7 @@ interface ClockSnapshot extends RunSnapshot {
 
 export class CalibrationController {
   private run: Run | null = null;
-  /** recording for someone else's plan (all-recorders tune) */
-  private remote: { planId: string; cancelled: boolean; cleanup: Array<() => void> } | null = null;
+  private remote: Remote | null = null;
   private planTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -356,6 +385,96 @@ export class CalibrationController {
     if (recorder) void this.recordFor(plan, myId, skip);
   }
 
+  /**
+   * A run is about to start: the named recorders open their mics now and answer READY (so the plan can follow with
+   * a short lead and nobody is prompted mid-run); the listener learns whom it is waiting for.
+   */
+  onPrepare(msg: { planId: string; listenerId: string; recorderIds: string[]; deadlineRoomTime: number }): void {
+    const myId = useRoomStore.getState().deviceId;
+    if (msg.listenerId === myId) {
+      const run = this.run;
+      if (run && !run.planId) {
+        run.prepare = { planId: msg.planId, expected: msg.recorderIds, answered: {} };
+        this.publishWaiting(run);
+      }
+      return;
+    }
+    if (msg.recorderIds.includes(myId)) void this.prepareFor(msg, myId);
+  }
+
+  /** a recorder of this device's run answered the prepare request */
+  onReady(msg: { planId: string; recorderId: string; ok: boolean; reason?: string }): void {
+    const run = this.run;
+    if (!run?.prepare || run.prepare.planId !== msg.planId) return;
+    run.prepare.answered[msg.recorderId] = msg.ok ? 'ok' : (msg.reason ?? 'could not open its microphone');
+    this.publishWaiting(run);
+  }
+
+  private publishWaiting(run: Run) {
+    const p = run.prepare!;
+    const names = p.expected.filter((id) => !(id in p.answered)).map((id) => nameOfDevice(id));
+    patch('calibration', { step: 'preparing', waitingFor: names, message: names.length ? `Waiting for ${list(names)}’s microphone…` : 'Starting…' });
+  }
+
+  /** this device was asked to open its mic for someone else's run: do it now, settle, answer READY, wait for the plan */
+  private async prepareFor(msg: { planId: string; deadlineRoomTime: number }, myId: string) {
+    const ready = (ok: boolean, reason?: string) =>
+      this.send({ type: 'CALIBRATION_READY', planId: msg.planId, ok, ...(reason ? { reason: reason.slice(0, 200) } : {}) });
+    if (this.run) return ready(false, 'busy with its own measurement');
+    if (this.remote) this.releaseRemote(this.remote); // a newer run wins
+    const remote: Remote = { planId: msg.planId, cancelled: false, cleanup: [], prepared: null, failed: null, capturing: false };
+    this.remote = remote;
+    patch('calibration', { recorderStep: 'preparing' });
+    try {
+      const ctx = this.engine.ctx;
+      const me = useRoomStore.getState().room?.devices.find((d) => d.id === myId);
+      if (!ctx || ctx.state !== 'running' || !this.engine.timingReady()) throw new Error('its audio or clock was not ready');
+      if (!this.engine.loopback() && me && !me.caps.hasMic) throw new Error('it has no microphone');
+      const slow = slowMicMs();
+      if (slow) await sleep(slow);
+      if (remote.cancelled) return;
+      const input = await this.openInput(remote);
+      const recorder = await startRecorder(ctx, input.input);
+      remote.cleanup.push(() => recorder.abort());
+      // opening a mic can re-open the output path (a step in the audio-clock map): let it settle before anything is timed
+      await sleep(PREPARE_SETTLE_MS);
+      if (remote.cancelled) return;
+      remote.prepared = { recorder, stopTracks: input.stopTracks, outputBluetooth: input.outputBluetooth };
+      patch('calibration', { recorderStep: 'ready' });
+      ready(true);
+      // the plan never came (the run was cancelled, or the listener gave up): let the mic go
+      const clock = this.clock();
+      const waitMs = clock ? Math.max(1000, msg.deadlineRoomTime - clock.toRoomTime(performance.now())) + 4000 : CALIBRATION_PREPARE_DEADLINE_MS + 4000;
+      const t = setTimeout(() => {
+        if (this.remote === remote && !remote.capturing) this.releaseRemote(remote);
+      }, waitMs);
+      remote.cleanup.push(() => clearTimeout(t));
+    } catch (e) {
+      if (e instanceof Cancelled || remote.cancelled) return;
+      remote.failed = errMsg(e);
+      patch('calibration', { recorderStep: 'idle' });
+      ready(false, remote.failed);
+    }
+  }
+
+  /** stop recording for someone else's plan and forget it */
+  private releaseRemote(remote: Remote) {
+    this.cancelRun(remote);
+    if (this.remote === remote) this.remote = null;
+    patch('calibration', { recorderStep: 'idle' });
+  }
+
+  /** the recorder's input: the loopback test node, or a calibration mic (stopped with the run) */
+  private async openInput(remote: { cleanup: Array<() => void> }): Promise<{ input: MediaStream | AudioNode; stopTracks: () => void; outputBluetooth: boolean }> {
+    const lb = this.engine.loopback();
+    if (lb) return { input: lb, stopTracks: () => {}, outputBluetooth: false };
+    const mic = await openCalibrationMic();
+    const stream = mic.stream;
+    const stopTracks = () => stream.getTracks().forEach((t) => t.stop());
+    remote.cleanup.push(stopTracks);
+    return { input: stream, stopTracks, outputBluetooth: mic.outputBluetooth };
+  }
+
   /** rows from another recorder of this device's run */
   onRows(msg: { planId: string; recorderId: string; rows: CalibrationRow[]; valid: boolean; reason?: string; outputBluetooth?: boolean; emissionValid?: boolean }): void {
     const run = this.run;
@@ -369,7 +488,7 @@ export class CalibrationController {
 
   /** the listener gave up (or left): stop playing and recording for its plan */
   onCancelled(planId: string): void {
-    if (this.remote?.planId === planId) this.cancelRun(this.remote);
+    if (this.remote?.planId === planId) this.releaseRemote(this.remote);
     if (this.emittingPlanId === planId) this.stopEmitting();
   }
 
@@ -462,59 +581,66 @@ export class CalibrationController {
     }
   }
 
-  /** recorder role for someone else's all-recorders tune: open my mic, record the run, send my rows */
+  /**
+   * Recorder role for someone else's all-recorders tune: record the run with the mic opened at the prepare step
+   * (or open it now, as older runs do), send my rows.
+   */
   private async recordFor(plan: CalibrationPlan, myId: string, skip: (reason: string) => void) {
     if (this.run) return skip('busy with its own measurement');
-    if (this.remote) this.cancelRun(this.remote); // a newer plan wins (the old one was cancelled or superseded)
+    const existing = this.remote;
+    if (existing?.planId === plan.id) {
+      if (existing.failed) {
+        this.releaseRemote(existing);
+        return skip(existing.failed);
+      }
+      if (existing.prepared) {
+        existing.capturing = true;
+        console.info('[calibration] recording through the mic prepared for plan', plan.id);
+        return void this.captureFor(plan, existing, existing.prepared);
+      }
+    }
+    if (existing) this.releaseRemote(existing); // a newer plan wins (the old one was cancelled or superseded)
     const me = useRoomStore.getState().room?.devices.find((d) => d.id === myId);
-    const lb = this.engine.loopback();
-    if (!lb && me && !me.caps.hasMic) return skip('no microphone');
+    if (!this.engine.loopback() && me && !me.caps.hasMic) return skip('no microphone');
     const clock = this.clock();
     if (!clock || clock.toRoomTime(performance.now()) > plan.startRoomTime - FREEZE_BEFORE_MS) return skip('plan arrived too late');
-    const remote = { planId: plan.id, cancelled: false, cleanup: [] as Array<() => void> };
+    const remote: Remote = { planId: plan.id, cancelled: false, cleanup: [], prepared: null, failed: null, capturing: true };
     this.remote = remote;
-    let outputBluetooth = false;
-    let stopTracks = () => {};
+    try {
+      const input = await this.openInput(remote);
+      const recorder = await startRecorder(this.engine.ctx!, input.input);
+      remote.cleanup.push(() => recorder.abort());
+      await this.captureFor(plan, remote, { recorder, stopTracks: input.stopTracks, outputBluetooth: input.outputBluetooth });
+    } catch (e) {
+      if (!(e instanceof Cancelled)) skip(errMsg(e)); // so the listener doesn't wait for us
+      this.releaseRemote(remote);
+    }
+  }
+
+  /** record the plan through an open recorder, analyse, send the rows to the listener */
+  private async captureFor(plan: CalibrationPlan, remote: Remote, p: { recorder: Recorder; stopTracks: () => void; outputBluetooth: boolean }) {
     const sendRows = (rows: CalibrationRow[], valid: boolean, reason?: string) =>
-      this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows, valid, outputBluetooth, ...(reason ? { reason: reason.slice(0, 200) } : {}) });
+      this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows, valid, outputBluetooth: p.outputBluetooth, ...(reason ? { reason: reason.slice(0, 200) } : {}) });
     try {
       const ctx = this.engine.ctx!;
-      let input: MediaStream | AudioNode;
-      if (lb) input = lb;
-      else {
-        const mic = await openCalibrationMic();
-        const stream = mic.stream;
-        outputBluetooth = mic.outputBluetooth;
-        stopTracks = () => stream.getTracks().forEach((t) => t.stop());
-        remote.cleanup.push(stopTracks);
-        input = stream;
-      }
-      const recorder = await startRecorder(ctx, input);
-      remote.cleanup.push(() => recorder.abort());
+      patch('calibration', { recorderStep: 'recording' });
       await this.untilRoom(plan.startRoomTime - FREEZE_BEFORE_MS, remote);
-      const startCtx = recorder.startCtx();
+      const startCtx = p.recorder.startCtx();
       if (startCtx === null) throw new Error('The microphone produced no audio.');
       // a recorder whose clock is still being re-acquired can't time anything (its rate estimates only cost ranging accuracy)
       const settled = this.settleVerdict();
       const snap = this.snapshot();
       const toRoomMs = this.freezeMap(startCtx, ctx.sampleRate, snap.frozen);
       await this.untilRoom(plan.startRoomTime + calibrationRecordingMs(plan.slots) + 300, remote);
-      const rec = await recorder.stop();
-      stopTracks();
+      const rec = await p.recorder.stop();
+      p.stopTracks();
       const v = settled.ok || !settled.hard ? this.validity(snap) : { valid: false, reason: `its clock had not settled (${settled.reason})` };
       const a = analyzeRecording({ plan, recording: rec.samples, sampleRate: ctx.sampleRate, toRoomMs });
-      this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows: a.rows, valid: v.valid, emissionValid: v.valid, outputBluetooth, ...(v.valid ? {} : { reason: v.reason!.slice(0, 200) }) });
+      this.send({ type: 'CALIBRATION_ROWS', planId: plan.id, rows: a.rows, valid: v.valid, emissionValid: v.valid, outputBluetooth: p.outputBluetooth, ...(v.valid ? {} : { reason: v.reason!.slice(0, 200) }) });
     } catch (e) {
       if (!(e instanceof Cancelled)) sendRows([], false, errMsg(e)); // so the listener doesn't wait for us
     } finally {
-      for (const c of remote.cleanup) {
-        try {
-          c();
-        } catch {
-          /* best effort */
-        }
-      }
-      if (this.remote === remote) this.remote = null;
+      this.releaseRemote(remote);
     }
   }
 
@@ -526,7 +652,7 @@ export class CalibrationController {
    */
   async start(opts: { quick?: boolean } = {}): Promise<void> {
     if (this.run) return;
-    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), faults: {}, planId: null };
+    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), faults: {}, planId: null, prepare: null };
     this.run = run;
     const check = () => {
       if (run.cancelled) throw new Cancelled();
@@ -541,6 +667,7 @@ export class CalibrationController {
       devices: [],
       warnings: [],
       quick: !!opts.quick,
+      waitingFor: [],
     });
     try {
       const ctx = this.engine.ctx;
@@ -548,6 +675,7 @@ export class CalibrationController {
       const room = st.room;
       if (!ctx || !this.clock() || !room) throw new Error('Join the speaker array first.');
       if (!mayControl()) throw new Error(HOST_ONLY);
+      if (this.remote || this.emittingPlanId) throw new Error(BUSY);
       const myId = st.deviceId;
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
       this.pauseDuring(run);
@@ -559,6 +687,7 @@ export class CalibrationController {
         run.rows = {};
         run.faults = {};
         run.bluetooth.clear();
+        run.prepare = null;
         recorded = await this.record(
           run,
           deviceIds,
@@ -583,10 +712,23 @@ export class CalibrationController {
       check();
 
       const emitters = plan.slots.map((s) => s.deviceId);
+      // (read through a call: TS narrows `run.prepare` to the null assigned before the retry loop)
+      const prep = prepareOf(run);
+      // asked to prepare but never answered (a locked phone): not waited for, named in the result
+      const stragglers = prep ? prep.expected.filter((id) => !(id in prep.answered)) : [];
+      const declined = prep ? Object.entries(prep.answered).filter(([, v]) => v !== 'ok') : [];
       if (!opts.quick) {
-        // the other recorders send their rows when their own recording ends (≈ now)
+        // the other recorders send their rows when their own recording ends (≈ now): those that answered READY,
+        // and tabs on older code (not asked) that open their mic when the plan arrives
         patch('calibration', { message: 'Collecting the other devices’ measurements…' });
-        const expected = (useRoomStore.getState().room?.devices ?? []).filter((d) => d.id !== myId && emitters.includes(d.id) && d.connected && d.caps.hasMic);
+        const expected = (useRoomStore.getState().room?.devices ?? []).filter(
+          (d) =>
+            d.id !== myId &&
+            emitters.includes(d.id) &&
+            d.connected &&
+            d.caps.hasMic &&
+            (!prep || prep.answered[d.id] === 'ok' || (!prep.expected.includes(d.id) && d.caps.micPermission === undefined)),
+        );
         const deadline = performance.now() + ROWS_WAIT_MS;
         while (performance.now() < deadline && !expected.every((d) => run.rows[d.id])) {
           check();
@@ -604,6 +746,7 @@ export class CalibrationController {
       const nameOf = (id: string) => devices.find((d) => d.id === id)?.name ?? id;
       const report = solveTune({
         rows,
+        names: Object.fromEntries(devices.map((d) => [d.id, d.name])),
         listenerId: myId,
         responses: own.responses,
         broadbandSnrDb: own.broadbandSnrDb,
@@ -680,6 +823,8 @@ export class CalibrationController {
         ...(selfExcluded ? [BT_SELF_WARNING] : []),
         ...(nudged.length ? [`Reset the manual delay nudge on ${nudged.map((d) => d.name).join(', ')}: the tune measures it now.`] : []),
         ...faulted.map((id) => `${nameOf(id)} wasn't timed: ${run.faults[id]}. Tune again to include it.`),
+        ...stragglers.map((id) => `${nameOf(id)} didn't answer in time, so it didn't listen (skipped). Keep its screen on and tune again to measure its position.`),
+        ...declined.map(([id, why]) => `${nameOf(id)} couldn't listen: ${why}.`),
         ...settleWarnings,
         ...report.warnings.filter((w) => !faulted.some((id) => w.includes(`hear ${id}`))),
       ];
@@ -777,9 +922,11 @@ export class CalibrationController {
     // …and steady: a clock still catching up would time every chime against a moving reference
     const settleWarnings = await this.waitForSettled(run, onWaiting);
     check();
-    onRecording();
+    // a tune asks the other recorders to open their mics first (CALIBRATION_PREPARE → READY), so the plan can
+    // start sooner and nobody is prompted mid-run; the server plans at the last answer or its deadline
+    const prepare = purpose === 'calibrate' && recorders === 'all';
     const plan = await new Promise<CalibrationPlan>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("The server didn't start the run. Try again.")), 8000);
+      const t = setTimeout(() => reject(new Error("The server didn't start the run. Try again.")), prepare ? CALIBRATION_PREPARE_DEADLINE_MS + 6000 : 8000);
       run.planWaiter = (p) => {
         clearTimeout(t);
         run.planId = p.id;
@@ -789,13 +936,14 @@ export class CalibrationController {
         clearTimeout(t);
         reject(new Cancelled());
       });
-      if (!this.send({ type: 'CALIBRATION_START', slots, purpose, recorders })) {
+      if (!this.send({ type: 'CALIBRATION_START', slots, purpose, recorders, ...(prepare ? { prepare: true } : {}) })) {
         clearTimeout(t);
         reject(new Error('Not connected to the room.'));
       }
     });
     run.planWaiter = null;
     check();
+    onRecording();
     const late = purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined;
     const endRoom = plan.startRoomTime + calibrationRecordingMs(plan.slots, late) + 300;
     await this.untilRoom(plan.startRoomTime - FREEZE_BEFORE_MS, run);
@@ -829,7 +977,7 @@ export class CalibrationController {
   /** Sync check: every device clicks (time-staggered wideband chirps) through normal compensation; this device listens. */
   async measureSync(durationSec = 60): Promise<void> {
     if (this.run) return;
-    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), faults: {}, planId: null };
+    const run: Run = { cancelled: false, cleanup: [], planWaiter: null, rows: {}, bluetooth: new Set(), faults: {}, planId: null, prepare: null };
     this.run = run;
     patch('syncMeasure', { running: true, step: 'recording', progress: 0, message: 'Allow microphone access…', durationSec, devices: [], histogram: null, overall: null, warnings: [] });
     try {
@@ -837,6 +985,7 @@ export class CalibrationController {
       const room = useRoomStore.getState().room;
       if (!ctx || !this.clock() || !room) throw new Error('Join the speaker array first.');
       if (!mayControl()) throw new Error(HOST_ONLY);
+      if (this.remote || this.emittingPlanId) throw new Error(BUSY);
       const deviceIds = room.devices.filter((d) => d.connected).map((d) => d.id);
       this.pauseDuring(run);
       const { plan, rec, toRoomMs, selfExcluded, valid, reason, settleWarnings } = await this.record(
@@ -893,7 +1042,8 @@ export class CalibrationController {
 
   cancel(): void {
     const planId = this.run?.planId;
-    for (const r of [this.run, this.remote]) if (r) this.cancelRun(r);
+    if (this.run) this.cancelRun(this.run);
+    if (this.remote) this.releaseRemote(this.remote);
     if (this.run) this.run.planWaiter = null;
     // tell the room: the other devices stop their chimes and recordings, and the room is free for the next tune
     if (planId) this.send({ type: 'CALIBRATION_CANCEL', planId });

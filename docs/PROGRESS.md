@@ -35,5 +35,6 @@
 - [ ] S2 on real hardware (HUMAN_TEST_CHECKLIST 23)
 - [x] S3 – Calibration that stays valid: raw-arrival invariant + tune-time positions in `scene.tune`, server-derived `calibratedLatencyMs` / `syncState` on every edit, tune identity (unheard → untuned, `tuneStale` reported to the room), `placeForLayout` keeps ranged devices, late joiners take a free slot, per-output memory of `{ tuneId, tuneArrivalMs }`, shared `TuneStatus`; sim `tuneInvariant.test.ts` (drag/layout reset: 0.000 ms change vs 2.96 ms frozen); e2e quick tune from Now Playing (DECISIONS 75–79)
 - [ ] S3 on real hardware (HUMAN_TEST_CHECKLIST 24)
-- [ ] S4 – Simplest setup experience (one-screen setup, mic at join, prepare/ready, one "Tune" verb)
+- [x] S4 – Simplest setup experience: one-screen setup (layout suggested and applied by the tune, "Adjust layout" folded away, auto-advance), mic asked for at join (`probeMic`, `caps.micPermission`, `CAPS_UPDATE`), prepare/ready handshake (`CALIBRATION_PREPARE`/`READY`, 8 s deadline on a room timer, 1.5 s lead), one "Tune" verb (`roomActions.tune` + `tuneStatus`), Tune card in Now Playing, names in warnings, landing → room; e2e: host 3 taps to tuned / 5 to playing, guest 1; slow, unanswering and busy recorders; `AudioClockMap` lost-lock recovery, immediate busy on a participating device (DECISIONS 80–88)
+- [ ] S4 on real hardware (HUMAN_TEST_CHECKLIST 16, 25)
 - [ ] S5 – Docs and results

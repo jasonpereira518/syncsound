@@ -61,11 +61,14 @@ Record results in the table at the bottom.
     drawer on a phone: the clock RTT should drop to a few ms (LAN) within ~2 s of joining. Run the 60 s sync
     measurement from the seat. Target: wired/built-in spread p95 < 1 ms. Then repeat on a guest network with
     client isolation, where it should fall back to the server clock without errors.
-16. **Simple setup on real devices (R5).** On a phone, tap "Set up my home", open the Living room, and scan the QR
-    with 3 other devices. In step 2 the suggested layout should match the speaker count. Tap a spot to move a speaker,
-    and that device's screen should show its new spot name at once. Tune from the seat: every speaker should be listed
-    as "in sync, level matched", or as needing its volume turned up. Close everything and reopen the home link: the
-    room should open straight to Now Playing with the same layout.
+16. **Simple setup on real devices (R5, S4).** On a laptop, tap "Set up my home": it should land straight in the
+    Living room's join page; tap "Open my room" (the mic prompt comes with it) and scan the QR with 3 other devices
+    (one tap each; each asks for its mic once, right there). The setup screen should list every speaker with "Mic
+    ready" and the suggested layout for the count. Tap **Tune the room** (the third tap): the layout is applied, every
+    speaker gets a spot, and when the tune ends the screen moves on to Now Playing by itself with "Tuned · 4
+    speakers" (or "3 of 4 speakers tuned" and who is missing). Open "Adjust layout", tap a spot to move a speaker,
+    and that device's screen should show its new spot name at once. Close everything and tap "Open my home" on the
+    landing page: it should open the room, straight to Now Playing with the same layout and tune state.
 17. **Gap pass (real devices).**
     - **YouTube:** paste a link and tap "Play on all speakers", pick this tab with tab audio on, and every speaker
       should play it.
@@ -80,16 +83,18 @@ Record results in the table at the bottom.
 |---|------|--------------------|------------------|-------|
 |   |      |                    |                  |       |
 
-**Calibration on real hardware (laptop Chrome as listener + phone):** run *Calibrate*. If it fails, note the message
-(it now says silent mic / too weak / noisy, with mic peak dBFS, best SNR and offset), click *Save microphone recording
-(.wav)* and drop the file in `packages/sim` to replay through `analyzeCalibration`. Check the DevTools console for
-`[calibration] preflight` (own-speaker self-test) and the per-device table.
+**Calibration on real hardware (laptop Chrome as listener + phone):** run *Tune*. If it fails, note the message
+(it says silent mic / too weak / noisy, with mic peak dBFS, best SNR and offset), click *Save microphone recording
+(.wav)* (Advanced → Calibrate) and drop the file in `packages/sim` to replay through `analyzeRecording`. Check the
+DevTools console for the per-device row table (`console.table`).
 
 18. **Calibration v3: one-tap tune (laptops).** Three or more laptops in one room on the same Wi-Fi, Chrome; one
     of them playing through a Bluetooth speaker.
-    - On the laptop you'll sit at, press **Start tuning** (setup wizard; or Advanced → Calibrate → Start). Every laptop should ask once for its microphone and show
-      "Tuning: <name> is playing" while each one chimes in turn (~1.5 s each). Each device makes **one** sound (a
-      rising swoosh landing on a bell) and nothing plays after the last one (no click run, even with Bluetooth).
+    - On the laptop you'll sit at, press **Tune the room** (setup screen; or Now Playing → Tune; or Advanced →
+      Calibrate → Tune). No laptop should ask for its microphone now (each did at join); the listener should read
+      "Waiting for <name>'s microphone…" for a second or two at most, then every laptop shows "Tuning: <name> is
+      playing" while each one chimes in turn (~1.5 s each). Each device makes **one** sound (a rising swoosh landing
+      on a bell) and nothing plays after the last one (no click run, even with Bluetooth).
     - The result should list every laptop with a distance; tape-measure them: **within 10–15 cm**. The Bluetooth
       speaker should say "placed by hand"; drag it to where it really is.
     - Sit with your head ~40 cm behind the tuning laptop and run **Measure sync (60 s)**: **p95 < 1 ms**.
@@ -97,8 +102,9 @@ Record results in the table at the bottom.
       that opening every laptop's mic during the tune didn't shift any output).
     - Move the listener elsewhere and repeat Measure sync: the per-device spread should stay small (the estimator's own
       bias doesn't cancel away from the tune spot).
-    - Turn the Bluetooth speaker off and on: the "audio delay changed" banner should appear; **Re-sync speakers** (quick tune) should
-      restore p95 < 1 ms without asking the other laptops for their microphones.
+    - Turn the Bluetooth speaker off and on: the "audio delay changed" banner should appear on that laptop and the
+      host's Now Playing should read "<name> needs tuning again"; **Tune** there (a timing-only run) should restore
+      p95 < 1 ms without the other laptops recording.
     - Close the LAN clock master's tab (the host) mid-song: the banner should appear on the others (clock path
       changed); a quick tune restores sync.
 
@@ -138,3 +144,11 @@ Record results in the table at the bottom.
     - Toggle a Bluetooth speaker off and on: the host sees "needs tuning again (output changed)" on that device
       within a few seconds; a quick tune from the guest's screen shows its progress and result on that screen.
     - Reload the host: the room still reads "Tuned" for the host laptop (profile + room tune reference).
+25. **Mic at join (S4).** iOS Safari and Android Chrome, each as a guest: the mic prompt should come with the join
+    tap, audio should still play afterwards (the probe is stopped at once), and no "audio delay changed" banner
+    should appear in the first seconds. During a tune from the host, no second prompt. Lock one phone before the
+    host taps Tune: the host should read "Waiting for <that phone>'s microphone…" for up to 8 s, then the run
+    should go on without it and name it as skipped; the other devices' rows should be unaffected (Measure sync
+    p95 < 1 ms among them). Deny the mic on one phone: its row should read "mic not allowed", it should still play,
+    and the tune should not wait for it. Note the time from tapping Tune to the first chime (target ≤ 4 s with
+    every mic granted).

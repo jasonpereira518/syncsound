@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Device, HomeView } from '@syncsound/protocol';
 import { isRoutedLayout, layoutLabel, positionAt } from '@syncsound/audio-core';
 import { getHome, groupControl, savedHome } from '@/lib/home';
+import { tuneStatus } from '@/lib/tuneStatus';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import { Button, CLASS_ICON, Icon, IconButton, StatusDot } from '../ui';
 import { Library, MasterVolume } from './Player';
@@ -55,17 +56,43 @@ export function NowPlaying({ onSetup }: { onSetup: () => void }) {
           <span className="text-sm text-ink-400">{showSpeakers ? 'Hide' : 'Show'}</span>
         </button>
         {showSpeakers && <SpeakerList devices={health.live} />}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button data-testid="change-setup" onClick={onSetup}>
-            <Icon name="stage" className="size-4" /> Change speaker setup
-          </Button>
-          <Button variant="ghost" data-testid="quick-resync" onClick={() => act(() => roomActions.startCalibration({ quick: true }))}>
-            <Icon name="target" className="size-4" /> Re-sync speakers
-          </Button>
-        </div>
+        <TuneCard devices={health.live} onSetup={onSetup} />
       </section>
       <OtherRooms />
       <Library />
+    </div>
+  );
+}
+
+/** the room's tune at a glance, the one thing to do about it, and the picture to check */
+function TuneCard({ devices, onSetup }: { devices: Device[]; onSetup: () => void }) {
+  const scene = useRoomStore((s) => s.room?.scene);
+  const busy = useRoomStore((s) => (s.calibration.running && s.calibration.step !== 'done' && s.calibration.step !== 'error') || s.syncMeasure.running);
+  const canControl = useCanControl();
+  if (!scene) return null;
+  const view = tuneStatus(devices, scene.tune);
+  const layout = scene.layout;
+  return (
+    <div className="mt-4">
+      <p data-testid="tune-label" className={`text-sm ${view.state === 'tuned' ? 'text-ok' : 'text-warn'}`}>
+        {view.label}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {canControl && (
+          <Button variant={view.state === 'tuned' ? 'ghost' : 'primary'} data-testid="tune-room" disabled={busy} onClick={() => act(() => roomActions.tune())}>
+            <Icon name="mic" className="size-4" /> {view.action}
+          </Button>
+        )}
+        <Button variant="ghost" data-testid="change-setup" onClick={onSetup}>
+          <Icon name="stage" className="size-4" /> Adjust layout
+        </Button>
+      </div>
+      {isRoutedLayout(layout) && (
+        <div className="mt-3 rounded-2xl border border-ink-700 bg-ink-950 p-2">
+          <RoomDiagram layout={layout} scene={scene} devices={devices} />
+          <p className="px-1 pb-1 text-xs text-ink-400">Check the picture matches your room; if a speaker sits elsewhere, drag it under Adjust layout.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -195,13 +222,24 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
   const devices = useRoomStore((s) => s.room?.devices);
   const clock = useRoomStore((s) => s.clock);
   const wakeLock = useRoomStore((s) => s.engine.wakeLock);
+  const recorderStep = useRoomStore((s) => s.calibration.recorderStep);
   const canControl = useCanControl();
   if (!self || !scene || !devices) return null;
   const layout = scene.layout;
   const routed = isRoutedLayout(layout);
   const status = syncStatusOf(self, self.id, clock);
   const title = routed && self.role === 'Full' ? 'Waiting for a spot' : routed || self.role === 'Sub' ? SLOT_NAME[self.role] : 'Playing along';
-  const tuned = self.syncState === 'tuned' ? 'Tuned' : self.syncState === 'stale' ? 'Needs tuning again' : 'Not tuned yet';
+  const placedByHand = self.syncState === 'tuned' && !!scene.tune && !scene.tune.ranged.includes(self.id);
+  const tuned =
+    recorderStep !== 'idle'
+      ? 'Listening for the tune…'
+      : self.syncState === 'tuned'
+        ? placedByHand
+          ? 'Tuned · placed by hand'
+          : 'Tuned'
+        : self.syncState === 'stale'
+          ? 'Needs tuning again'
+          : 'Not tuned yet';
 
   return (
     <div className="mx-auto w-full max-w-md space-y-5 px-4 pb-6" data-testid="speaker-screen">

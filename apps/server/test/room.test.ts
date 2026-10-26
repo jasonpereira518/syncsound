@@ -620,6 +620,89 @@ describe('Room devices + scene', () => {
     one(start(room, 'c1', endsAt), 'CALIBRATION_PLAN');
   });
 
+  it('a prepared tune: PREPARE names the recorders that can answer, the plan follows the last READY with a short lead', () => {
+    const room = setup();
+    // g1: a laptop with its mic granted; g2: a phone that never answered the prompt yet (still asked); extras:
+    // a device without a mic, one that denied it, a Bluetooth output (never ranged → not waited for), an old tab
+    room.handle('c1', { type: 'CAPS_UPDATE', caps: { ...caps('laptop'), micPermission: 'granted' } }, 900);
+    room.handle('c2', { type: 'CAPS_UPDATE', caps: { ...caps(), micPermission: 'prompt' } }, 901);
+    join(room, 'c3', 'nomic', { caps: { ...caps(), hasMic: false, micPermission: 'granted' } }, 902);
+    join(room, 'c4', 'denied', { caps: { ...caps(), micPermission: 'denied' } }, 903);
+    join(room, 'c5', 'bt', { caps: { ...caps('bluetooth'), micPermission: 'granted' } }, 904);
+    const slots = ['h', 'g1', 'g2', 'nomic', 'denied', 'bt'].map((id, i) => ({ deviceId: id, deviceIndex: i, signal: 'tune' as const, offsetMs: 500 + i * 1550, durationMs: 1100 }));
+    const out = room.handle('ch', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 1000);
+    expect(of(out, 'CALIBRATION_PLAN')).toHaveLength(0);
+    const prep = one(out, 'CALIBRATION_PREPARE');
+    expect(prep.to).toBe('all');
+    expect(prep.msg.listenerId).toBe('h');
+    expect([...prep.msg.recorderIds].sort()).toEqual(['g1', 'g2']);
+    expect(prep.msg.deadlineRoomTime).toBe(1000 + 8000);
+    expect(room.due()).toBe(9000);
+    // busy meanwhile
+    expect(one(room.handle('c1', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 1100), 'ERROR').msg.code).toBe('calibration_busy');
+    // an answer from a device that was not asked is ignored; each expected answer reaches the listener only
+    expect(room.handle('c5', { type: 'CALIBRATION_READY', planId: prep.msg.planId, ok: true }, 1200)).toEqual([]);
+    const r1 = room.handle('c2', { type: 'CALIBRATION_READY', planId: prep.msg.planId, ok: false, reason: 'no mic permission' }, 1300);
+    expect(one(r1, 'CALIBRATION_READY').to).toEqual(['ch']);
+    expect(one(r1, 'CALIBRATION_READY').msg).toMatchObject({ recorderId: 'g2', ok: false, reason: 'no mic permission' });
+    expect(of(r1, 'CALIBRATION_PLAN')).toHaveLength(0);
+    const r2 = room.handle('c1', { type: 'CALIBRATION_READY', planId: prep.msg.planId, ok: true }, 2000);
+    one(r2, 'CALIBRATION_READY');
+    const plan = one(r2, 'CALIBRATION_PLAN');
+    expect(plan.to).toBe('all');
+    expect(plan.msg.plan.id).toBe(prep.msg.planId);
+    expect(plan.msg.plan.recorders).toBe('all');
+    // nobody opens a mic when the plan arrives: the lead is the short one (≥ 1.5 s, not the 3.5 s of a cold start)
+    expect(plan.msg.plan.startRoomTime - 2000).toBe(1500);
+    expect(room.due()).toBeNull();
+    expect(room.tick(99_999)).toEqual([]);
+    // still busy until the run ends; a late READY is ignored
+    expect(one(room.handle('c1', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 2100), 'ERROR').msg.code).toBe('calibration_busy');
+    expect(room.handle('c1', { type: 'CALIBRATION_READY', planId: prep.msg.planId, ok: true }, 2200)).toEqual([]);
+  });
+
+  it('a prepared tune: the deadline plans without the stragglers (tick), an older tab keeps the long lead, no recorders → plan at once', () => {
+    const room = setup();
+    room.handle('c1', { type: 'CAPS_UPDATE', caps: { ...caps('laptop'), micPermission: 'granted' } }, 900);
+    room.handle('c2', { type: 'CAPS_UPDATE', caps: { ...caps(), micPermission: 'granted' } }, 901);
+    const slots = ['h', 'g1', 'g2'].map((id, i) => ({ deviceId: id, deviceIndex: i, signal: 'tune' as const, offsetMs: 500 + i * 1550, durationMs: 1100 }));
+    const prep = one(room.handle('ch', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 1000), 'CALIBRATION_PREPARE');
+    room.handle('c1', { type: 'CALIBRATION_READY', planId: prep.msg.planId, ok: true }, 1500);
+    expect(room.tick(8999)).toEqual([]);
+    const plan = one(room.tick(9000), 'CALIBRATION_PLAN');
+    expect(plan.msg.plan.startRoomTime - 9000).toBe(1500);
+    expect(room.due()).toBeNull();
+    // a cancel during the prepare phase frees the room and tells everyone (recorders close their mics)
+    const again = setup();
+    again.handle('c1', { type: 'CAPS_UPDATE', caps: { ...caps('laptop'), micPermission: 'granted' } }, 900);
+    const p2 = one(again.handle('ch', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 1000), 'CALIBRATION_PREPARE');
+    one(again.handle('ch', { type: 'CALIBRATION_CANCEL', planId: p2.msg.planId }, 1100), 'CALIBRATION_CANCELLED');
+    expect(again.due()).toBeNull();
+    one(again.handle('ch', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 1200), 'CALIBRATION_PREPARE');
+    // a recorder on older code (no micPermission in its caps) will open its mic when the plan arrives: long lead
+    const old = setup();
+    old.handle('c1', { type: 'CAPS_UPDATE', caps: { ...caps('laptop'), micPermission: 'granted' } }, 900);
+    const p3 = one(old.handle('ch', { type: 'CALIBRATION_START', slots, recorders: 'all', prepare: true }, 1000), 'CALIBRATION_PREPARE');
+    expect(p3.msg.recorderIds).toEqual(['g1']);
+    const plan3 = one(old.handle('c1', { type: 'CALIBRATION_READY', planId: p3.msg.planId, ok: true }, 2000), 'CALIBRATION_PLAN');
+    expect(plan3.msg.plan.startRoomTime - 2000).toBe(3500);
+    // nobody to wait for: the plan comes with the start
+    const alone = mkRoom();
+    join(alone, 'ch', 'h', { hostKey: 'HOSTKEY', caps: { ...caps('laptop'), micPermission: 'granted' } });
+    const solo = [{ deviceId: 'h', deviceIndex: 0, signal: 'tune' as const, offsetMs: 500, durationMs: 1100 }];
+    one(alone.handle('ch', { type: 'CALIBRATION_START', slots: solo, recorders: 'all', prepare: true }, 1000), 'CALIBRATION_PLAN');
+    // a start without `prepare` is the one-shot run of older tabs: long lead, no PREPARE
+    const legacy = one(setup().handle('ch', { type: 'CALIBRATION_START', slots, recorders: 'all' }, 1000), 'CALIBRATION_PLAN');
+    expect(legacy.msg.plan.startRoomTime - 1000).toBe(3500);
+  });
+
+  it('CAPS_UPDATE replaces the sender’s capabilities and tells everyone', () => {
+    const room = setup();
+    const out = room.handle('c1', { type: 'CAPS_UPDATE', caps: { ...caps('laptop'), micPermission: 'granted', outputLabel: 'Speakers' } }, 900);
+    expect(one(out, 'DEVICE_LIST').to).toBe('all');
+    expect(room.device('g1')!.caps).toMatchObject({ deviceClass: 'laptop', micPermission: 'granted', outputLabel: 'Speakers' });
+  });
+
   it('calibration: a guest in a host-only room may not start a run', () => {
     const room = setup();
     room.handle('ch', { type: 'SETTINGS_UPDATE', hostOnlyControl: true }, 900);

@@ -69,6 +69,8 @@ export const DeviceCaps = z.object({
   hasOutputTimestamp: z.boolean(),
   hasMic: z.boolean(),
   outputLabel: z.string().max(120).optional(),
+  /** the browser's microphone permission for this page (asked at join; absent on older tabs) */
+  micPermission: z.enum(['granted', 'prompt', 'denied', 'unknown']).optional(),
 });
 export type DeviceCaps = z.infer<typeof DeviceCaps>;
 
@@ -415,7 +417,13 @@ export const ClientMessage = z.discriminatedUnion('type', [
     slots: z.array(CalibrationSlot).min(1).max(256),
     purpose: CalibrationPlan.shape.purpose,
     recorders: CalibrationPlan.shape.recorders,
+    /** all-recorders runs: ask every recorder to open its mic first (CALIBRATION_PREPARE → READY), then plan */
+    prepare: z.boolean().optional(),
   }),
+  /** a recorder answering CALIBRATION_PREPARE: its mic is open and settled (or why not) */
+  z.object({ type: z.literal('CALIBRATION_READY'), planId: Id, ok: z.boolean(), reason: z.string().max(200).optional() }),
+  /** this device's capabilities changed (the mic permission was answered, the output label became readable) */
+  z.object({ type: z.literal('CAPS_UPDATE'), caps: DeviceCaps }),
   /** every recorder of an all-recorders plan → the server forwards them to the plan's listener */
   z.object({ type: z.literal('CALIBRATION_ROWS'), ...CalibrationRows }),
   z.object({
@@ -458,6 +466,10 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('SCENE'), scene: Scene }),
   z.object({ type: z.literal('DEVICE_LIST'), devices: z.array(Device) }),
   z.object({ type: z.literal('CALIBRATION_PLAN'), plan: CalibrationPlan }),
+  /** a run is about to start: the named recorders open their mics now and answer CALIBRATION_READY by the deadline */
+  z.object({ type: z.literal('CALIBRATION_PREPARE'), planId: Id, listenerId: Id, recorderIds: z.array(Id).max(64), deadlineRoomTime: finite() }),
+  /** forwarded to the run's listener: a recorder answered */
+  z.object({ type: z.literal('CALIBRATION_READY'), planId: Id, recorderId: Id, ok: z.boolean(), reason: z.string().max(200).optional() }),
   z.object({ type: z.literal('CALIBRATION_ROWS'), recorderId: Id, ...CalibrationRows }),
   z.object({ type: z.literal('CALIBRATION_CANCELLED'), planId: Id }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
@@ -552,6 +564,9 @@ export type HomeGroupResponse = z.infer<typeof HomeGroupResponse>;
 export const SERVER_PORT_DEFAULT = 8787;
 /** every scheduled action must be at least max(device RTT) + this far in the future */
 export const SCHEDULE_SAFETY_MARGIN_MS = 150;
+/** a prepared tune waits this long for every recorder's CALIBRATION_READY before planning without the stragglers, ms */
+export const CALIBRATION_PREPARE_DEADLINE_MS = 8000;
+
 export const MIN_SCHEDULE_LEAD_MS = 250;
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 

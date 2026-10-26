@@ -74,6 +74,8 @@ test('3 contexts: create, join, sync, play/pause/seek, late join, drag, calibrat
   console.log('resume: predicted heard-instant spread (ms) =', spread(resumeHeard).toFixed(3));
   expect(spread(resumeHeard)).toBeLessThan(MAX_START_DEVIATION_MS);
   expect(resumes.every((r) => !r.late)).toBe(true);
+  // every device's audio-clock map is current (a frozen map once made one guest start ~0.5 s late on every schedule)
+  for (const r of resumes) expect(Math.abs(r.mapSkewMs)).toBeLessThan(150);
   // --- then seek to ~20 s ---
   const before3 = await Promise.all(all.map(({ page }) => schedules(page).then((s) => s.length)));
   const seek = host.page.getByTestId('seek-bar');

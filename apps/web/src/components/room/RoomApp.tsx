@@ -13,7 +13,7 @@ import { SetupWizard } from './SetupWizard';
 import { NowPlaying, SpeakerScreen } from './SimpleRoom';
 import { Stage } from './Stage';
 import { TuneStatus } from './TuneStatus';
-import { act, dismissToast, useToasts } from './shared';
+import { act, dismissToast, useCanControl, useToasts } from './shared';
 
 type View = 'setup' | 'controls' | 'speaker' | 'advanced';
 
@@ -194,6 +194,7 @@ function AdvancedRoom({ header }: { header: ReactNode }) {
 }
 
 function Banners() {
+  const canControl = useCanControl();
   const routeChanged = useRoomStore((s) => s.routeChanged);
   const routeRestored = useRoomStore((s) => s.routeRestored);
   const emitting = useRoomStore((s) => s.calibration.emitting);
@@ -230,16 +231,18 @@ function Banners() {
           <Icon name="warning" className="size-5 shrink-0 text-warn" />
           <p className="min-w-0 flex-1">
             <strong className="text-warn">This speaker&rsquo;s audio delay changed.</strong> Headphones or Bluetooth add delay
-            the browser doesn&rsquo;t report. Re-sync from where you sit (about 1 s per speaker).
+            the browser doesn&rsquo;t report. {canControl ? 'Tune again from where you sit (about 2 s per speaker).' : 'Ask the host to tune again.'}
           </p>
-          <button
-            type="button"
-            data-testid="banner-resync"
-            onClick={() => act(() => roomActions.startCalibration({ quick: true }))}
-            className="min-h-11 rounded-lg bg-warn/20 px-3 font-medium text-ink-100 hover:bg-warn/30"
-          >
-            Re-sync now
-          </button>
+          {canControl && (
+            <button
+              type="button"
+              data-testid="banner-tune"
+              onClick={() => act(() => roomActions.tune())}
+              className="min-h-11 rounded-lg bg-warn/20 px-3 font-medium text-ink-100 hover:bg-warn/30"
+            >
+              Tune again
+            </button>
+          )}
           <button
             type="button"
             onClick={() => act(() => roomActions.dismissRouteChange())}

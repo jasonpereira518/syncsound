@@ -11,6 +11,12 @@ const STEP_CONFIRM = 3;
 const STEP_SPREAD_MS = 3;
 /** observations needed before steps are considered (early fits are too crude to judge residuals) */
 const STEP_MIN_OBS = 8;
+/**
+ * Consecutive outliers that never confirm a step mean the fit itself is wrong (a step inside the first
+ * observations bends its slope, and every later residual then grows past the last by more than
+ * STEP_SPREAD_MS): after this many (2 s at 4 Hz) the map is rebuilt from them.
+ */
+const LOCK_LOST_OBS = 8;
 /** long-baseline rate: up to this many observations (256 s at 4 Hz)… */
 export const LONG_RATE_WINDOW = 1024;
 /** …used for the slope once it holds this many observations spanning at least this long. With ±½ render quantum
@@ -47,7 +53,9 @@ export interface AudioRate {
  * Steps: the browser's output path can change latency abruptly (device re-open, buffer resize, route change —
  * seen as a +44 ms jump in headless Chromium when a recorder graph starts). A regression through a step yields a
  * wildly wrong slope for a whole window, so outliers are held back and STEP_CONFIRM consecutive mutually
- * consistent outliers shift both windows' history onto the new regime (counted in `steps`).
+ * consistent outliers shift both windows' history onto the new regime (counted in `steps`). A run of
+ * LOCK_LOST_OBS outliers that never agree means the fit itself is bent (a step among its first observations):
+ * the map is rebuilt from that run (also counted in `steps`).
  */
 export class AudioClockMap {
   private perf: number[] = [];
@@ -57,6 +65,8 @@ export class AudioClockMap {
   private fit: LineFit | null = null;
   private long: LineFit | null = null;
   private pending: Array<{ perf: number; ctx: number; r: number }> = [];
+  /** every consecutive outlier, agreeing or not (lost-lock detection) */
+  private outliers: Array<{ perf: number; ctx: number }> = [];
   /** number of output-path discontinuities detected since the last reset */
   steps = 0;
 
@@ -67,6 +77,22 @@ export class AudioClockMap {
     if (this.fit && this.perf.length >= STEP_MIN_OBS) {
       const r = (ctxSec - this.perfToCtx(perfMs)) * 1000;
       if (Math.abs(r) > STEP_MS) {
+        this.outliers.push({ perf: perfMs, ctx: ctxSec });
+        if (this.outliers.length >= LOCK_LOST_OBS) {
+          // lost lock: the fit, not the output, is wrong. Start over from the recent observations (the long
+          // window too: its history was fitted through the same bend)
+          const recent = this.outliers;
+          this.perf = [];
+          this.ctx = [];
+          this.longPerf = [];
+          this.longCtx = [];
+          this.pending = [];
+          this.outliers = [];
+          for (const o of recent) this.push(o.perf, o.ctx);
+          this.steps++;
+          this.refit();
+          return;
+        }
         // keep only the trailing run of outliers that agree with this one
         this.pending = this.pending.filter((o) => Math.abs(o.r - r) <= STEP_SPREAD_MS);
         this.pending.push({ perf: perfMs, ctx: ctxSec, r });
@@ -78,11 +104,13 @@ export class AudioClockMap {
         this.longCtx = this.longCtx.map((c) => c + shift);
         for (const o of this.pending) this.push(o.perf, o.ctx);
         this.pending = [];
+        this.outliers = [];
         this.steps++;
         this.refit();
         return;
       }
       this.pending = [];
+      this.outliers = [];
     }
     this.push(perfMs, ctxSec);
     this.refit();
@@ -128,6 +156,11 @@ export class AudioClockMap {
     return this.perf.length >= 4 && this.fit !== null;
   }
 
+  /** observations held back as a possible step (0 when the map is on its regime) */
+  pendingSteps(): number {
+    return this.pending.length;
+  }
+
   private line(): LineFit {
     if (this.fit) return this.fit;
     const n = this.perf.length;
@@ -170,6 +203,7 @@ export class AudioClockMap {
     this.fit = null;
     this.long = null;
     this.pending = [];
+    this.outliers = [];
     this.steps = 0;
   }
 }

@@ -47,6 +47,8 @@ export interface EngineStats {
   compensationMs: number;
   /** longest gap between drift-loop ticks in the last minute, ms (≈ 500 normally; a throttled tab shows seconds) */
   tickGapMs: number;
+  /** output-path discontinuities the audio clock confirmed since its last reset */
+  audioSteps: number;
   eqBypassed: boolean;
   clickTest: boolean;
   wakeLock: boolean;
@@ -54,7 +56,9 @@ export interface EngineStats {
   batterySaver: boolean;
 }
 
-export type CalibrationStep = 'idle' | 'place' | 'mic' | 'recording' | 'analyzing' | 'done' | 'error';
+export type CalibrationStep = 'idle' | 'place' | 'mic' | 'preparing' | 'recording' | 'analyzing' | 'done' | 'error';
+/** this device as a recorder for someone else's tune */
+export type RecorderStep = 'idle' | 'preparing' | 'ready' | 'recording';
 
 export interface CalibrationDeviceUi {
   deviceId: string;
@@ -88,6 +92,10 @@ export interface CalibrationUi {
   nowPlaying: string | null;
   /** the last run started on this device was timing-only */
   quick: boolean;
+  /** recorders (by name) whose microphones the listener is still waiting for */
+  waitingFor: string[];
+  /** this device's part in another device's tune: opening its mic ahead of the plan, ready, recording */
+  recorderStep: RecorderStep;
 }
 
 export interface SyncMeasureDeviceUi {
@@ -186,6 +194,11 @@ export interface RoomActions {
   queueUrl(url: string, title?: string): Promise<Track>;
   /** Runs the acoustic calibration wizard with this device as the listener (quick = timing-only re-sync). */
   startCalibration(opts?: { quick?: boolean }): Promise<void>;
+  /**
+   * The one "Tune" verb: lays the room out if it has no layout yet (suggested by speaker count), gives unplaced
+   * speakers a slot, then runs the kind of tune the room needs (`tuneStatus`). Call from a tap (the mic).
+   */
+  tune(): Promise<void>;
   cancelCalibration(): void;
   /** Sync-measurement tool with this device as the listener (mic → user gesture). Cancel with cancelCalibration. */
   startSyncMeasurement(durationSec?: number): Promise<void>;

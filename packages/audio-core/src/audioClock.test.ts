@@ -49,6 +49,26 @@ describe('AudioClockMap output-path steps', () => {
     expect(Math.abs(m.perfToCtx(future) - truth) * 1000).toBeLessThan(1);
   });
 
+  it('recovers when a step lands inside its first observations (the fit is bent, residuals keep growing)', () => {
+    // seen in a real browser: a mic probe at join re-opens the output path while the map has ~6 observations;
+    // the bent fit then rejected every later observation as a step that never "confirmed" (each residual grew
+    // past the last by more than the agreement window), so the map froze and every schedule landed late
+    const m = new AudioClockMap();
+    const obs = (perf: number, lat: number) => {
+      const ctx = Math.floor((((perf - lat) / 1000) * 48000) / 128) * 128 / 48000;
+      m.addObservation(ctx * 1000 + lat, ctx);
+    };
+    let perf = 3000;
+    for (let i = 0; i < 4; i++) obs((perf += 250), 40);
+    for (let i = 0; i < 4; i++) obs((perf += 250), 120); // +80 ms while the map is still young
+    for (let i = 0; i < 40; i++) obs((perf += 250), 120); // 10 s steady in the new regime
+    expect(m.ready()).toBe(true);
+    const future = perf + 1500;
+    const truth = (future - 120) / 1000;
+    expect(Math.abs(m.perfToCtx(future) - truth) * 1000).toBeLessThan(1);
+    expect(m.pendingSteps()).toBe(0);
+  });
+
   it('ignores a single spike', () => {
     const m = new AudioClockMap();
     let perf = 1000;

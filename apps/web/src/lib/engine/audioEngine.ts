@@ -207,6 +207,14 @@ export class AudioEngine {
   // ---------- clocks ----------
 
   private measuringUntil = 0;
+  /** instrumentation: lead the last schedule was acted on with, and the audio map's skew against now, ms */
+  private lastLeadMs = 0;
+  private lastSkewMs = 0;
+
+  /** an output step or devicechange in the next `ms` is expected (a mic probe at join), not a route change */
+  quietRouteStepsFor(ms: number): void {
+    this.measuringUntil = Math.max(this.measuringUntil, performance.now() + ms);
+  }
 
   private observeClock() {
     const ctx = this.ctx;
@@ -348,6 +356,8 @@ export class AudioEngine {
     const comp = this.compensationSec();
     // one clock snapshot per decision: a LAN â†” server path flip must not split one computation
     const clock = this.deps.clock()!;
+    this.lastLeadMs = clock.toLocalTime(pb.startRoomTime) - performance.now();
+    this.lastSkewMs = this.audioClock.ctxToPerf(ctx.currentTime) - performance.now();
     const d = computeStart({
       startRoomTime: pb.startRoomTime,
       trackOffset: pb.trackOffset,
@@ -415,6 +425,10 @@ export class AudioEngine {
       offset: d.offset,
       compensationSec: comp,
       late: d.late,
+      arrivedLeadMs: Math.round(this.lastLeadMs),
+      audioSteps: this.audioClock.steps,
+      mapSkewMs: Math.round(this.lastSkewMs),
+      pendingSteps: this.audioClock.pendingSteps(),
       expectedHeardEpochMs: expectedHeardEpochMs({
         timeOrigin: performance.timeOrigin,
         ctxToPerf: (c) => this.audioClock.ctxToPerf(c),
@@ -470,6 +484,10 @@ export class AudioEngine {
       offset: pb.trackOffset,
       compensationSec: this.compensationSec(),
       late: false,
+      arrivedLeadMs: 0,
+      audioSteps: this.audioClock.steps,
+      mapSkewMs: 0,
+      pendingSteps: this.audioClock.pendingSteps(),
       expectedHeardEpochMs: expectedHeardEpochMs({
         timeOrigin: performance.timeOrigin,
         ctxToPerf: (c) => this.audioClock.ctxToPerf(c),
@@ -702,6 +720,7 @@ export class AudioEngine {
       corrections: this.corrections,
       compensationMs: Math.round(comp * 10) / 10,
       tickGapMs: Math.round(Math.max(0, ...this.tickGaps.map((g) => g[1]))),
+      audioSteps: this.audioClock.steps,
     });
   }
 }
