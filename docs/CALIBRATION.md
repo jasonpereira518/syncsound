@@ -15,8 +15,11 @@ listener's head**. Laptops first; phones later.
 2. Every other device with a usable mic opens it as soon as the plan arrives (never a Bluetooth-headset mic, which
    would flip the headset into its hands-free profile) and records until the plan ends. No mic / no permission →
    it still plays, it just isn't ranged.
-3. Each device plays **one 0.7 s Farina sweep, 20 Hz–20 kHz, −12 dBFS**, in its own 1.55 s slot
-   (`buildTuneSlots`). Emissions are scheduled lazily (~1 s ahead) with only the browser-reported part of the
+3. Each device plays **one 1.1 s swoosh → chime** (`tuneSignalParts`) in its own 1.55 s slot (`buildTuneSlots`): a
+   0.6 s exponential sweep, 20 Hz–20 kHz, −12 dBFS peak (30 ms fade-in; above 14 kHz tapered to −10 dB at 20 kHz,
+   which takes the shrill edge off without touching the 1–12 kHz arrival band), landing on a 0.5 s bell chime (C6
+   with its G6 fifth and two harmonics, integer ratios, −16.5 dBFS peak). Nothing else plays: the Bluetooth wobble
+   readout comes from the manual sync check. Emissions are scheduled lazily (~1 s ahead) with only the browser-reported part of the
    compensation, so the measurement captures the unreported residual (e.g. Bluetooth) and any output step from
    opening a mic is already in the audio-clock mapping.
 4. Every recorder maps sample index → room time through its audio clock (`ctxToRoom(startCtx + idx/sr)`, so ppm
@@ -27,15 +30,21 @@ listener's head**. Laptops first; phones later.
 ### Arrival (per recorder, per emitter)
 
 ```
-y        = matched filter (cross-correlation with the sweep) over [slot − 400 ms, slot + 1000 ms]
+y        = matched filter (cross-correlation with the SWOOSH only: the chime's tonal autocorrelation would put
+           near-peak sidelobes before the direct path) over [slot − 400 ms, slot + 1000 ms]
 arrival  = firstArrival(y): band envelope 1–12 kHz (raised-cosine edges, zero phase), strongest peak P, then the
            EARLIEST local peak within 5 ms before P that is ≥ P − 12 dB (a louder reflection never wins), parabolic
 m        = arrival (room time) − scheduled                                  → mMs
-response = deconvolved IR around the arrival → 1/24-oct grid, 1/6-oct smoothing → levelDb = 300 Hz–3 kHz mean
+response = whole signal deconvolved (regularized inverse) around the arrival → 1/24-oct grid, 1/6-oct smoothing
+levelDb  = loudnessDb(response): K-weighted (≈ BS.1770 +4 dB shelf at 1.7 kHz) power mean, 200 Hz–8 kHz
 ```
 
-Every device plays the same sweep, so windows must not reach the next slot's earliest arrival: the 1.55 s slot
-covers arrival offsets from −0.4 to +1.0 s. "Heard" needs envelope peak/median ≥ 20 dB (noise alone ≈ 12 dB).
+Every device plays the same signal, so search windows must not reach the next slot's earliest arrival: the 1.55 s
+slot covers arrival offsets from −0.4 to +1.0 s. A late device's response segment (signal + IR window + 50 ms) may
+reach into the next slot's start; that is the same signal, so it deconvolves a whole slot later, far outside the
+IR window (unit test: 300 ms late, next device on time, response within 0.5 dB). The slot is kept short on purpose:
+the recorders' ±20 ppm rate error accumulates between slots and costs ranging (a 2 s slot moved the sim's worst
+distance error from 0.144 to 0.150 m). "Heard" needs envelope peak/median ≥ 20 dB (noise alone ≈ 12 dB).
 
 ### Solve (listener, `solveTune`)
 
@@ -56,8 +65,11 @@ laptop's own speaker → mic.
    `(d_max − d_i,head)/c`. At the mic every distance error cancels exactly; only the short mic→head step depends on
    geometry. Every constant — Wi-Fi path asymmetry, unreported Bluetooth latency, mic latency, speaker DSP — is
    absorbed.
-5. **Loudness.** The listener's level per device, corrected by 1/r from mic to head, → `loudnessTrims` /
-   `volumeHints` (after each device's EQ level shift).
+5. **Loudness.** The listener's level per device, corrected by 1/r from mic to head and by each device's EQ level
+   shift, → `loudnessTrims` / `volumeHints`: everyone meets at the **median** — loud devices are cut, soft ones
+   boosted by up to +6 dB (`MAX_BOOST_DB`); a device still short after that gets "turn it up by ~X dB". With two
+   or more other devices the median is theirs: the listener's own level rests on a near-field prior (its speaker
+   0.1 m from its mic), so a misread listener can never pull everyone else down.
 
 A quick tune is the same run with only the listener recording: positions are reused, timing re-solved.
 
@@ -81,8 +93,10 @@ one-tap quick tune; a known Bluetooth output restores its remembered value at on
 
 ## Frequency response and EQ
 
-- **IR** = recorded sweep ⊛ inverse filter (time-reversed sweep with a −6 dB/oct envelope), windowed around the
-  peak (16384 samples at 48 kHz, with tapered pre-roll).
+- **IR** = recording ⊛ regularized inverse of the whole tune signal (`calibrationInverse`: X*/(|X|² + λ), λ tiny in
+  20 Hz–19 kHz and large outside, half-octave edges; a Farina inverse would turn the chime into tones inside the IR
+  window), windowed around the peak (16384 samples at 48 kHz, with tapered pre-roll). The swoosh's second-harmonic
+  image lands 60 ms before the peak, outside the 43 ms pre-roll.
 - **Response** = |FFT(IR)| on a 1/24-octave grid, smoothed to 1/6 octave. Rolloff is the −6 dB point below the
   300 Hz–3 kHz mean. Bass-capable means rolloff ≤ 80 Hz.
 - **Target** = a gentle house curve (+3 dB below ~150 Hz, −1 dB/oct above 2 kHz) at the devices' **common**
@@ -91,9 +105,12 @@ one-tap quick tune; a known Bluetooth output restores its remembered value at on
   bands, Q 0.5–6.
 - **Rails:** max boost +6 dB, max cut −12 dB, no net boost below the device's rolloff, a protective high-pass at
   the rolloff, negative preamp to keep overall gain ≤ 0 dB, and a limiter (`DynamicsCompressorNode`, −3 dB,
-  20:1) at the end of every device chain.
-- **Loudness:** the sweep response's 300 Hz–3 kHz level at the listener (1/r-corrected to the head), corrected by
-  each device's EQ level shift. Trims bring everyone down to the quietest device (≤ 0 dB).
+  20:1) at the end of every device chain. The loudness trim sits **before** the limiter (`DeviceMix.trimGain`;
+  volume after it, `volumeGain`), so a +6 dB boost is limited (≈ −0.8 dBFS ceiling incl. the node's makeup gain),
+  never clipped.
+- **Loudness:** the response's K-weighted power mean (200 Hz–8 kHz: above any crossover, through the treble where
+  small speakers differ most) at the listener, 1/r-corrected to the head and corrected by each device's EQ level
+  shift. Trims meet at the median: −24…+6 dB.
 - **No mic:** `classPresetEq(deviceClass)` gives conservative high-pass/shelving per phone/tablet/laptop/Bluetooth.
 
 ## Sync check

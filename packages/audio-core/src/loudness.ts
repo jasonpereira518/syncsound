@@ -1,28 +1,48 @@
+/** Most a tune boosts a soft device in software, dB. The trim sits before the output limiter, so a boost is limited. */
+export const MAX_BOOST_DB = 6;
+
+/** median of the values (mean of the middle two for an even count) */
+export function medianOf(vals: number[]): number {
+  const s = [...vals].sort((a, b) => a - b);
+  const mid = s.length / 2;
+  return s.length % 2 ? s[Math.floor(mid)]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
 /**
- * Trims (dB) that bring each device to the quietest device's level, so every trim is ≤ 0 dB (clamped to the
- * protocol's −24 dB floor and to `maxBoostDb` on top, which only matters if callers pass a negative cap).
+ * Trims (dB) that bring every device to the median level ("meet in the middle"): loud devices are cut, soft ones are
+ * boosted by at most `maxBoostDb` (clamped to the protocol's −24 dB floor). `refDb` overrides the median.
  */
-export function loudnessTrims(levelsDb: Record<string, number>, maxBoostDb = 6): Record<string, number> {
+export function loudnessTrims(
+  levelsDb: Record<string, number>,
+  opts: { maxBoostDb?: number; refDb?: number } = {},
+): Record<string, number> {
   const vals = Object.values(levelsDb);
   if (!vals.length) return {};
-  const ref = Math.min(...vals);
+  const ref = opts.refDb ?? medianOf(vals);
+  const cap = opts.maxBoostDb ?? MAX_BOOST_DB;
   const out: Record<string, number> = {};
-  for (const [id, l] of Object.entries(levelsDb)) out[id] = Math.min(maxBoostDb, Math.max(-24, ref - l));
+  for (const [id, l] of Object.entries(levelsDb)) out[id] = Math.min(cap, Math.max(-24, ref - l));
   return out;
 }
 
 /**
- * Matching to the quietest device guarantees equal level but costs everyone else that much loudness. Devices more
- * than `thresholdDb` below the median get a hint: raise this device's own volume by about this many dB and re-tune.
- * (No software boost instead: the output limiter sits at −3 dBFS, so a boost would just clip/compress.)
+ * A device more than `maxBoostDb` below the median can't be brought up in software: hint how many dB it is still
+ * short after the boost (raise this device's own volume by about that much and re-tune), when that exceeds
+ * `toleranceDb`. `refDb` overrides the median.
  */
-export function volumeHints(levelsDb: Record<string, number>, thresholdDb = 3): Record<string, number> {
-  const vals = Object.values(levelsDb).sort((a, b) => a - b);
+export function volumeHints(
+  levelsDb: Record<string, number>,
+  opts: { maxBoostDb?: number; toleranceDb?: number; refDb?: number } = {},
+): Record<string, number> {
+  const vals = Object.values(levelsDb);
   if (vals.length < 2) return {};
-  const mid = vals.length / 2;
-  const median = vals.length % 2 ? vals[Math.floor(mid)]! : (vals[mid - 1]! + vals[mid]!) / 2;
+  const ref = opts.refDb ?? medianOf(vals);
+  const cap = opts.maxBoostDb ?? MAX_BOOST_DB;
   const out: Record<string, number> = {};
-  for (const [id, l] of Object.entries(levelsDb)) if (median - l > thresholdDb) out[id] = Math.round((median - l) * 10) / 10;
+  for (const [id, l] of Object.entries(levelsDb)) {
+    const short = ref - l - cap;
+    if (short > (opts.toleranceDb ?? 1)) out[id] = Math.round(short * 10) / 10;
+  }
   return out;
 }
 

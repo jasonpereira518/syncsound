@@ -1,3 +1,4 @@
+import { biquadMagnitudeDb, designBiquad } from './biquad';
 import { fft, nextPow2 } from './fft';
 
 /** FFT cross-correlation r[k] = Σ x[n+k]·ref[n] for k in [0, x.length − 1]. */
@@ -140,7 +141,7 @@ export function deconvolve(recording: Float32Array, inverse: Float32Array, irLen
   let p = 0;
   for (let i = 1; i < y.length; i++) if (Math.abs(y[i]!) > Math.abs(y[p]!)) p = i;
   // pre-roll irLength/8 keeps the low-frequency pre-ringing of the band-limited delta (≈ 1/f1 long) while staying
-  // far after the harmonic-distortion images (≥ L·ln2 ≈ 230 ms earlier for the calibration sweep)
+  // after the harmonic-distortion images (≥ L·ln2 earlier: ≈ 60 ms for the tune's swoosh, vs a 43 ms pre-roll at 16384)
   const pre = Math.min(p, Math.max(16, irLength >> 3));
   const s = p - pre;
   // Tukey-style taper (half-cosine over the pre-roll, and over the last quarter) instead of a hard cut, so the
@@ -226,6 +227,28 @@ export function bandMeanDb(r: Response, f1: number, f2: number): number {
     }
   });
   return c ? s / c : 0;
+}
+
+/** Band of the loudness estimate, Hz: above every crossover (bass management doesn't skew it) and through the treble. */
+export const LOUDNESS_BAND = { lo: 200, hi: 8000 } as const;
+/** ≈ the BS.1770 (LUFS) stage-1 pre-filter: +4 dB high shelf around 1.7 kHz (the head's presence boost) */
+const K_SHELF = designBiquad('highshelf', 1681.97, 1, 4, 48000);
+
+/**
+ * Perceived level of a response, dB: K-weighted POWER mean over LOUDNESS_BAND. On a log-spaced grid each octave
+ * weighs the same (music's roughly pink spectrum); averaging power, not dB, makes a dip count less than a peak, as
+ * the ear hears it, and 3–8 kHz (where small speakers differ most) counts.
+ */
+export function loudnessDb(r: Response): number {
+  let s = 0;
+  let c = 0;
+  r.freqs.forEach((f, i) => {
+    if (f >= LOUDNESS_BAND.lo && f <= LOUDNESS_BAND.hi) {
+      s += Math.pow(10, (r.db[i]! + biquadMagnitudeDb(K_SHELF, f, 48000)) / 10);
+      c++;
+    }
+  });
+  return c ? 10 * Math.log10(s / c) : 0;
 }
 
 /**

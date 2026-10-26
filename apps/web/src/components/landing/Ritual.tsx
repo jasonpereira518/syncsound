@@ -5,7 +5,7 @@ import QRCode from 'qrcode';
 const STAGES = [
   { name: 'Scan', clause: 'Scan the code on each device.', body: 'Phones, laptops and tablets join from the camera. No app, no account.' },
   { name: 'Place', clause: 'Tap where each one sits.', body: 'Pick stereo or surround for the speakers you have and tap each one into its spot.' },
-  { name: 'Tune', clause: 'Tune once from your seat.', body: 'A short sweep from where you sit lines up their timing and matches their loudness, Bluetooth included.' },
+  { name: 'Tune', clause: 'Tune once from your seat.', body: 'One chime per speaker, heard from where you sit, lines up their timing and matches their loudness, Bluetooth included.' },
   { name: 'Play', clause: 'Press play. Hear one sound.', body: 'Every device starts at the same instant and stays locked while it plays.' },
 ];
 

@@ -216,7 +216,7 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
       {!!self.volumeUpDb && (
         <p role="status" data-testid="volume-up-hint" className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
           <strong className="text-warn">This speaker is quieter than the rest.</strong> Turn this device&rsquo;s own volume up, then tune the room again so
-          everyone can play louder.
+          it can keep up with the others.
         </p>
       )}
       {!wakeLock && <p className="text-sm text-ink-400">Keep this screen on and this tab open while it plays.</p>}

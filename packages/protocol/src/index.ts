@@ -213,7 +213,8 @@ export type RoomState = z.infer<typeof RoomState>;
 
 // ---------- calibration ----------
 
-export const CalibrationSignal = z.enum(['chirp', 'sweep', 'noise', 'click']);
+/** tune: the tune's swoosh → chime (current); sweep: the plain sweep of older tunes */
+export const CalibrationSignal = z.enum(['chirp', 'sweep', 'noise', 'click', 'tune']);
 export type CalibrationSignal = z.infer<typeof CalibrationSignal>;
 
 export const CalibrationSlot = z.object({
@@ -242,12 +243,12 @@ export const CalibrationPlan = z.object({
 });
 export type CalibrationPlan = z.infer<typeof CalibrationPlan>;
 
-/** One recorder's measurement of one emitter's tune sweep. */
+/** One recorder's measurement of one emitter's tune signal. */
 export const CalibrationRow = z.object({
   emitterId: Id,
   /** arrival (on the recorder's room clock) − scheduled emission, ms; null = not heard */
   mMs: finite().min(-10000).max(10000).nullable(),
-  /** 300 Hz–3 kHz level of the measured response, dB (relative: includes this recorder's mic gain) */
+  /** loudness of the measured response (K-weighted power mean, 200 Hz–8 kHz), dB (relative: includes this recorder's mic gain) */
   levelDb: finite().min(-400).max(200).nullable(),
   /** direct-path level (no room reverb), dB, same relative scale (co-location test) */
   directDb: finite().min(-400).max(200).nullable(),
