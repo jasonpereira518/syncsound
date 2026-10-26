@@ -101,6 +101,8 @@ const FRIENDLY: Record<string, string> = {
   forbidden: 'Only the host can do that in this room.',
   host_only: 'Only the host can do that in this room.',
   rate_limited: 'Too many requests. Slow down a little.',
+  capture_busy: 'Another device is already sharing audio.',
+  capture_active: 'Stop sharing audio first.',
 };
 
 function handleMessage(msg: ServerMessage) {
@@ -181,16 +183,28 @@ function learnTrackInfo(trackId: string, info: { durationSec: number; channels: 
   session?.client.send({ type: 'CONTROL', command: { type: 'queue', track } });
 }
 
-/** host only: give multichannel / upmixed sources matching objects once per (track, channels, upmix) */
+/**
+ * Give multichannel / upmixed sources matching objects once per (source, channels, upmix): the host for the playing
+ * track, the sharing device for a live capture (always stereo: a leftover mono or 5.1 layout would mute it).
+ */
 function maybeAutoObjects(s: Session, room: RoomState) {
-  if (!useRoomStore.getState().isHost) return;
-  const track = room.queue.find((t) => t.id === room.playback.trackId);
-  if (!track?.channels || track.sourceClass !== 'rendered') return;
-  const key = `${track.id}|${track.channels}|${room.scene.upmix}`;
+  const { isHost, deviceId } = useRoomStore.getState();
+  let channels: number;
+  let key: string;
+  if (room.captureHostId === deviceId) {
+    channels = 2;
+    key = `capture|2|${room.scene.upmix}`;
+  } else {
+    if (!isHost) return;
+    const track = room.queue.find((t) => t.id === room.playback.trackId);
+    if (!track?.channels || track.sourceClass !== 'rendered') return;
+    channels = track.channels;
+    key = `${track.id}|${track.channels}|${room.scene.upmix}`;
+  }
   if (key === s.autoObjectsKey) return;
   s.autoObjectsKey = key;
   try {
-    const desired = defaultObjectsFor(track.channels, room.scene.upmix);
+    const desired = defaultObjectsFor(channels, room.scene.upmix);
     const chans = (os: { channel: string }[]) => os.map((o) => o.channel).sort().join();
     if (chans(desired) === chans(room.scene.objects)) return;
     const objects = desired.map((d) => {
@@ -813,4 +827,6 @@ installInstrumentation({
     }
   },
   mix: () => useRoomStore.getState().mix,
+  tap: () => session?.engine.readTaps() ?? null,
+  liveDelay: () => session?.capture.liveDelayInfo() ?? null,
 });

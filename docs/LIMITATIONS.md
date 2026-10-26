@@ -8,8 +8,13 @@ An honest list of what is not done, what can't be verified without hardware, and
   SDK / MusicKit JS, with no spatial rendering, no EQ and no sample-accurate scheduling. Expect tens of ms to
   ~150 ms. Every device needs its own Premium / Apple Music subscription.
 - **DRM video** (Netflix, Disney+, …) captures as silence. The app detects this after 3 s and explains it.
-- **YouTube** streams are never downloaded. The host shows the official IFrame player, and audio reaches the
-  other devices only through tab capture (Mode 1).
+- **YouTube** streams are never downloaded. The video plays in its own tab with YouTube's official player and its
+  sound reaches every device through tab capture (Mode 1): two steps (open the tab, then share it), because the
+  browser needs one user gesture per step. The app's own tab can't be shared (it would capture its own output).
+- **Sharing a window or the whole screen** (system audio) keeps the original playing on the sharing device, which
+  the browser can't mute; the other speakers follow it by the stream buffer. Share the tab itself for tight sync.
+- **A device whose output latency exceeds the stream buffer** (Bluetooth: 100–300 ms unreported) plays a live
+  stream late by the difference; it shows the shortfall and the buffer value that would fit.
 - **Secure context:** microphone (calibration), `getDisplayMedia` (capture) and Wake Lock need HTTPS. Phones on
   `http://<LAN-IP>` can play, but can't calibrate or capture. See DEPLOY.md.
 - **iOS Safari** suspends audio in the background and some versions lack `outputLatency`. The app re-syncs and
@@ -75,7 +80,11 @@ An honest list of what is not done, what can't be verified without hardware, and
   back to the server clock, which keeps the old ~1–2 ms device-to-device spread over a WAN.
 - **Capture transport** is a WebRTC mesh: host uplink = N × ~256 kbps Opus. Fine for ~8 devices. LiveKit (an SFU)
   is recommended beyond that but not integrated. The capture pipeline-delay estimate uses `getStats`
-  (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), which is unverified on real networks.
+  (jitterBufferDelay + RTT/2 + a fixed 20 ms Opus framing allowance), median-filtered over 2.5 s and applied only
+  in ≥ 10 ms steps; its absolute accuracy (host encode latency, the receiver's WebRTC → Web Audio bridge) is
+  unverified on real networks, so host-vs-receiver alignment of a live stream needs ears (HUMAN_TEST item 21).
+  Headless e2e hears a steady tone and a stable delay, but can't hear WebRTC's own concealment on a lossy Wi-Fi.
+  A receiver whose browser reports no `jitterBufferDelay` stats stays silent until it does.
 - **Positions:** a full tune measures laptop-to-laptop distances (two-way ranging) and lays the room out from them,
   fitted onto the user's rough layout. Devices that don't record (no mic or permission) or play through Bluetooth
   keep their hand placement (flagged in the result). Multilateration of those, and a height axis, are not
@@ -117,8 +126,8 @@ An honest list of what is not done, what can't be verified without hardware, and
   around with tsconfig `paths` for zustand) and makes Vite print a warning. Neither affects clones at normal paths.
 - **Group play** only shares tracks every device decodes itself (demo, music/video files, links). Tab capture,
   YouTube and Spotify/Apple stream from one room, so they can't be played in several rooms at once.
-- **YouTube's one-step play** still depends on the person picking *this* tab with "share tab audio" on in the
-  browser's share dialog; a wrong pick leaves the sound on this device only (the UI offers to share again).
+- **Sharing a tab** depends on the person picking the right tab with "share tab audio" on in the browser's share
+  dialog; a share without audio is refused with an explanation, and a wrong tab simply streams that tab.
 - **Bluetooth wobble** is measured relative to the room's average, so with few speakers it reads somewhat lower than
   the true jitter (about 75 % of it with 4 speakers, per `syncMeasure.test.ts`).
 - **Home links are capabilities:** anyone with a home link can see and join its rooms; only the browser that created

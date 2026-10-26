@@ -29,9 +29,10 @@ Record results in the table at the bottom.
    the L object across the room slowly and quickly. The sound should move between the physical devices with no
    zipper noise or clicks. Then try *5.1 ring* with *5.1 channel test*; each channel should come from the
    expected device, and LFE only from bass-capable devices.
-8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open YouTube in the app's YouTube
-   tab and start Capture (share this tab with audio). Every device should play the audio. Use the lip-sync nudge
-   to get perceived lip-sync within ±40 ms, and note the buffer value that gives dropout-free audio.
+8. **Tab-capture lip-sync with a YouTube video.** On the host laptop (Chrome), open a YouTube video in its own tab,
+   then in the app's YouTube panel start capture and pick that tab (share tab audio on). Every device, the laptop
+   included, should play the audio. Use the lip-sync nudge to get perceived lip-sync within ±40 ms, and note the
+   buffer value that gives dropout-free audio.
 9. **DRM detection.** Capture a Netflix/Disney+ tab. The "This tab is silent / DRM" explanation should appear
    within ~3 s.
 10. **Spotify sync-only, two Premium accounts.** Configure `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`, connect Spotify on
@@ -67,8 +68,8 @@ Record results in the table at the bottom.
     as "in sync, level matched", or as needing its volume turned up. Close everything and reopen the home link: the
     room should open straight to Now Playing with the same layout.
 17. **Gap pass (real devices).**
-    - **YouTube:** paste a link and tap "Play on all speakers", pick this tab with tab audio on, and every speaker
-      should play it.
+    - **YouTube:** paste a link, tap "Open on YouTube", start the video there, come back and tap "Start capture",
+      pick the YouTube tab with tab audio on, and every speaker should play it.
     - **Bluetooth:** with a Bluetooth speaker in the room, finish tuning; it should show "Bluetooth timing varies by
       ±X ms".
     - **Re-sync banner:** switch a phone's output to Bluetooth mid-song; the "audio delay changed" banner should
@@ -119,3 +120,12 @@ Record results in the table at the bottom.
     (no dip in the middle), starting at the same instant on every device. Paste a web link with no known length as
     the first track: it should still advance once a device has decoded it. Pause during a crossfade: both tracks must
     stop. Let the last track run out: the player should read *stopped*, not keep "playing" at the end.
+
+21. **Live share quality (capture rework).** Laptop host (Chrome) + two phones on the same Wi-Fi.
+    - **YouTube tab shared** to the phones: no echo or "wash", no periodic pitch wobble over 5 minutes, and the laptop
+      plays in time with the phones. Debug drawer on a phone: "align delay" switches stay ≤ 2 after the first minute.
+    - **Move the Stream buffer slider** while sharing: one brief dip on each device, no pitch bend, no click.
+    - **Entire screen + system audio** (a desktop player): no echo loop on the phones; the laptop plays the original
+      and the panel says so.
+    - **Bluetooth phone** receiving at 150 ms: the "plays N ms late" warning appears; set the buffer to the suggested
+      value and it disappears, and the phone falls into line with the others.

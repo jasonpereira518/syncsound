@@ -1,14 +1,24 @@
 /**
  * Video mode 1: capture tab/system audio on the host, stream it to every device over the WebRTC mesh, and
- * play it everywhere (host monitor included) at ≈ captureTime + videoBufferMs. Browser-only.
+ * play it everywhere at ≈ captureTime + videoBufferMs. Browser-only.
+ *
+ * Alignment: each receiver measures its network + jitter-buffer delay (getStats), filters it (median) and sets the
+ * output delay to buffer − pipeline − compensation in rare, sample-exact, click-free steps (liveDelay.ts →
+ * OutputChain.setDelayMs). A receiver stays silent until its first estimate, so the first step is never heard.
+ * The host plays the stream itself only when that can't feed back into the capture (capturePolicy.ts).
  */
-import type { ClientMessage, RoomState, RtcData } from '@syncsound/protocol';
+import { defaultSettings, type ClientMessage, type RoomState, type RtcData } from '@syncsound/protocol';
 import { errMsg, patch, useRoomStore } from '../../store/state';
 import { RtcMesh } from '../rtc';
 import type { AudioEngine } from './audioEngine';
+import { captureOptions, hostPlayback, isOwnCapture, shouldMonitor, type DisplaySurface } from './capturePolicy';
+import { LIVE_DELAY, PipelineFilter, bufferShortfallMs, jitterTargetMs, nextDelayMs } from './liveDelay';
 import { captureDelayMs } from './timing';
 
 const SILENCE_DBFS = -70;
+const SILENCE_MS = 3000;
+/** the live voice fades out over 20 ms: its stream and peers must outlive that, or the fade ends in a click */
+const TEARDOWN_DELAY_MS = 40;
 
 /**
  * Test mode `?fakeCapture=tone|silent`: stands in for getDisplayMedia so the WebRTC mesh and the DRM-silence
@@ -32,29 +42,42 @@ function fakeCaptureStream(ctx: AudioContext, silent: boolean): MediaStream {
   return dest.stream;
 }
 
-/** not yet in lib.dom */
-interface CaptureAudioConstraints extends MediaTrackConstraints {
-  suppressLocalAudioPlayback?: boolean;
+type CaptureHandle = { origin?: string; handle?: string } | null;
+
+/** Capture Handle (Chrome/Edge): a tag other SyncSound tabs in this browser see when they capture this tab. */
+function installCaptureHandle(): { origin: string; handle: string } | null {
+  if (typeof navigator === 'undefined' || typeof location === 'undefined') return null;
+  const md = navigator.mediaDevices as
+    | (MediaDevices & {
+        setCaptureHandleConfig?: (c: { exposeOrigin: boolean; handle: string; permittedOrigins: string[] }) => void;
+      })
+    | undefined;
+  if (!md?.setCaptureHandleConfig) return null;
+  try {
+    const handle = Math.random().toString(36).slice(2, 18);
+    md.setCaptureHandleConfig({ exposeOrigin: true, handle, permittedOrigins: [location.origin] });
+    return { origin: location.origin, handle };
+  } catch {
+    return null;
+  }
 }
-const CAPTURE_AUDIO: CaptureAudioConstraints = {
-  echoCancellation: false,
-  noiseSuppression: false,
-  autoGainControl: false,
-  suppressLocalAudioPlayback: true,
-};
-interface CaptureOptions extends DisplayMediaStreamOptions {
-  preferCurrentTab?: boolean;
-  selfBrowserSurface?: 'include' | 'exclude';
-  systemAudio?: 'include' | 'exclude';
+
+function captureHandleOf(track: MediaStreamTrack | undefined): CaptureHandle {
+  try {
+    return (track as (MediaStreamTrack & { getCaptureHandle?: () => CaptureHandle }) | undefined)?.getCaptureHandle?.() ?? null;
+  } catch {
+    return null;
+  }
 }
-const CAPTURE_OPTIONS: CaptureOptions = {
-  video: true,
-  audio: CAPTURE_AUDIO,
-  preferCurrentTab: true,
-  selfBrowserSurface: 'include',
-  systemAudio: 'include',
-};
-const SILENCE_MS = 3000;
+
+/** instrumentation (`window.__syncsound.liveDelay()`) */
+export interface LiveDelayInfo {
+  appliedMs: number | null;
+  changes: number;
+  estimateMs: number | null;
+  monitoring: boolean;
+  audible: boolean;
+}
 
 export class CaptureController {
   private mesh: RtcMesh | null = null;
@@ -64,9 +87,18 @@ export class CaptureController {
   private analyser: AnalyserNode | null = null;
   private audioEl: HTMLAudioElement | null = null;
   private timers: Array<ReturnType<typeof setInterval>> = [];
-  private pipelineDelayMs: number | null = null;
   private receivingFrom: string | null = null;
   private sawHost = false;
+  private readonly own = installCaptureHandle();
+  // alignment governor
+  private readonly filter = new PipelineFilter();
+  private appliedMs: number | null = null;
+  private delayChanges = 0;
+  private settingsKey = '';
+  /** the host plays the stream through its own chain */
+  private monitoring = false;
+  /** the live voice has been faded in (receivers wait for the first delay estimate) */
+  private audible = false;
 
   constructor(
     private readonly engine: AudioEngine,
@@ -83,7 +115,7 @@ export class CaptureController {
       if (!fake && !navigator.mediaDevices?.getDisplayMedia) throw new Error("This browser can't capture tab audio. Use desktop Chrome or Edge.");
       let stream: MediaStream;
       try {
-        stream = fake ? fakeCaptureStream(this.engine.ctx, fake === 'silent') : await navigator.mediaDevices.getDisplayMedia(CAPTURE_OPTIONS);
+        stream = fake ? fakeCaptureStream(this.engine.ctx, fake === 'silent') : await navigator.mediaDevices.getDisplayMedia(captureOptions());
       } catch (e) {
         throw new Error(e instanceof DOMException && e.name === 'NotAllowedError' ? 'Capture was cancelled.' : `Couldn't start capture: ${errMsg(e)}`);
       }
@@ -93,7 +125,16 @@ export class CaptureController {
         throw new Error("No audio was shared. Share a tab with 'Share tab audio' checked.");
       }
       this.teardownReceive();
-      stream.getVideoTracks().forEach((t) => (t.enabled = false)); // keep the share alive, skip encoding work
+      // what was shared lives on the video track; the share needs it, so keep it alive but don't encode it
+      const video = stream.getVideoTracks()[0];
+      const surface = fake ? 'browser' : (video?.getSettings().displaySurface as DisplaySurface);
+      const capturedSelf = !fake && isOwnCapture(captureHandleOf(video), this.own);
+      stream.getVideoTracks().forEach((t) => (t.enabled = false));
+      try {
+        audio.contentHint = 'music';
+      } catch {
+        /* read-only in some browsers */
+      }
       audio.addEventListener('ended', () => this.stop());
       this.stream = stream;
       this.role = 'host';
@@ -102,14 +143,26 @@ export class CaptureController {
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.source.connect(this.analyser);
-      this.engine.attachExternal(this.source);
+      // never play what could end up back inside the capture (the app tab is excluded from the picker; a window or
+      // the whole screen is heard from the OS already)
+      this.monitoring = shouldMonitor({ surface, capturedSelf });
+      if (this.monitoring) {
+        this.engine.attachExternal(this.source, { fadeIn: true });
+        this.audible = true;
+      }
       this.mesh = this.newMesh();
       this.mesh.setLocalTrack(audio, stream);
       this.send({ type: 'CAPTURE', active: true });
       this.syncHostPeers(useRoomStore.getState().room);
       this.watchSilence();
-      this.updateDelay();
-      patch('capture', { active: true, receiving: false });
+      this.updateDelay(true);
+      patch('capture', {
+        active: true,
+        receiving: false,
+        surface: surface ?? null,
+        monitoring: this.monitoring,
+        hostPlayback: hostPlayback({ surface, monitoring: this.monitoring }),
+      });
     } catch (e) {
       patch('capture', { error: errMsg(e) });
     }
@@ -118,10 +171,8 @@ export class CaptureController {
   stop(): void {
     if (this.role !== 'host') return;
     this.send({ type: 'CAPTURE', active: false });
-    this.mesh?.closeAll(true);
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.reset();
-    patch('capture', { active: false, silent: false, peers: 0 });
+    this.release(true);
+    patch('capture', { active: false, silent: false, peers: 0, surface: null, monitoring: false, hostPlayback: null });
   }
 
   onRoomChanged(room: RoomState | null): void {
@@ -133,7 +184,12 @@ export class CaptureController {
       if (hostId === this.receivingFrom) this.sawHost = true;
       if (hostGone || (hostId !== null && hostId !== this.receivingFrom) || (hostId === null && this.sawHost)) this.teardownReceive();
     }
-    this.updateDelay();
+    // the sliders moved: apply even a small change at once (a 5 ms nudge step is below the deadband)
+    const key = room ? `${room.settings.videoBufferMs}|${room.settings.lipSyncNudgeMs}` : '';
+    const settingsChanged = key !== this.settingsKey;
+    this.settingsKey = key;
+    if (settingsChanged && room && this.role === 'receiver') this.setJitterTarget(room.settings.videoBufferMs);
+    this.updateDelay(settingsChanged);
   }
 
   onSignal(from: string, data: RtcData): void {
@@ -141,7 +197,8 @@ export class CaptureController {
       if (this.role !== 'receiver') {
         this.role = 'receiver';
         this.mesh = this.newMesh();
-        this.timers.push(setInterval(() => void this.pollStats(), 1000));
+        this.setJitterTarget(useRoomStore.getState().room?.settings.videoBufferMs ?? defaultSettings().videoBufferMs);
+        this.timers.push(setInterval(() => void this.pollStats(), LIVE_DELAY.pollMs));
       }
       this.receivingFrom = from;
     }
@@ -152,6 +209,16 @@ export class CaptureController {
   dispose(): void {
     if (this.role === 'host') this.stop();
     else this.teardownReceive();
+  }
+
+  liveDelayInfo(): LiveDelayInfo {
+    return {
+      appliedMs: this.appliedMs,
+      changes: this.delayChanges,
+      estimateMs: this.filter.estimate(),
+      monitoring: this.monitoring,
+      audible: this.audible,
+    };
   }
 
   private newMesh() {
@@ -168,6 +235,12 @@ export class CaptureController {
     this.mesh?.syncPeers(room ? room.devices.filter((d) => d.connected && d.id !== myId).map((d) => d.id) : []);
   }
 
+  private setJitterTarget(videoBufferMs: number) {
+    const jb = jitterTargetMs(videoBufferMs);
+    this.mesh?.setJitterTargetMs(jb);
+    patch('capture', { jitterTargetMs: jb });
+  }
+
   private onRemoteStream(stream: MediaStream) {
     const ctx = this.engine.ctx;
     if (!ctx) return;
@@ -178,33 +251,56 @@ export class CaptureController {
     void this.audioEl.play().catch(() => {});
     this.source?.disconnect();
     this.source = ctx.createMediaStreamSource(stream);
-    this.engine.attachExternal(this.source);
+    // the first stream stays silent until the first delay estimate has aligned it; a renegotiated one fades in now
+    this.audible = this.filter.estimate() !== null;
+    this.engine.attachExternal(this.source, { fadeIn: this.audible });
     this.updateDelay();
     patch('capture', { receiving: true, error: null });
   }
 
   private async pollStats() {
-    const d = await this.mesh?.pipelineDelayMs();
-    if (d === undefined || d === null) return;
-    this.pipelineDelayMs = d;
-    patch('capture', { pipelineDelayMs: Math.round(d) });
+    const mesh = this.mesh;
+    const d = await mesh?.pipelineDelayMs();
+    if (d === undefined || d === null || this.role !== 'receiver' || this.mesh !== mesh) return;
+    this.filter.push(d);
+    const estimate = this.filter.estimate();
+    if (estimate === null) return;
+    patch('capture', { pipelineDelayMs: Math.round(estimate) });
     this.updateDelay();
+    if (!this.audible && this.appliedMs !== null) {
+      this.audible = true;
+      this.engine.fadeExternalIn();
+    }
   }
 
-  private updateDelay() {
+  /** governor step: desired = buffer + nudge − pipeline − compensation; applied rarely, in whole samples */
+  private updateDelay(force = false) {
     const room = useRoomStore.getState().room;
-    if (!this.role || !room) {
+    const ctx = this.engine.ctx;
+    if (!this.role || !room || !ctx) {
       this.engine.setOutputDelayMs(0);
+      this.appliedMs = null;
       return;
     }
-    this.engine.setOutputDelayMs(
-      captureDelayMs({
-        videoBufferMs: room.settings.videoBufferMs,
-        lipSyncNudgeMs: room.settings.lipSyncNudgeMs,
-        pipelineDelayMs: this.role === 'host' ? 0 : (this.pipelineDelayMs ?? 0),
-        compensationMs: this.engine.compensationSec() * 1000,
-      }),
-    );
+    const pipelineDelayMs = this.role === 'host' ? 0 : this.filter.estimate();
+    if (pipelineDelayMs === null) return; // receiver before its first estimate: silent, nothing to align yet
+    const input = {
+      videoBufferMs: room.settings.videoBufferMs,
+      lipSyncNudgeMs: room.settings.lipSyncNudgeMs,
+      pipelineDelayMs,
+      compensationMs: this.engine.compensationSec() * 1000,
+    };
+    const next = nextDelayMs({ desiredMs: captureDelayMs(input), appliedMs: this.appliedMs, sampleRate: ctx.sampleRate, force });
+    if (next !== null) {
+      if (this.engine.setOutputDelayMs(next)) this.delayChanges++;
+      this.appliedMs = next;
+    }
+    const shortfall = bufferShortfallMs(input);
+    patch('capture', {
+      appliedDelayMs: this.appliedMs === null ? null : Math.round(this.appliedMs * 10) / 10,
+      delayChanges: this.delayChanges,
+      shortfallMs: shortfall > 0 ? Math.round(shortfall) : null,
+    });
   }
 
   private watchSilence() {
@@ -228,22 +324,33 @@ export class CaptureController {
 
   private teardownReceive() {
     if (this.role !== 'receiver') return;
-    this.mesh?.closeAll(false);
-    this.reset();
-    patch('capture', { receiving: false, peers: 0, pipelineDelayMs: null });
+    this.release(false);
+    patch('capture', { receiving: false, peers: 0, pipelineDelayMs: null, jitterTargetMs: null, appliedDelayMs: null, shortfallMs: null });
   }
 
-  private reset() {
+  /** Fade the live voice out now; drop the stream and peers once the fade is over (too early = a click). */
+  private release(notifyPeers: boolean) {
+    const { mesh, stream, source, analyser, audioEl } = this;
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
-    this.engine.attachExternal(null);
-    this.source?.disconnect();
-    this.analyser?.disconnect();
-    if (this.audioEl) this.audioEl.srcObject = null;
+    this.engine.detachExternal();
     this.source = this.analyser = this.audioEl = this.mesh = this.stream = null;
     this.role = this.receivingFrom = null;
     this.sawHost = false;
-    this.pipelineDelayMs = null;
+    this.filter.reset();
+    this.appliedMs = null;
+    this.monitoring = this.audible = false;
     this.updateDelay();
+    setTimeout(() => {
+      mesh?.closeAll(notifyPeers);
+      stream?.getTracks().forEach((t) => t.stop());
+      if (audioEl) audioEl.srcObject = null;
+      try {
+        source?.disconnect();
+        analyser?.disconnect();
+      } catch {
+        /* context closed */
+      }
+    }, TEARDOWN_DELAY_MS);
   }
 }

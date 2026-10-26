@@ -531,6 +531,58 @@ describe('Room devices + scene', () => {
   });
 });
 
+describe('Room capture (live share)', () => {
+  it('starting a share pauses the running track at now+lead and refuses play until the share ends', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('a') }), 1000);
+    room.handle('ch', ctl({ type: 'play' }), 1000); // plays from T = 1250
+
+    // share decided at 11250 pauses at T = 11500: position = (11500 − 1250) / 1000
+    const outs = room.handle('ch', { type: 'CAPTURE', active: true }, 11250);
+    const s = one(outs, 'SCHEDULE');
+    expect(s.msg).toMatchObject({ action: 'pause', startRoomTime: 11500, trackId: 'a' });
+    expect(s.msg.trackOffset).toBeCloseTo(10.25, 9);
+    const st = one(outs, 'STATE');
+    expect(st.to).toBe('all');
+    expect(st.msg.roomState.captureHostId).toBe('h');
+    expect(st.msg.roomState.playback.status).toBe('paused');
+
+    // sharing again while paused only re-announces the state and never moves the position
+    const again = room.handle('ch', { type: 'CAPTURE', active: true }, 12000);
+    expect(of(again, 'SCHEDULE')).toHaveLength(0);
+    expect(one(again, 'STATE').msg.roomState.captureHostId).toBe('h');
+    expect(room.state.playback.trackOffset).toBeCloseTo(10.25, 9);
+
+    // a file track can't play through the alignment delay while the live stream runs
+    expect(one(room.handle('ch', ctl({ type: 'play' }), 13000), 'ERROR').msg.code).toBe('capture_active');
+    expect(room.state.playback.status).toBe('paused');
+
+    room.handle('ch', { type: 'CAPTURE', active: false }, 14000);
+    const resume = one(room.handle('ch', ctl({ type: 'play' }), 14000), 'SCHEDULE');
+    expect(resume.msg).toMatchObject({ action: 'play', startRoomTime: 14250 });
+    expect(resume.msg.trackOffset).toBeCloseTo(10.25, 9);
+  });
+
+  it('a capturer that disconnects no longer blocks play', () => {
+    const room = setup();
+    room.handle('ch', ctl({ type: 'queue', track: track('a') }), 1000);
+    room.handle('c1', { type: 'CAPTURE', active: true }, 1000);
+    expect(one(room.handle('ch', ctl({ type: 'play' }), 2000), 'ERROR').msg.code).toBe('capture_active');
+    room.leave('c1', 3000);
+    expect(of(room.handle('ch', ctl({ type: 'play' }), 4000), 'SCHEDULE')).toHaveLength(1);
+  });
+
+  it('under host-only control only the host may start a share', () => {
+    const room = setup();
+    room.handle('ch', { type: 'SETTINGS_UPDATE', hostOnlyControl: true }, 1000);
+    expect(one(room.handle('c1', { type: 'CAPTURE', active: true }, 1000), 'ERROR').msg.code).toBe('forbidden');
+    expect(room.state.captureHostId).toBeNull();
+    expect(one(room.handle('ch', { type: 'CAPTURE', active: true }, 1000), 'STATE').msg.roomState.captureHostId).toBe(
+      'h',
+    );
+  });
+});
+
 describe('Room auto-advance', () => {
   const LEAD = MIN_SCHEDULE_LEAD_MS;
   const remote = (id: string): Track => ({ id, title: id, kind: 'spotify', sourceClass: 'remote', remoteId: `spotify:track:${id}` });

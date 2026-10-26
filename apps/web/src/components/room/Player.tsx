@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { MAX_CROSSFADE_SEC, MAX_UPLOAD_BYTES, type Track, type TrackKind } from '@syncsound/protocol';
 import { positionAt } from '@syncsound/audio-core';
 import { roomActions, useRoomStore } from '@/store/roomStore';
@@ -702,20 +702,17 @@ function RemoteSource({ kind }: { kind: 'spotify' | 'apple' }) {
   );
 }
 
-function CaptureSource() {
+/** Start/stop, status, DRM warning, buffer sliders: shared by the Browser-tab and YouTube panels. */
+function CaptureControls() {
   const capture = useRoomStore((s) => s.capture);
   const settings = useRoomStore((s) => s.room?.settings);
   const captureHost = useRoomStore(
     (s) => s.room?.devices.find((d) => d.id === s.room?.captureHostId)?.name ?? null,
   );
+  const raiseTo =
+    settings && capture.shortfallMs !== null ? Math.ceil((settings.videoBufferMs + capture.shortfallMs) / 10) * 10 : null;
   return (
-    <div className="space-y-3 text-sm">
-      <p className="text-ink-300">
-        <strong className="text-ink-100">Mode 1: capture this tab.</strong> Play a video or music in another
-        tab or app, start capture, and choose that tab (tick &ldquo;share audio&rdquo;). Its sound is streamed
-        to every device over WebRTC with a fixed buffer so all speakers play together. Your own speaker plays
-        the same delayed copy.
-      </p>
+    <>
       <div className="flex flex-wrap items-center gap-2">
         {capture.active ? (
           <Button variant="danger" onClick={() => act(() => roomActions.stopCapture())}>
@@ -737,6 +734,14 @@ function CaptureSource() {
           </Badge>
         )}
       </div>
+      {capture.active && capture.hostPlayback && (
+        <p className="text-ink-300" data-testid="host-playback" data-mode={capture.hostPlayback}>
+          {capture.hostPlayback === 'monitor' && 'This speaker plays the same delayed copy, in time with the others.'}
+          {capture.hostPlayback === 'original' &&
+            'This device plays the original; the other speakers follow it by the stream buffer. Share the tab itself for tight sync.'}
+          {capture.hostPlayback === 'none' && 'This device stays silent while sharing; the other speakers play the sound.'}
+        </p>
+      )}
       {capture.silent && (
         <div role="alert" className="rounded-xl border border-warn/60 bg-warn/10 p-3">
           <p className="flex items-center gap-2 font-semibold text-warn">
@@ -751,6 +756,12 @@ function CaptureSource() {
       {capture.error && (
         <p role="alert" className="text-bad">
           {capture.error}
+        </p>
+      )}
+      {capture.receiving && raiseTo !== null && (
+        <p role="status" className="rounded-xl border border-warn/60 bg-warn/10 p-3 text-ink-200">
+          This speaker plays {capture.shortfallMs} ms late: its output latency doesn&rsquo;t fit the stream buffer. Raise{' '}
+          <strong>Stream buffer</strong> to at least {raiseTo} ms.
         </p>
       )}
       {settings && (
@@ -777,97 +788,42 @@ function CaptureSource() {
           />
         </div>
       )}
+    </>
+  );
+}
+
+function CaptureSource() {
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="text-ink-300">
+        <strong className="text-ink-100">Share a browser tab.</strong> Play a video or music in another tab, start
+        capture and pick that tab with &ldquo;share tab audio&rdquo; on. Its sound streams to every speaker over
+        WebRTC with a fixed buffer so they all play together, this one included. Sharing a window or the whole screen
+        works too, but then this device plays the original and the other speakers follow it by the buffer.
+      </p>
+      <CaptureControls />
     </div>
   );
 }
 
-// ----- YouTube (official IFrame Player API; streams are never downloaded) -----
+// ----- YouTube: plays in its own tab (official player) and is shared like any tab; streams are never downloaded -----
 
-interface YTPlayer {
-  destroy(): void;
-}
-declare global {
-  interface Window {
-    YT?: {
-      Player: new (
-        el: HTMLElement,
-        opts: { videoId: string; width?: string; height?: string; playerVars?: Record<string, number> },
-      ) => YTPlayer;
-    };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-let ytReady: Promise<void> | null = null;
-function loadYouTubeApi(): Promise<void> {
-  if (window.YT?.Player) return Promise.resolve();
-  ytReady ??= new Promise<void>((resolve, reject) => {
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      prev?.();
-      resolve();
-    };
-    const s = document.createElement('script');
-    s.src = 'https://www.youtube.com/iframe_api';
-    s.async = true;
-    s.onerror = () => {
-      ytReady = null;
-      reject(new Error('Could not load the YouTube player'));
-    };
-    document.head.appendChild(s);
-  });
-  return ytReady;
-}
 const youtubeId = (s: string) =>
   /(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/.exec(s)?.[1] ??
   (/^[A-Za-z0-9_-]{11}$/.test(s.trim()) ? s.trim() : null);
 
 function YouTubeSource() {
   const [input, setInput] = useState('');
-  const [videoId, setVideoId] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const capturing = useRoomStore((s) => s.capture.active);
-  const hostRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!videoId || !host) return;
-    let player: YTPlayer | null = null;
-    let live = true;
-    loadYouTubeApi()
-      .then(() => {
-        if (!live || !window.YT) return;
-        const el = document.createElement('div'); // YT replaces this node; keep React's node untouched
-        host.appendChild(el);
-        player = new window.YT.Player(el, {
-          videoId,
-          width: '100%',
-          height: '100%',
-          playerVars: { playsinline: 1, rel: 0 },
-        });
-      })
-      .catch((e: unknown) => setErr(errMsg(e)));
-    return () => {
-      live = false;
-      player?.destroy();
-      host.replaceChildren();
-    };
-  }, [videoId]);
-
+  const id = youtubeId(input);
+  const href = id ? `https://www.youtube.com/watch?v=${id}` : null;
   return (
     <div className="space-y-3 text-sm">
-      <form
-        className="flex gap-2"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          const id = youtubeId(input);
-          setErr(id ? null : 'Paste a YouTube video link.');
-          if (!id) return;
-          setVideoId(id);
-          // one step: ask to share this tab's sound right away, inside the same click (the browser requires a gesture)
-          if (!capturing) act(() => roomActions.startCapture());
-        }}
-      >
+      <p className="text-ink-300">
+        <strong className="text-ink-100">Two steps.</strong> Open the video in its own tab and start it there, then
+        come back and share that tab (keep &ldquo;share tab audio&rdquo; on). The sound plays on every speaker, this
+        one included; the picture stays in the YouTube tab.
+      </p>
+      <div className="flex gap-2">
         <label htmlFor="yt-url" className="sr-only">
           YouTube link
         </label>
@@ -879,35 +835,25 @@ function YouTubeSource() {
           onChange={(e) => setInput(e.target.value)}
           className={inputClass}
         />
-        <Button type="submit" data-testid="youtube-play" className="shrink-0 whitespace-nowrap">
-          Play on all speakers
-        </Button>
-      </form>
-      {err && (
+        <a
+          data-testid="youtube-open"
+          href={href ?? undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-disabled={href === null}
+          className={`inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-ink-600 px-4 text-sm whitespace-nowrap text-ink-100 transition hover:border-ink-400 hover:bg-ink-800 ${href === null ? 'pointer-events-none opacity-45' : ''}`}
+        >
+          Open on YouTube <Icon name="link" className="size-4" />
+        </a>
+      </div>
+      {input.trim() !== '' && !id && (
         <p role="alert" className="text-bad">
-          {err}
+          Paste a YouTube video link.
         </p>
       )}
-      <div
-        ref={hostRef}
-        className={`aspect-video w-full overflow-hidden rounded-xl bg-black ${videoId ? '' : 'hidden'}`}
-      />
-      {!videoId && (
-        <p className="text-ink-300">
-          Your browser will ask which tab to share: pick <em>this</em> tab and keep &ldquo;share tab audio&rdquo; on. The picture plays
-          here; the sound goes to every speaker.
-        </p>
-      )}
-      {videoId && !capturing && (
-        <div className="rounded-xl border border-accent/40 bg-accent/5 p-3">
-          <p className="text-ink-200">The sound isn&rsquo;t shared yet, so only this device plays it.</p>
-          <Button variant="primary" className="mt-2" onClick={() => act(() => roomActions.startCapture())}>
-            <Icon name="capture" className="size-4" /> Share this tab&rsquo;s sound
-          </Button>
-        </div>
-      )}
+      <CaptureControls />
       <p className="text-xs text-ink-400">
-        YouTube is shown with its official embedded player. Streams are never downloaded or re-hosted.
+        YouTube plays in its own official player. Streams are never downloaded or re-hosted.
       </p>
     </div>
   );
