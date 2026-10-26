@@ -32,8 +32,8 @@ export const NO_SERVER_MESSAGE =
   "This SyncSound site isn't connected to its room server yet, so rooms can't open. " +
   'Site owner: deploy the server and set NEXT_PUBLIC_SERVER_URL (see docs/DEPLOY.md).';
 
-/** a free host (e.g. Render) sleeps when idle and takes up to a minute to wake */
-export const SERVER_WAKING_HINT = 'If the server was asleep, waking it can take up to a minute.';
+/** Cloud Run scales an idle server to zero: the first connection after that waits for it to start */
+export const SERVER_WAKING_HINT = 'If the server was idle, starting it can take a few seconds.';
 
 export function serverUrl(): string {
   return deriveServerUrl(

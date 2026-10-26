@@ -21,7 +21,7 @@ describe('a public site with no server configured', () => {
     expect(serverMissing(undefined, { hostname: 'syncsound.example.com' })).toBe(true);
   });
   it('is fine once the env URL is set, and on this machine or the local network', () => {
-    expect(serverMissing('https://syncsound-server.onrender.com', { hostname: 'sync-sound.vercel.app' })).toBe(false);
+    expect(serverMissing('https://syncsound-server-645599971176.us-central1.run.app', { hostname: 'sync-sound.vercel.app' })).toBe(false);
     for (const hostname of ['localhost', '127.0.0.1', '[::1]', '192.168.1.20', '10.23.209.122', '172.20.0.5', 'my-laptop', 'my-laptop.local', 'app.localhost'])
       expect(serverMissing(undefined, { hostname }), hostname).toBe(false);
     expect(serverMissing(undefined, null)).toBe(false); // server-side render: nothing to say yet
