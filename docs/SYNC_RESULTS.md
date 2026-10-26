@@ -70,23 +70,25 @@ true output latency) and cross-correlated pairwise.
 
 ## 4. Acoustic calibration (`calibration.test.ts`, listener-only)
 
-Four synthetic speakers (known biquad responses plus latencies). One mono listener recording: each speaker's 0.7 s
-sweep arriving at scheduled time + latency + propagation + a hidden 12 ms mic input latency, plus −50 dBFS noise. It
+Four synthetic speakers (known biquad responses plus latencies). One mono listener recording: each speaker's 1.1 s
+swoosh → chime arriving at scheduled time + latency + propagation + a hidden 12 ms mic input latency, plus −50 dBFS noise. It
 goes through the real `buildTuneSlots` → `analyzeRecording` → `solveTune` pipeline (calibration v3).
 
 | Device | True relative latency | Measured | Error | Response error (passband) |
 |---|---|---|---|---|
-| Phone (300 Hz HP + 4 kHz peak) | 10 ms | 10.02 ms | 0.02 ms | 0.19 dB |
-| Laptop (−8 dB low shelf) | 25 ms | 25.01 ms | 0.01 ms | 0.30 dB |
-| **Bluetooth speaker** | **195 ms** | **195.01 ms** | **0.01 ms** | 0.53 dB |
-| Desktop (flat) | 0 ms | 0 ms | 0 ms | 0.27 dB |
+| Phone (300 Hz HP + 4 kHz peak) | 10 ms | 10.02 ms | 0.02 ms | 0.36 dB |
+| Laptop (−8 dB low shelf) | 25 ms | 25.01 ms | 0.01 ms | 0.25 dB |
+| **Bluetooth speaker** | **195 ms** | **195.01 ms** | **0.01 ms** | 0.54 dB |
+| Desktop (flat) | 0 ms | 0 ms | 0 ms | 0.30 dB |
 
 (v2's narrow-band chirps measured the phone 0.25 ms off in the same room.)
 
 - **EQ convergence:** after EQ toward the common target, the mean pairwise RMS difference between device responses
-  falls from 1.84 to 0.36 dB (**−80 %**) over 280 Hz–8 kHz. Over 200 Hz–8 kHz it falls from 2.22 to 1.40 dB
-  (−37 %); the gap is explained in LIMITATIONS.
-- **Safety:** the largest band boost was 3.6 dB (rail: 6 dB), there was no boost below rolloff (checked 20 Hz up),
+  falls from 1.86 to 0.32 dB (**−83 %**) over 275 Hz–8 kHz. Over 200 Hz–8 kHz it falls from 2.22 to 1.32 dB
+  (−41 %); the gap is explained in LIMITATIONS.
+- **Loudness:** trims meet at the median (−4.0 … +2.1 dB here); the TRUE K-weighted loudness of every device at the
+  listener after EQ + trim then spreads by **0.03 dB**.
+- **Safety:** the largest band boost was 3.7 dB (rail: 6 dB), there was no boost below rolloff (checked 20 Hz up),
   and overall gain stayed ≤ 0 dB.
 - **Error cases:** a noisy room (broadband SNR 5–7 dB) raises a warning (timing still within 0.02 ms), and an
   unplugged device is reported as not heard.
@@ -100,9 +102,11 @@ drawn afresh at tune time and again at play time (σ matched to §2b). 6 seeds; 
 
 | | p50 | p95 | max |
 |---|---|---|---|
-| **Arrival spread at the head, any two devices** | 0.19 ms | **0.53 ms** | 0.62 ms |
-| Control: same tune aligned at the mic (no head model) | — | 1.62 ms | 1.88 ms |
-| Laptop-to-laptop distance error | — | 13.7 cm | 14.3 cm (the stereo half-width) |
+| **Arrival spread at the head, any two devices** | 0.19 ms | **0.59 ms** | 0.62 ms |
+| Control: same tune aligned at the mic (no head model) | — | 1.55 ms | 1.80 ms |
+| Laptop-to-laptop distance error | — | 13.7 cm | 14.4 cm (the stereo half-width) |
+| Level at the head vs a mic at the true head (mean removed) | — | 0.49 dB | 0.50 dB |
+| Other devices' trims when the listener's own speaker reads 8 dB quiet | — | — | 0.00 dB |
 
 The Bluetooth speaker is timed exactly at the listener and keeps its hand placement. Trying a longer LAN clock
 window (256) and a smaller best-fraction (15 %) lowered §2b's device-to-device p95 only from 0.41 to 0.37 ms, so the

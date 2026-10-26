@@ -60,6 +60,10 @@ describe('protocol validation (trust boundary)', () => {
       parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, repeat: 60, periodMs: 1000 }], purpose: 'measure' }).success,
     ).toBe(true);
     expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, repeat: 601 }] }).success).toBe(false);
+    // the tune's swoosh → chime, and the plain sweep of older tunes
+    for (const signal of ['tune', 'sweep'])
+      expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, signal, durationMs: 1100 }], recorders: 'all' }).success).toBe(true);
+    expect(parseClientMessage({ type: 'CALIBRATION_START', slots: [{ ...slot, signal: 'chime' }] }).success).toBe(false);
   });
 
   it('server messages require a seq and a known type', () => {

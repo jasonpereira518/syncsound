@@ -7,6 +7,7 @@ import {
   estimateRolloffHz,
   firstArrival,
   logFreqs,
+  loudnessDb,
   magnitudeResponse,
   rmsDb,
   smoothFractionalOctave,
@@ -106,5 +107,26 @@ describe('sweep deconvolution', () => {
   it('rmsDb of a full-scale sine is −3 dB', () => {
     const s = Float32Array.from({ length: 48000 }, (_, i) => Math.sin((2 * Math.PI * 1000 * i) / SR));
     expect(rmsDb(s)).toBeCloseTo(-3.01, 2);
+  });
+});
+
+describe('loudnessDb', () => {
+  const fs = logFreqs(20, 16000, 24);
+  const flat = (db: number) => ({ freqs: fs, db: fs.map(() => db) });
+
+  it('moves dB for dB with a uniform level change', () => {
+    expect(loudnessDb(flat(6)) - loudnessDb(flat(0))).toBeCloseTo(6, 9);
+    expect(loudnessDb(flat(-20)) - loudnessDb(flat(0))).toBeCloseTo(-20, 9);
+  });
+
+  it('ignores the bass below its band, weighs treble above midrange, and a dip less than an equal peak', () => {
+    const lift = (lo: number, hi: number, db: number) => ({ freqs: fs, db: fs.map((f) => (f >= lo && f < hi ? db : 0)) });
+    expect(loudnessDb(lift(20, 150, -20))).toBeCloseTo(loudnessDb(flat(0)), 9);
+    // same octave count, +6 dB: 4–8 kHz (K-shelf +4 dB) counts more than 250–500 Hz
+    expect(loudnessDb(lift(4000, 8000, 6))).toBeGreaterThan(loudnessDb(lift(250, 500, 6)));
+    // power mean: a −10 dB octave costs less than a +10 dB octave adds
+    const dip = loudnessDb(flat(0)) - loudnessDb(lift(1000, 2000, -10));
+    const peak = loudnessDb(lift(1000, 2000, 10)) - loudnessDb(flat(0));
+    expect(dip).toBeLessThan(peak);
   });
 });

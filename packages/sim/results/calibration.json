@@ -7,28 +7,28 @@
       "truthMs": 10,
       "measuredMs": 10.02,
       "errorMs": 0.02,
-      "snrDb": 67.03
+      "snrDb": 62.15
     },
     {
       "id": "laptop",
       "truthMs": 25,
       "measuredMs": 25.01,
       "errorMs": 0.01,
-      "snrDb": 64.5
+      "snrDb": 59.79
     },
     {
       "id": "bt",
       "truthMs": 195,
       "measuredMs": 195.01,
       "errorMs": 0.01,
-      "snrDb": 60.86
+      "snrDb": 56.39
     },
     {
       "id": "desktop",
       "truthMs": 0,
       "measuredMs": 0,
       "errorMs": 0,
-      "snrDb": 65.79
+      "snrDb": 60.91
     }
   ],
   "response": [
@@ -38,9 +38,9 @@
         233.02,
         12000
       ],
-      "maxErrDb": 0.19,
+      "maxErrDb": 0.36,
       "rolloffTrueHz": 233.02,
-      "rolloffMeasuredHz": 232.93,
+      "rolloffMeasuredHz": 229.44,
       "bassCapable": false
     },
     {
@@ -49,9 +49,9 @@
         146.19,
         12000
       ],
-      "maxErrDb": 0.3,
+      "maxErrDb": 0.25,
       "rolloffTrueHz": 146.19,
-      "rolloffMeasuredHz": 146.29,
+      "rolloffMeasuredHz": 142.02,
       "bassCapable": false
     },
     {
@@ -60,9 +60,9 @@
         50,
         12000
       ],
-      "maxErrDb": 0.53,
+      "maxErrDb": 0.54,
       "rolloffTrueHz": 20,
-      "rolloffMeasuredHz": 22.56,
+      "rolloffMeasuredHz": 20,
       "bassCapable": true
     },
     {
@@ -71,9 +71,9 @@
         50,
         12000
       ],
-      "maxErrDb": 0.27,
+      "maxErrDb": 0.3,
       "rolloffTrueHz": 26.59,
-      "rolloffMeasuredHz": 28.02,
+      "rolloffMeasuredHz": 26.47,
       "bassCapable": true
     }
   ],
@@ -81,12 +81,12 @@
     "note": "mean pairwise RMS difference of the TRUE responses before vs after applying each fitted EQ; level removed",
     "commonEqBand": {
       "band": [
-        279.51,
+        275.33,
         8000
       ],
-      "beforeDb": 1.84,
-      "afterDb": 0.36,
-      "reductionPct": 80.2
+      "beforeDb": 1.86,
+      "afterDb": 0.32,
+      "reductionPct": 82.96
     },
     "band200to8k": {
       "band": [
@@ -94,8 +94,8 @@
         8000
       ],
       "beforeDb": 2.22,
-      "afterDb": 1.4,
-      "reductionPct": 36.9
+      "afterDb": 1.32,
+      "reductionPct": 40.74
     }
   },
   "eq": {
@@ -104,120 +104,126 @@
       "bands": [
         {
           "type": "peaking",
-          "freq": 285,
+          "freq": 277,
           "q": 3.84,
-          "gainDb": 3.3
+          "gainDb": 3
         },
         {
           "type": "peaking",
           "freq": 4183,
-          "q": 1.41,
-          "gainDb": -5.8
+          "q": 1.36,
+          "gainDb": -5.7
         },
         {
           "type": "peaking",
-          "freq": 370,
-          "q": 0.76,
-          "gainDb": 2.7
-        },
-        {
-          "type": "peaking",
-          "freq": 1613,
-          "q": 0.98,
-          "gainDb": 1.2
+          "freq": 349,
+          "q": 0.87,
+          "gainDb": 2.8
         },
         {
           "type": "peaking",
           "freq": 13669,
-          "q": 2.46,
-          "gainDb": -1.3
+          "q": 3.13,
+          "gainDb": -1.6
+        },
+        {
+          "type": "peaking",
+          "freq": 1356,
+          "q": 0.84,
+          "gainDb": 1.3
+        },
+        {
+          "type": "peaking",
+          "freq": 10240,
+          "q": 6,
+          "gainDb": -0.9
         }
       ],
-      "highpassHz": 233,
-      "preampDb": -4.2,
+      "highpassHz": 229,
+      "preampDb": -4,
       "source": "measured",
-      "rmsErrorBeforeDb": 2.63,
-      "rmsErrorAfterDb": 0.47
+      "rmsErrorBeforeDb": 2.68,
+      "rmsErrorAfterDb": 0.52
     },
     "laptop": {
       "enabled": true,
       "bands": [
         {
           "type": "peaking",
-          "freq": 180,
+          "freq": 174,
           "q": 3.13,
-          "gainDb": 3.6
+          "gainDb": 3.1
         },
         {
           "type": "peaking",
-          "freq": 233,
-          "q": 1.9,
-          "gainDb": 3.5
+          "freq": 220,
+          "q": 1.8,
+          "gainDb": 3.7
         },
         {
           "type": "peaking",
-          "freq": 12177,
+          "freq": 13669,
           "q": 0.95,
-          "gainDb": -2.9
+          "gainDb": -3.2
         },
         {
           "type": "peaking",
-          "freq": 5583,
-          "q": 1.36,
-          "gainDb": -1.4
+          "freq": 5915,
+          "q": 0.98,
+          "gainDb": -1.6
         }
       ],
-      "highpassHz": 146,
+      "highpassHz": 142,
       "preampDb": -4.1,
       "source": "measured",
-      "rmsErrorBeforeDb": 2.08,
-      "rmsErrorAfterDb": 0.54
+      "rmsErrorBeforeDb": 2.16,
+      "rmsErrorAfterDb": 0.61
     },
     "bt": {
       "enabled": true,
       "bands": [
         {
           "type": "peaking",
-          "freq": 10849,
-          "q": 1.3,
-          "gainDb": 2
+          "freq": 9390,
+          "q": 1.71,
+          "gainDb": 2.2
         },
         {
           "type": "peaking",
-          "freq": 6834,
-          "q": 1.3,
-          "gainDb": 0.4
-        },
-        {
-          "type": "peaking",
-          "freq": 147,
+          "freq": 107,
           "q": 0.84,
-          "gainDb": 0.5
+          "gainDb": 2.2
         },
         {
           "type": "peaking",
-          "freq": 113,
-          "q": 0.84,
-          "gainDb": -1
-        },
-        {
-          "type": "peaking",
-          "freq": 905,
+          "freq": 415,
           "q": 0.5,
-          "gainDb": -1.8
+          "gainDb": -1.1
         },
         {
           "type": "peaking",
-          "freq": 185,
-          "q": 0.7,
-          "gainDb": 0.3
+          "freq": 13669,
+          "q": 6,
+          "gainDb": 1.3
+        },
+        {
+          "type": "peaking",
+          "freq": 1759,
+          "q": 0.67,
+          "gainDb": -1.1
+        },
+        {
+          "type": "peaking",
+          "freq": 5915,
+          "q": 5.76,
+          "gainDb": 0.8
         }
       ],
       "highpassHz": null,
-      "preampDb": -2.1,
+      "preampDb": -2.2,
       "source": "measured",
-      "rmsErrorBeforeDb": 1.29,
-      "rmsErrorAfterDb": 0.84
+      "rmsErrorBeforeDb": 1.25,
+      "rmsErrorAfterDb": 0.25
     },
     "desktop": {
       "enabled": true,
@@ -225,50 +231,50 @@
         {
           "type": "peaking",
           "freq": 12177,
-          "q": 1.04,
-          "gainDb": -2.5
+          "q": 0.95,
+          "gainDb": -2.8
         },
         {
           "type": "peaking",
-          "freq": 6451,
-          "q": 0.89,
-          "gainDb": -1.7
+          "freq": 6089,
+          "q": 1.16,
+          "gainDb": -1.6
         }
       ],
       "highpassHz": null,
       "preampDb": 0,
       "source": "measured",
-      "rmsErrorBeforeDb": 1.76,
+      "rmsErrorBeforeDb": 1.74,
       "rmsErrorAfterDb": 1.19
     }
   },
   "trims": {
-    "phone": -3.4287973543721026,
-    "laptop": -0.8377478092460144,
-    "bt": 0,
-    "desktop": -6.12591622859037
+    "phone": -1.3669733478235386,
+    "laptop": 1.3669733478235386,
+    "bt": 2.134475887955732,
+    "desktop": -3.947037437709591
   },
   "safety": [
     {
       "id": "phone",
-      "maxBandBoostDb": 3.3,
-      "maxEqBelowRolloffDb": -0.29,
-      "maxOverallGainDb": -0.08,
-      "preampDb": -4.2
+      "maxBandBoostDb": 3,
+      "maxEqBelowRolloffDb": -0.21,
+      "maxOverallGainDb": -0.1,
+      "preampDb": -4
     },
     {
       "id": "laptop",
-      "maxBandBoostDb": 3.6,
-      "maxEqBelowRolloffDb": -0.92,
-      "maxOverallGainDb": -0.01,
+      "maxBandBoostDb": 3.7,
+      "maxEqBelowRolloffDb": -0.87,
+      "maxOverallGainDb": -0.03,
       "preampDb": -4.1
     },
     {
       "id": "bt",
-      "maxBandBoostDb": 2,
-      "maxEqBelowRolloffDb": -0.03,
-      "maxOverallGainDb": -0.02,
-      "preampDb": -2.1
+      "maxBandBoostDb": 2.2,
+      "maxEqBelowRolloffDb": -99,
+      "maxOverallGainDb": -0.03,
+      "preampDb": -2.2
     },
     {
       "id": "desktop",
@@ -278,6 +284,35 @@
       "preampDb": 0
     }
   ],
+  "loudness": {
+    "rows": [
+      {
+        "id": "phone",
+        "trimDb": -1.37,
+        "levelDb": -12.35,
+        "capped": false
+      },
+      {
+        "id": "laptop",
+        "trimDb": 1.37,
+        "levelDb": -12.33,
+        "capped": false
+      },
+      {
+        "id": "bt",
+        "trimDb": 2.13,
+        "levelDb": -12.33,
+        "capped": false
+      },
+      {
+        "id": "desktop",
+        "trimDb": -3.95,
+        "levelDb": -12.32,
+        "capped": false
+      }
+    ],
+    "spreadDb": 0.03
+  },
   "noisyRoom": {
     "warnings": [
       "The room is noisy (signal-to-noise: phone 7 dB, laptop 5 dB, bt 5 dB, desktop 7 dB) — results may be less accurate; try a quieter moment."

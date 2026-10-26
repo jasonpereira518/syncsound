@@ -22,6 +22,7 @@
 - [x] R6 – Advanced view (previous full shell behind "Advanced", debug only there)
 - [ ] R7 – Native shells (later)
 - [x] Calibration v3 – one-tap "Tune room": every laptop records, BeepBeep ranging → measured layout, listener-row timing aligned at the head, one wideband sweep per device, staggered wideband sync check (sim: head p95 0.53 ms)
-- [ ] Calibration v3 on real hardware (HUMAN_TEST_CHECKLIST item 18)
+- [ ] Calibration v3 on real hardware (HUMAN_TEST_CHECKLIST items 18–19)
+- [x] Tune sound + leveling: one swoosh → chime per device (no auto click run), median loudness with ≤ +6 dB boost ahead of the limiter, K-weighted level, listener excluded from the median (DECISIONS 55–58)
 - [ ] Phase 2 – phones as the listener (held at the head), iOS audio-session/background constraints
 - [x] Gap pass: group-play button, one-step YouTube, rejoin prompt, volume-to-max prompt, re-sync on clock steps, Bluetooth wobble during tuning, room name in title, balance / "Only I can control" renames, tests (home flow with tuning + volume, group play + rejoin, Bluetooth wobble sim)

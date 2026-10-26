@@ -3,16 +3,23 @@
   "seeds": 6,
   "distanceErrorM": {
     "p95": 0.137,
-    "max": 0.143
+    "max": 0.144
   },
   "headAlignmentMs": {
-    "p50": 0.19,
-    "p95": 0.528,
-    "max": 0.619,
+    "p50": 0.187,
+    "p95": 0.594,
+    "max": 0.62,
     "pairs": 60
   },
   "controlAtMicMs": {
-    "p95": 1.623,
-    "max": 1.879
+    "p95": 1.545,
+    "max": 1.801
+  },
+  "headLevelErrorDb": {
+    "p95": 0.493,
+    "max": 0.496
+  },
+  "listenerSelfMisreadTrimShiftDb": {
+    "max": 0
   }
 }

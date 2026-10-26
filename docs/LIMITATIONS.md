@@ -95,9 +95,17 @@ An honest list of what is not done, what can't be verified without hardware, and
   see curves again.
 - **Calibration auto-pauses only when the calibrating device may control playback** (host, or open control). A
   guest under host-only control is still told to ask the host to pause.
-- **Loudness matching cuts to the quietest speaker.** It never boosts (the limiter would clip), so one quiet
-  device lowers everyone. Calibration flags it (`volumeUpDb`) and asks for that device's own volume to go up
-  before re-tuning. A browser can't do that itself; the native shells (R7) will.
+- **Loudness matching boosts a soft speaker by at most +6 dB.** Everyone meets at the median; a boosted device's
+  loud peaks are compressed by its output limiter (up to ~6 dB on a full-scale master) rather than clipped. A device
+  more than 6 dB short is flagged (`volumeUpDb`) and asked to turn its own volume up before re-tuning; a browser
+  can't do that itself, the native shells (R7) will.
+- **The tuning laptop's own loudness is a prior.** Its speaker→mic path is assumed to be 0.1 m (`SELF_OFFSET_M`);
+  a down-firing speaker with a bezel mic can read several dB off. Since #58 that only affects the tuning laptop's
+  own trim (the others level to their own median). Estimating the path from pair levels was not adopted: a far mic
+  hears a stereo laptop's two speakers separately (≈ ±3 dB bias), which would add error where the prior is right.
+  Phase 2 (a phone held at the head as the listener) removes the near-field step.
+- **Tabs on older code can't take part in a chime tune.** They reject the `'tune'` plan and are reported "not
+  heard"; reload them.
 - **Room creation and uploads** are rate-limited per remote address in-process. Behind a proxy, use a trusted
   `X-Forwarded-For`.
 - **This checkout's path contains `**`**, which breaks TypeScript's package-exports wildcard resolution (worked

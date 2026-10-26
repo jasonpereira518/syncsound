@@ -316,7 +316,7 @@ function Banners() {
             <span className="relative size-3 rounded-full bg-accent" />
           </span>
           {nowPlayingSelf
-            ? 'Tuning: this speaker is playing its sweep'
+            ? 'Tuning: this speaker is playing its chime'
             : nowPlayingName
               ? `Tuning: ${nowPlayingName} is playing`
               : 'Tuning the room — keep it quiet for a moment'}
