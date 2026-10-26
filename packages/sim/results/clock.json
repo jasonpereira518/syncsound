@@ -5,20 +5,20 @@
     "clients": 8,
     "durationMs": 120000,
     "errorAfterConvergedMs": {
-      "n": 9572,
+      "n": 9576,
       "mean": 0,
-      "rms": 0.006,
+      "rms": 0.018,
       "p50": 0,
       "p95": 0,
-      "max": 0.151
+      "max": 0.248
     },
     "errorAfter2sMs": {
       "n": 9448,
       "mean": 0,
-      "rms": 0.004,
+      "rms": 0.018,
       "p50": 0,
       "p95": 0,
-      "max": 0.151
+      "max": 0.248
     },
     "driftErrorPpm": {
       "n": 8,
@@ -29,8 +29,8 @@
       "max": 0.01
     },
     "stepsAfterConverged": 0,
-    "maxSlewObservedMsPerSec": 1.000048851504087,
-    "packetsSent": 1144,
+    "maxSlewObservedMsPerSec": 1.000071485514373,
+    "packetsSent": 1152,
     "packetsLost": 0,
     "perClient": [
       {
@@ -38,12 +38,12 @@
         "trueDriftPpm": -99.45,
         "estDriftPpm": -99.44,
         "errorMs": {
-          "n": 1196,
-          "mean": 0.001,
-          "rms": 0.011,
+          "n": 1197,
+          "mean": 0.005,
+          "rms": 0.031,
           "p50": 0,
           "p95": 0,
-          "max": 0.151
+          "max": 0.248
         }
       },
       {
@@ -51,12 +51,12 @@
         "trueDriftPpm": 93.68,
         "estDriftPpm": 93.68,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.001,
-          "rms": 0.008,
+          "n": 1197,
+          "mean": -0.004,
+          "rms": 0.028,
           "p50": 0,
           "p95": 0,
-          "max": 0.118
+          "max": 0.225
         }
       },
       {
@@ -64,12 +64,12 @@
         "trueDriftPpm": 44.15,
         "estDriftPpm": 44.15,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.001,
-          "rms": 0.006,
+          "n": 1197,
+          "mean": -0.002,
+          "rms": 0.012,
           "p50": 0,
           "p95": 0,
-          "max": 0.076
+          "max": 0.099
         }
       },
       {
@@ -77,12 +77,12 @@
         "trueDriftPpm": -8.95,
         "estDriftPpm": -8.95,
         "errorMs": {
-          "n": 1196,
+          "n": 1197,
           "mean": 0,
-          "rms": 0.001,
+          "rms": 0.002,
           "p50": 0,
           "p95": 0,
-          "max": 0.01
+          "max": 0.019
         }
       },
       {
@@ -91,11 +91,11 @@
         "estDriftPpm": -19.25,
         "errorMs": {
           "n": 1197,
-          "mean": 0,
-          "rms": 0.001,
+          "mean": 0.001,
+          "rms": 0.005,
           "p50": 0,
           "p95": 0,
-          "max": 0.022
+          "max": 0.042
         }
       },
       {
@@ -105,10 +105,10 @@
         "errorMs": {
           "n": 1197,
           "mean": 0,
-          "rms": 0,
+          "rms": 0.001,
           "p50": 0,
           "p95": 0,
-          "max": 0.003
+          "max": 0.005
         }
       },
       {
@@ -117,11 +117,11 @@
         "estDriftPpm": 53.42,
         "errorMs": {
           "n": 1197,
-          "mean": -0.001,
-          "rms": 0.005,
+          "mean": -0.002,
+          "rms": 0.014,
           "p50": 0,
           "p95": 0,
-          "max": 0.073
+          "max": 0.117
         }
       },
       {
@@ -130,11 +130,11 @@
         "estDriftPpm": -91.45,
         "errorMs": {
           "n": 1197,
-          "mean": 0.001,
-          "rms": 0.006,
+          "mean": 0.003,
+          "rms": 0.023,
           "p50": 0,
           "p95": 0,
-          "max": 0.104
+          "max": 0.188
         }
       }
     ]
@@ -144,32 +144,32 @@
     "clients": 8,
     "durationMs": 120000,
     "errorAfterConvergedMs": {
-      "n": 9568,
-      "mean": -0.48,
-      "rms": 1.263,
-      "p50": 0.863,
-      "p95": 2.572,
+      "n": 9575,
+      "mean": -0.485,
+      "rms": 1.276,
+      "p50": 0.868,
+      "p95": 2.596,
       "max": 5.903
     },
     "errorAfter2sMs": {
       "n": 9448,
-      "mean": -0.48,
-      "rms": 1.241,
-      "p50": 0.86,
-      "p95": 2.531,
-      "max": 4.625
+      "mean": -0.484,
+      "rms": 1.255,
+      "p50": 0.865,
+      "p95": 2.554,
+      "max": 4.484
     },
     "driftErrorPpm": {
       "n": 8,
-      "mean": 0.073,
-      "rms": 20.902,
-      "p50": 8.574,
-      "p95": 44.549,
-      "max": 44.549
+      "mean": 0.077,
+      "rms": 20.919,
+      "p50": 8.585,
+      "p95": 44.581,
+      "max": 44.581
     },
     "stepsAfterConverged": 0,
-    "maxSlewObservedMsPerSec": 1.0022674917805239,
-    "packetsSent": 1144,
+    "maxSlewObservedMsPerSec": 1.0023400257835495,
+    "packetsSent": 1152,
     "packetsLost": 21,
     "perClient": [
       {
@@ -177,103 +177,103 @@
         "trueDriftPpm": -42.94,
         "estDriftPpm": -38.94,
         "errorMs": {
-          "n": 1196,
-          "mean": -1.141,
-          "rms": 1.312,
-          "p50": 1.125,
-          "p95": 2.156,
-          "max": 2.479
+          "n": 1197,
+          "mean": -1.155,
+          "rms": 1.328,
+          "p50": 1.129,
+          "p95": 2.174,
+          "max": 2.497
         }
       },
       {
         "baseRttMs": 72.5,
         "trueDriftPpm": -0.16,
-        "estDriftPpm": 13.32,
+        "estDriftPpm": 13.34,
         "errorMs": {
-          "n": 1196,
-          "mean": 0.242,
-          "rms": 1.161,
-          "p50": 0.756,
-          "p95": 2.717,
-          "max": 3.266
+          "n": 1197,
+          "mean": 0.229,
+          "rms": 1.184,
+          "p50": 0.76,
+          "p95": 2.744,
+          "max": 3.462
         }
       },
       {
         "baseRttMs": 66.9,
         "trueDriftPpm": 57.17,
-        "estDriftPpm": 60.18,
+        "estDriftPpm": 60.19,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.675,
-          "rms": 1.001,
-          "p50": 0.835,
-          "p95": 1.992,
-          "max": 2.961
+          "n": 1197,
+          "mean": -0.697,
+          "rms": 1.035,
+          "p50": 0.864,
+          "p95": 2.12,
+          "max": 2.97
         }
       },
       {
         "baseRttMs": 45.5,
         "trueDriftPpm": 16.26,
-        "estDriftPpm": -28.28,
+        "estDriftPpm": -28.32,
         "errorMs": {
           "n": 1196,
-          "mean": -0.087,
-          "rms": 1.924,
-          "p50": 1.803,
-          "p95": 2.988,
-          "max": 3.095
+          "mean": -0.07,
+          "rms": 1.942,
+          "p50": 1.857,
+          "p95": 2.99,
+          "max": 3.089
         }
       },
       {
         "baseRttMs": 60.3,
         "trueDriftPpm": 94.32,
-        "estDriftPpm": 85.75,
+        "estDriftPpm": 85.74,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.903,
-          "rms": 1.125,
-          "p50": 1.157,
-          "p95": 1.792,
-          "max": 2.139
+          "n": 1197,
+          "mean": -0.898,
+          "rms": 1.128,
+          "p50": 1.166,
+          "p95": 1.802,
+          "max": 2.17
         }
       },
       {
         "baseRttMs": 74.9,
         "trueDriftPpm": -74.4,
-        "estDriftPpm": -74.75,
+        "estDriftPpm": -74.76,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.343,
+          "n": 1197,
+          "mean": -0.341,
           "rms": 0.427,
-          "p50": 0.273,
-          "p95": 0.735,
-          "max": 2.164
+          "p50": 0.274,
+          "p95": 0.739,
+          "max": 2.168
         }
       },
       {
         "baseRttMs": 20.4,
         "trueDriftPpm": -9.59,
-        "estDriftPpm": 25.46,
+        "estDriftPpm": 25.49,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.286,
-          "rms": 1.624,
-          "p50": 0.957,
-          "p95": 2.936,
+          "n": 1197,
+          "mean": -0.278,
+          "rms": 1.619,
+          "p50": 0.979,
+          "p95": 2.904,
           "max": 5.903
         }
       },
       {
         "baseRttMs": 79.3,
         "trueDriftPpm": -6.41,
-        "estDriftPpm": -7.87,
+        "estDriftPpm": -7.86,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.651,
-          "rms": 0.946,
-          "p50": 0.905,
-          "p95": 1.686,
-          "max": 1.915
+          "n": 1197,
+          "mean": -0.666,
+          "rms": 0.972,
+          "p50": 0.932,
+          "p95": 1.762,
+          "max": 2.008
         }
       }
     ]
@@ -284,32 +284,32 @@
     "clients": 8,
     "durationMs": 120000,
     "errorAfterConvergedMs": {
-      "n": 9569,
-      "mean": 15,
-      "rms": 15,
+      "n": 9576,
+      "mean": 15.001,
+      "rms": 15.001,
       "p50": 15,
       "p95": 15,
-      "max": 15.103
+      "max": 15.192
     },
     "errorAfter2sMs": {
       "n": 9448,
-      "mean": 15,
-      "rms": 15,
+      "mean": 15.001,
+      "rms": 15.001,
       "p50": 15,
       "p95": 15,
-      "max": 15.103
+      "max": 15.192
     },
     "driftErrorPpm": {
       "n": 8,
       "mean": 0.003,
       "rms": 0.004,
       "p50": 0.003,
-      "p95": 0.009,
-      "max": 0.009
+      "p95": 0.008,
+      "max": 0.008
     },
     "stepsAfterConverged": 0,
-    "maxSlewObservedMsPerSec": 0.7866371730616675,
-    "packetsSent": 1144,
+    "maxSlewObservedMsPerSec": 1.001466250875022,
+    "packetsSent": 1152,
     "packetsLost": 0,
     "perClient": [
       {
@@ -317,12 +317,12 @@
         "trueDriftPpm": -92.27,
         "estDriftPpm": -92.26,
         "errorMs": {
-          "n": 1196,
-          "mean": 15.001,
-          "rms": 15.001,
+          "n": 1197,
+          "mean": 15.004,
+          "rms": 15.004,
           "p50": 15,
           "p95": 15,
-          "max": 15.103
+          "max": 15.192
         }
       },
       {
@@ -331,8 +331,8 @@
         "estDriftPpm": 52.6,
         "errorMs": {
           "n": 1197,
-          "mean": 14.999,
-          "rms": 14.999,
+          "mean": 14.998,
+          "rms": 14.998,
           "p50": 15,
           "p95": 15,
           "max": 15
@@ -343,12 +343,12 @@
         "trueDriftPpm": -67.64,
         "estDriftPpm": -67.64,
         "errorMs": {
-          "n": 1196,
-          "mean": 15.001,
-          "rms": 15.001,
+          "n": 1197,
+          "mean": 15.003,
+          "rms": 15.003,
           "p50": 15,
           "p95": 15,
-          "max": 15.096
+          "max": 15.151
         }
       },
       {
@@ -356,12 +356,12 @@
         "trueDriftPpm": -61.02,
         "estDriftPpm": -61.01,
         "errorMs": {
-          "n": 1196,
-          "mean": 15,
-          "rms": 15,
+          "n": 1197,
+          "mean": 15.002,
+          "rms": 15.002,
           "p50": 15,
           "p95": 15,
-          "max": 15.068
+          "max": 15.127
         }
       },
       {
@@ -369,12 +369,12 @@
         "trueDriftPpm": -4.65,
         "estDriftPpm": -4.65,
         "errorMs": {
-          "n": 1196,
+          "n": 1197,
           "mean": 15,
           "rms": 15,
           "p50": 15,
           "p95": 15,
-          "max": 15.005
+          "max": 15.011
         }
       },
       {
@@ -382,12 +382,12 @@
         "trueDriftPpm": -35.28,
         "estDriftPpm": -35.27,
         "errorMs": {
-          "n": 1196,
-          "mean": 15,
-          "rms": 15,
+          "n": 1197,
+          "mean": 15.001,
+          "rms": 15.001,
           "p50": 15,
           "p95": 15,
-          "max": 15.039
+          "max": 15.073
         }
       },
       {
@@ -395,7 +395,7 @@
         "trueDriftPpm": 34.43,
         "estDriftPpm": 34.43,
         "errorMs": {
-          "n": 1196,
+          "n": 1197,
           "mean": 14.999,
           "rms": 14.999,
           "p50": 15,
@@ -408,7 +408,7 @@
         "trueDriftPpm": 7.99,
         "estDriftPpm": 7.99,
         "errorMs": {
-          "n": 1196,
+          "n": 1197,
           "mean": 15,
           "rms": 15,
           "p50": 15,
@@ -423,84 +423,84 @@
     "clients": 8,
     "durationMs": 120000,
     "errorAfterConvergedMs": {
-      "n": 9575,
-      "mean": 0.022,
-      "rms": 0.109,
-      "p50": 0.064,
-      "p95": 0.198,
-      "max": 0.657
+      "n": 9577,
+      "mean": 0.021,
+      "rms": 0.114,
+      "p50": 0.065,
+      "p95": 0.201,
+      "max": 0.751
     },
     "errorAfter2sMs": {
       "n": 9448,
       "mean": 0.023,
-      "rms": 0.109,
+      "rms": 0.114,
       "p50": 0.064,
-      "p95": 0.197,
-      "max": 0.657
+      "p95": 0.2,
+      "max": 0.751
     },
     "driftErrorPpm": {
       "n": 8,
-      "mean": 0.544,
-      "rms": 1.062,
-      "p50": 1.018,
-      "p95": 1.963,
-      "max": 1.963
+      "mean": 0.591,
+      "rms": 1.126,
+      "p50": 1.05,
+      "p95": 2.11,
+      "max": 2.11
     },
     "stepsAfterConverged": 0,
-    "maxSlewObservedMsPerSec": 1.0018122073137796,
-    "packetsSent": 1144,
-    "packetsLost": 27,
+    "maxSlewObservedMsPerSec": 1.0020749460252805,
+    "packetsSent": 1152,
+    "packetsLost": 28,
     "perClient": [
       {
         "baseRttMs": 37.3,
         "trueDriftPpm": -33.39,
-        "estDriftPpm": -34.56,
+        "estDriftPpm": -34.58,
         "errorMs": {
           "n": 1197,
-          "mean": 0.011,
+          "mean": 0.013,
           "rms": 0.096,
-          "p50": 0.057,
-          "p95": 0.176,
-          "max": 0.258
+          "p50": 0.054,
+          "p95": 0.177,
+          "max": 0.251
         }
       },
       {
         "baseRttMs": 7.9,
         "trueDriftPpm": -53.2,
-        "estDriftPpm": -53.64,
+        "estDriftPpm": -53.62,
         "errorMs": {
-          "n": 1196,
-          "mean": 0.032,
+          "n": 1197,
+          "mean": 0.034,
           "rms": 0.08,
-          "p50": 0.054,
-          "p95": 0.164,
+          "p50": 0.052,
+          "p95": 0.17,
           "max": 0.213
         }
       },
       {
         "baseRttMs": 7.7,
         "trueDriftPpm": 94.77,
-        "estDriftPpm": 95.57,
+        "estDriftPpm": 95.65,
         "errorMs": {
-          "n": 1197,
-          "mean": 0.061,
-          "rms": 0.097,
-          "p50": 0.071,
-          "p95": 0.182,
-          "max": 0.218
+          "n": 1198,
+          "mean": 0.057,
+          "rms": 0.104,
+          "p50": 0.074,
+          "p95": 0.186,
+          "max": 0.276
         }
       },
       {
         "baseRttMs": 29.2,
         "trueDriftPpm": 53.63,
-        "estDriftPpm": 55.59,
+        "estDriftPpm": 55.74,
         "errorMs": {
           "n": 1197,
-          "mean": 0.034,
-          "rms": 0.106,
-          "p50": 0.065,
-          "p95": 0.192,
-          "max": 0.439
+          "mean": 0.029,
+          "rms": 0.114,
+          "p50": 0.069,
+          "p95": 0.206,
+          "max": 0.46
         }
       },
       {
@@ -509,50 +509,50 @@
         "estDriftPpm": 75.47,
         "errorMs": {
           "n": 1197,
-          "mean": -0.057,
-          "rms": 0.1,
-          "p50": 0.075,
-          "p95": 0.155,
-          "max": 0.437
+          "mean": -0.056,
+          "rms": 0.102,
+          "p50": 0.074,
+          "p95": 0.162,
+          "max": 0.477
         }
       },
       {
         "baseRttMs": 31,
         "trueDriftPpm": -15.65,
-        "estDriftPpm": -14.51,
+        "estDriftPpm": -14.38,
         "errorMs": {
           "n": 1197,
-          "mean": 0.033,
-          "rms": 0.076,
-          "p50": 0.044,
-          "p95": 0.159,
-          "max": 0.283
+          "mean": 0.036,
+          "rms": 0.077,
+          "p50": 0.045,
+          "p95": 0.16,
+          "max": 0.278
         }
       },
       {
         "baseRttMs": 30.8,
         "trueDriftPpm": 86.14,
-        "estDriftPpm": 87.16,
+        "estDriftPpm": 87.19,
         "errorMs": {
           "n": 1197,
-          "mean": -0.082,
-          "rms": 0.134,
-          "p50": 0.052,
-          "p95": 0.279,
-          "max": 0.657
+          "mean": -0.086,
+          "rms": 0.148,
+          "p50": 0.05,
+          "p95": 0.29,
+          "max": 0.751
         }
       },
       {
         "baseRttMs": 21.5,
         "trueDriftPpm": -30.41,
-        "estDriftPpm": -29.65,
+        "estDriftPpm": -29.67,
         "errorMs": {
           "n": 1197,
-          "mean": 0.139,
-          "rms": 0.16,
-          "p50": 0.154,
-          "p95": 0.243,
-          "max": 0.286
+          "mean": 0.143,
+          "rms": 0.163,
+          "p50": 0.156,
+          "p95": 0.257,
+          "max": 0.314
         }
       }
     ]
@@ -562,32 +562,32 @@
     "clients": 8,
     "durationMs": 120000,
     "errorAfterConvergedMs": {
-      "n": 9571,
-      "mean": 0.053,
-      "rms": 0.353,
+      "n": 9576,
+      "mean": 0.054,
+      "rms": 0.359,
       "p50": 0.254,
-      "p95": 0.691,
-      "max": 1.128
+      "p95": 0.709,
+      "max": 1.124
     },
     "errorAfter2sMs": {
       "n": 9448,
-      "mean": 0.051,
-      "rms": 0.351,
-      "p50": 0.253,
-      "p95": 0.684,
-      "max": 1.128
+      "mean": 0.052,
+      "rms": 0.358,
+      "p50": 0.254,
+      "p95": 0.704,
+      "max": 1.124
     },
     "driftErrorPpm": {
       "n": 8,
-      "mean": -0.128,
-      "rms": 2.566,
-      "p50": 1.871,
-      "p95": 4.976,
-      "max": 4.976
+      "mean": -0.033,
+      "rms": 2.459,
+      "p50": 1.7,
+      "p95": 4.977,
+      "max": 4.977
     },
     "stepsAfterConverged": 0,
-    "maxSlewObservedMsPerSec": 1.0023439747131766,
-    "packetsSent": 1144,
+    "maxSlewObservedMsPerSec": 1.0022884916273365,
+    "packetsSent": 1152,
     "packetsLost": 22,
     "perClient": [
       {
@@ -595,38 +595,38 @@
         "trueDriftPpm": -99.53,
         "estDriftPpm": -101.23,
         "errorMs": {
-          "n": 1196,
-          "mean": 0.235,
-          "rms": 0.352,
-          "p50": 0.313,
-          "p95": 0.632,
-          "max": 0.99
+          "n": 1197,
+          "mean": 0.242,
+          "rms": 0.359,
+          "p50": 0.31,
+          "p95": 0.62,
+          "max": 0.981
         }
       },
       {
         "baseRttMs": 32.1,
         "trueDriftPpm": 8.42,
-        "estDriftPpm": 6.55,
+        "estDriftPpm": 7.16,
         "errorMs": {
           "n": 1197,
-          "mean": 0.385,
-          "rms": 0.444,
-          "p50": 0.407,
-          "p95": 0.663,
-          "max": 0.712
+          "mean": 0.386,
+          "rms": 0.448,
+          "p50": 0.41,
+          "p95": 0.674,
+          "max": 0.743
         }
       },
       {
         "baseRttMs": 20.3,
         "trueDriftPpm": 84.19,
-        "estDriftPpm": 87.3,
+        "estDriftPpm": 86.78,
         "errorMs": {
           "n": 1197,
-          "mean": 0.145,
-          "rms": 0.319,
-          "p50": 0.105,
-          "p95": 0.872,
-          "max": 1.128
+          "mean": 0.149,
+          "rms": 0.327,
+          "p50": 0.101,
+          "p95": 0.919,
+          "max": 1.124
         }
       },
       {
@@ -635,24 +635,24 @@
         "estDriftPpm": 85.35,
         "errorMs": {
           "n": 1197,
-          "mean": -0.111,
-          "rms": 0.395,
-          "p50": 0.299,
-          "p95": 0.748,
-          "max": 1.029
+          "mean": -0.12,
+          "rms": 0.407,
+          "p50": 0.303,
+          "p95": 0.783,
+          "max": 1.093
         }
       },
       {
         "baseRttMs": 21.3,
         "trueDriftPpm": -89.69,
-        "estDriftPpm": -89.58,
+        "estDriftPpm": -88.91,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.056,
-          "rms": 0.175,
-          "p50": 0.113,
-          "p95": 0.333,
-          "max": 0.995
+          "n": 1197,
+          "mean": -0.047,
+          "rms": 0.18,
+          "p50": 0.104,
+          "p95": 0.346,
+          "max": 0.988
         }
       },
       {
@@ -660,12 +660,12 @@
         "trueDriftPpm": 26.25,
         "estDriftPpm": 24.77,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.374,
-          "rms": 0.423,
-          "p50": 0.366,
-          "p95": 0.827,
-          "max": 1.064
+          "n": 1197,
+          "mean": -0.376,
+          "rms": 0.424,
+          "p50": 0.367,
+          "p95": 0.806,
+          "max": 1.055
         }
       },
       {
@@ -673,12 +673,12 @@
         "trueDriftPpm": -60.16,
         "estDriftPpm": -62.89,
         "errorMs": {
-          "n": 1196,
-          "mean": 0.222,
-          "rms": 0.351,
-          "p50": 0.239,
-          "p95": 0.812,
-          "max": 0.996
+          "n": 1197,
+          "mean": 0.225,
+          "rms": 0.36,
+          "p50": 0.224,
+          "p95": 0.834,
+          "max": 1.003
         }
       },
       {
@@ -686,12 +686,12 @@
         "trueDriftPpm": -46.17,
         "estDriftPpm": -41.2,
         "errorMs": {
-          "n": 1196,
-          "mean": -0.024,
-          "rms": 0.293,
-          "p50": 0.146,
-          "p95": 0.601,
-          "max": 1.03
+          "n": 1197,
+          "mean": -0.027,
+          "rms": 0.298,
+          "p50": 0.143,
+          "p95": 0.634,
+          "max": 0.923
         }
       }
     ]
@@ -701,45 +701,45 @@
     "clients": 8,
     "durationMs": 300000,
     "errorAfterConvergedMs": {
-      "n": 23971,
-      "mean": -0.038,
-      "rms": 0.364,
-      "p50": 0.27,
-      "p95": 0.701,
-      "max": 1.128
+      "n": 23976,
+      "mean": -0.037,
+      "rms": 0.367,
+      "p50": 0.271,
+      "p95": 0.705,
+      "max": 1.124
     },
     "errorAfter2sMs": {
       "n": 23848,
-      "mean": -0.039,
-      "rms": 0.363,
-      "p50": 0.27,
-      "p95": 0.7,
-      "max": 1.128
+      "mean": -0.038,
+      "rms": 0.366,
+      "p50": 0.271,
+      "p95": 0.704,
+      "max": 1.124
     },
     "driftErrorPpm": {
       "n": 8,
-      "mean": -0.106,
-      "rms": 0.377,
-      "p50": 0.368,
-      "p95": 0.685,
-      "max": 0.685
+      "mean": -0.115,
+      "rms": 0.385,
+      "p50": 0.38,
+      "p95": 0.69,
+      "max": 0.69
     },
     "stepsAfterConverged": 0,
-    "maxSlewObservedMsPerSec": 1.0023439747131766,
-    "packetsSent": 2584,
-    "packetsLost": 53,
+    "maxSlewObservedMsPerSec": 1.0023058570794652,
+    "packetsSent": 2592,
+    "packetsLost": 54,
     "perClient": [
       {
         "baseRttMs": 51.5,
         "trueDriftPpm": -99.53,
         "estDriftPpm": -99.9,
         "errorMs": {
-          "n": 2996,
-          "mean": -0.127,
-          "rms": 0.433,
-          "p50": 0.323,
-          "p95": 0.803,
-          "max": 0.99
+          "n": 2997,
+          "mean": -0.124,
+          "rms": 0.435,
+          "p50": 0.321,
+          "p95": 0.804,
+          "max": 0.981
         }
       },
       {
@@ -748,50 +748,50 @@
         "estDriftPpm": 8.01,
         "errorMs": {
           "n": 2997,
-          "mean": 0.049,
-          "rms": 0.422,
-          "p50": 0.338,
-          "p95": 0.737,
+          "mean": 0.05,
+          "rms": 0.423,
+          "p50": 0.337,
+          "p95": 0.738,
           "max": 0.809
         }
       },
       {
         "baseRttMs": 20.3,
         "trueDriftPpm": 84.19,
-        "estDriftPpm": 84.87,
+        "estDriftPpm": 84.88,
         "errorMs": {
           "n": 2997,
-          "mean": 0.238,
-          "rms": 0.357,
-          "p50": 0.167,
-          "p95": 0.6,
-          "max": 1.128
+          "mean": 0.24,
+          "rms": 0.36,
+          "p50": 0.161,
+          "p95": 0.599,
+          "max": 1.124
         }
       },
       {
         "baseRttMs": 32.6,
         "trueDriftPpm": 86.8,
-        "estDriftPpm": 86.65,
+        "estDriftPpm": 86.61,
         "errorMs": {
           "n": 2997,
-          "mean": -0.096,
-          "rms": 0.313,
-          "p50": 0.208,
-          "p95": 0.594,
-          "max": 1.029
+          "mean": -0.099,
+          "rms": 0.319,
+          "p50": 0.207,
+          "p95": 0.597,
+          "max": 1.093
         }
       },
       {
         "baseRttMs": 21.3,
         "trueDriftPpm": -89.69,
-        "estDriftPpm": -90.03,
+        "estDriftPpm": -90.07,
         "errorMs": {
-          "n": 2996,
-          "mean": -0.301,
-          "rms": 0.398,
-          "p50": 0.35,
-          "p95": 0.685,
-          "max": 0.995
+          "n": 2997,
+          "mean": -0.298,
+          "rms": 0.399,
+          "p50": 0.349,
+          "p95": 0.684,
+          "max": 0.988
         }
       },
       {
@@ -799,12 +799,12 @@
         "trueDriftPpm": 26.25,
         "estDriftPpm": 26.39,
         "errorMs": {
-          "n": 2996,
+          "n": 2997,
           "mean": -0.159,
-          "rms": 0.299,
+          "rms": 0.3,
           "p50": 0.223,
-          "p95": 0.54,
-          "max": 1.064
+          "p95": 0.561,
+          "max": 1.055
         }
       },
       {
@@ -812,12 +812,12 @@
         "trueDriftPpm": -60.16,
         "estDriftPpm": -60.6,
         "errorMs": {
-          "n": 2996,
-          "mean": -0.072,
-          "rms": 0.323,
-          "p50": 0.242,
-          "p95": 0.604,
-          "max": 0.996
+          "n": 2997,
+          "mean": -0.071,
+          "rms": 0.327,
+          "p50": 0.244,
+          "p95": 0.605,
+          "max": 1.003
         }
       },
       {
@@ -825,34 +825,36 @@
         "trueDriftPpm": -46.17,
         "estDriftPpm": -46.12,
         "errorMs": {
-          "n": 2996,
-          "mean": 0.165,
-          "rms": 0.343,
-          "p50": 0.291,
-          "p95": 0.582,
-          "max": 1.03
+          "n": 2997,
+          "mean": 0.164,
+          "rms": 0.346,
+          "p50": 0.29,
+          "p95": 0.625,
+          "max": 0.923
         }
       }
     ]
   },
   "reconnect": {
-    "params": "baseRtt 50, jitter σ 10, 1% spikes, 1% loss; at t=60 s server clock +4000 ms, rejoin()",
-    "reconvergedAfterMs": 500,
+    "params": "baseRtt 50, jitter σ 10, 1% spikes, 1% loss; at t=60 s server clock +4000 ms, rejoin() (rebase, no reset)",
+    "reacquiredAfterMs": 300,
     "errorBeforeMs": {
-      "n": 595,
-      "mean": -0.652,
-      "rms": 0.719,
-      "p50": 0.698,
-      "p95": 1.145,
-      "max": 1.208
+      "n": 596,
+      "mean": -0.661,
+      "rms": 0.733,
+      "p50": 0.711,
+      "p95": 1.169,
+      "max": 1.21
     },
     "errorAfterMs": {
-      "n": 296,
-      "mean": -0.001,
-      "rms": 0.694,
-      "p50": 0.563,
-      "p95": 1.33,
-      "max": 1.435
-    }
+      "n": 298,
+      "mean": -0.469,
+      "rms": 0.519,
+      "p50": 0.389,
+      "p95": 0.996,
+      "max": 1.007
+    },
+    "driftPpmBefore": 51.9,
+    "driftPpmAfter": 51.93
   }
 }

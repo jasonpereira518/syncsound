@@ -45,6 +45,8 @@ export interface EngineStats {
   corrections: { rate: number; reschedule: number };
   /** total start compensation currently applied, ms */
   compensationMs: number;
+  /** longest gap between drift-loop ticks in the last minute, ms (≈ 500 normally; a throttled tab shows seconds) */
+  tickGapMs: number;
   eqBypassed: boolean;
   clickTest: boolean;
   wakeLock: boolean;

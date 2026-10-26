@@ -49,3 +49,31 @@ describe('PlaybackTracker', () => {
     expect(t.rate).toBe(1);
   });
 });
+
+describe('DriftController dt and hold', () => {
+  it('clamps the tick length fed to the integral (a 60 s throttled tick counts as 2 s) and holds the learned rate', () => {
+    const a = new DriftController();
+    const b = new DriftController();
+    a.update(5, 60);
+    b.update(5, 2);
+    expect(a.biasPpm).toBeCloseTo(b.biasPpm, 9);
+    expect(a.biasPpm).toBeGreaterThan(0);
+    const c = new DriftController();
+    const d = new DriftController();
+    c.update(5, 0.001);
+    d.update(5, 0.05);
+    expect(c.biasPpm).toBeCloseTo(d.biasPpm, 9); // minDt: a tiny tick integrates like a 50 ms one
+    const bias = a.biasPpm;
+    const h = a.hold();
+    expect(h.action).toBe('none');
+    expect(h.rate).toBeCloseTo(1 - bias * 1e-6, 12);
+    expect(a.biasPpm).toBe(bias);
+  });
+
+  it('a tracker can start at the learned rate', () => {
+    const t = new PlaybackTracker();
+    t.start(10, 5, 0.999);
+    expect(t.rate).toBe(0.999);
+    expect(t.positionAt(12)).toBeCloseTo(5 + 2 * 0.999, 9);
+  });
+});

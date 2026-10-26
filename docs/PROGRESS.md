@@ -26,3 +26,12 @@
 - [x] Tune sound + leveling: one swoosh → chime per device (no auto click run), median loudness with ≤ +6 dB boost ahead of the limiter, K-weighted level, listener excluded from the median (DECISIONS 55–58)
 - [ ] Phase 2 – phones as the listener (held at the head), iOS audio-session/background constraints
 - [x] Gap pass: group-play button, one-step YouTube, rejoin prompt, volume-to-max prompt, re-sync on clock steps, Bluetooth wobble during tuning, room name in title, balance / "Only I can control" renames, tests (home flow with tuning + volume, group play + rejoin, Bluetooth wobble sim)
+
+## Calibration + sync pass (plan: tighter, simpler, stays in tune)
+
+- [x] S1 – Clocks that don't step: `rebase()` + gap/regime re-acquisition instead of `reset()`, age-bounded window, robust `fitLine`, long-baseline audio-clock rate, drift loop with measured dt / hold / learned-rate starts, `ReconcileGate` (suspend → fade + rebuild when ready), resync reschedules only if the mapping moved, `ClockLink` ready hold / mapping freshness / reconnect / mapping on pongs, Worker ticker; sims: pause/resume (5 & 30 min, sleep, suspend), 60-min wander, resync, LAN failover; e2e: resume spread, visibility (DECISIONS 59–68)
+- [ ] S1 on real hardware (HUMAN_TEST_CHECKLIST 20–22)
+- [ ] S2 – Calibration accuracy hardening (analytic frozen map, settled-clock gate, run validity, one tune at a time, tuneClock sim)
+- [ ] S3 – Calibration that stays valid (tune invariant + server derivation, tune identity / syncState, late joiner, TuneStatus)
+- [ ] S4 – Simplest setup experience (one-screen setup, mic at join, prepare/ready, one "Tune" verb)
+- [ ] S5 – Docs and results

@@ -7,6 +7,11 @@ export interface DriftOptions {
   rescheduleMs?: number;
   /** seconds over which the proportional nudge should cancel the error (default 4) */
   correctionWindowSec?: number;
+  /** the integral never sees a tick longer than this, s (default 2): a throttled tab that ticks once a minute
+   * must not wind the integral up sixty times faster than it was tuned for */
+  maxDtSec?: number;
+  /** …nor shorter than this, s (default 0.05) */
+  minDtSec?: number;
 }
 
 export interface DriftDecision {
@@ -20,7 +25,10 @@ export interface DriftDecision {
  * PI loop on errorMs = actualPosition − expectedPosition (ms; +ve = we're ahead → slow down).
  * The integral learns the steady clock-rate mismatch (device crystal vs room clock, typically 10–200 ppm), so a
  * constant drift settles at ~0 error instead of riding the edge of a deadband. Gains are critically damped
- * (Ki = Kp²/4). The integral outlives tracks (it's a property of this device's clocks); call forget() when the clock path changes.
+ * (Ki = Kp²/4). The integral outlives tracks, pauses, clock-path switches and audio-clock resets: it is the ratio
+ * of this device's audio clock to the room clock, which none of those change (forgetting it costs a ~0.6 ms
+ * transient; keeping it across a path switch costs ~0.02 ms). Call forget() only when the output device changes
+ * (a different crystal). Pass the real elapsed `dtSec`; it is clamped to [minDtSec, maxDtSec].
  */
 export class DriftController {
   private readonly deadband: number;
@@ -28,6 +36,8 @@ export class DriftController {
   private readonly reschedule: number;
   private readonly kp: number;
   private readonly ki: number;
+  private readonly maxDt: number;
+  private readonly minDt: number;
   /** learned rate deviation (s/s); +ve = we run fast → play slower */
   private bias = 0;
 
@@ -37,17 +47,25 @@ export class DriftController {
     this.reschedule = opts.rescheduleMs ?? 30;
     this.kp = 1 / (opts.correctionWindowSec ?? 4);
     this.ki = (this.kp * this.kp) / 4;
+    this.maxDt = opts.maxDtSec ?? 2;
+    this.minDt = opts.minDtSec ?? 0.05;
   }
 
-  /** @param dtSec seconds since the previous update (default 0.5) */
+  /** @param dtSec seconds since the previous update (default 0.5; clamped to [minDtSec, maxDtSec]) */
   update(errorMs: number, dtSec = 0.5): DriftDecision {
     const abs = Math.abs(errorMs);
     if (abs > this.reschedule) return { action: 'reschedule', rate: 1, errorMs };
     const e = errorMs / 1000;
-    this.bias = this.clamp(this.bias + this.ki * e * dtSec);
+    const dt = Math.min(this.maxDt, Math.max(this.minDt, Number.isFinite(dtSec) ? dtSec : this.minDt));
+    this.bias = this.clamp(this.bias + this.ki * e * dt);
     const p = abs <= this.deadband ? 0 : this.kp * e;
     const dev = this.clamp(this.bias + p);
     return { action: p === 0 ? 'none' : 'rate', rate: 1 - dev, errorMs };
+  }
+
+  /** no measurement available right now (clock re-acquiring, audio clock not ready): play at the learned rate alone */
+  hold(): DriftDecision {
+    return { action: 'none', rate: 1 - this.bias, errorMs: NaN };
   }
 
   /** learned steady rate deviation, ppm */
@@ -55,7 +73,7 @@ export class DriftController {
     return this.bias * 1e6;
   }
 
-  /** clock path changed (new output route / clock re-sync): forget the learned bias too */
+  /** the output device changed (a different crystal): forget the learned bias */
   forget(): void {
     this.bias = 0;
   }
@@ -76,11 +94,11 @@ export class PlaybackTracker {
   private r = 1;
   private on = false;
 
-  /** source started at ctx time `when` from track `offset` seconds, rate 1 */
-  start(when: number, offset: number): void {
+  /** source started at ctx time `when` from track `offset` seconds, at playbackRate `rate` (default 1) */
+  start(when: number, offset: number, rate = 1): void {
     this.when = this.anchorCtx = when;
     this.anchorPos = offset;
-    this.r = 1;
+    this.r = rate;
     this.on = true;
   }
 

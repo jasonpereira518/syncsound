@@ -11,6 +11,23 @@ const STEP_CONFIRM = 3;
 const STEP_SPREAD_MS = 3;
 /** observations needed before steps are considered (early fits are too crude to judge residuals) */
 const STEP_MIN_OBS = 8;
+/** long-baseline rate: up to this many observations (256 s at 4 Hz)… */
+export const LONG_RATE_WINDOW = 1024;
+/** …used for the slope once it holds this many observations spanning at least this long. With ±½ render quantum
+ * of timestamp jitter the slope's standard error is ≈ 4 ppm at 30 s, 3 ppm at 60 s and 0.3 ppm at 256 s; the
+ * 16 s short window alone gives ≈ 20 ppm (and is shrunk toward nominal accordingly). */
+export const LONG_RATE_MIN_OBS = 64;
+export const LONG_RATE_MIN_SPAN_MS = 30_000;
+
+/** the long-baseline audio-clock rate in use */
+export interface AudioRate {
+  /** AudioContext seconds per performance ms (the slope the map predicts with) */
+  ctxPerPerfMs: number;
+  /** standard error of that slope, ppm */
+  sePpm: number;
+  spanMs: number;
+  n: number;
+}
 
 /**
  * Maps local performance-clock ms ↔ AudioContext seconds via robust linear regression over recent
@@ -19,20 +36,26 @@ const STEP_MIN_OBS = 8;
  * currentTime) as a fallback (then add baseLatency+outputLatency compensation separately).
  *
  * Fit: ctxSec = yMean + slope·(perfMs − xMean) on centred data, one MAD outlier-rejection pass (render-quantum
- * jitter ≈ 2.7 ms and OS scheduling spikes). The slope's deviation from nominal (1e-3 s/ms) is shrunk by its
- * standard error, dev·dev²/(dev²+SE²), so a short/noisy observation span falls back toward the nominal rate
- * instead of extrapolating a wild one (matters for late joins, where roomToCtx is evaluated seconds back). Call `reset()` after the context is suspended/resumed (the
- * audio clock stops while the perf clock keeps running, which breaks the linear model).
+ * jitter ≈ 2.7 ms and OS scheduling spikes). The offset comes from the short window (64 observations); the slope
+ * comes from a long window (up to LONG_RATE_WINDOW observations, once LONG_RATE_MIN_OBS / LONG_RATE_MIN_SPAN_MS
+ * are met) and, either way, its deviation from nominal (1e-3 s/ms) is shrunk by its standard error,
+ * dev·dev²/(dev²+SE²), so a short/noisy observation span falls back toward the nominal rate instead of
+ * extrapolating a wild one (matters for late joins, where roomToCtx is evaluated seconds back). Call `reset()`
+ * after the context is suspended/resumed (the audio clock stops while the perf clock keeps running, which breaks
+ * the linear model).
  *
  * Steps: the browser's output path can change latency abruptly (device re-open, buffer resize, route change —
  * seen as a +44 ms jump in headless Chromium when a recorder graph starts). A regression through a step yields a
  * wildly wrong slope for a whole window, so outliers are held back and STEP_CONFIRM consecutive mutually
- * consistent outliers shift the window's history onto the new regime (counted in `steps`).
+ * consistent outliers shift both windows' history onto the new regime (counted in `steps`).
  */
 export class AudioClockMap {
   private perf: number[] = [];
   private ctx: number[] = [];
+  private longPerf: number[] = [];
+  private longCtx: number[] = [];
   private fit: LineFit | null = null;
+  private long: LineFit | null = null;
   private pending: Array<{ perf: number; ctx: number; r: number }> = [];
   /** number of output-path discontinuities detected since the last reset */
   steps = 0;
@@ -52,14 +75,8 @@ export class AudioClockMap {
         // (keeps the slope estimate and readiness) and append the confirming observations
         const shift = this.pending.reduce((a, o) => a + o.r, 0) / this.pending.length / 1000;
         this.ctx = this.ctx.map((c) => c + shift);
-        for (const o of this.pending) {
-          this.perf.push(o.perf);
-          this.ctx.push(o.ctx);
-        }
-        while (this.perf.length > this.windowSize) {
-          this.perf.shift();
-          this.ctx.shift();
-        }
+        this.longCtx = this.longCtx.map((c) => c + shift);
+        for (const o of this.pending) this.push(o.perf, o.ctx);
         this.pending = [];
         this.steps++;
         this.refit();
@@ -67,13 +84,23 @@ export class AudioClockMap {
       }
       this.pending = [];
     }
+    this.push(perfMs, ctxSec);
+    this.refit();
+  }
+
+  private push(perfMs: number, ctxSec: number): void {
     this.perf.push(perfMs);
     this.ctx.push(ctxSec);
     if (this.perf.length > this.windowSize) {
       this.perf.shift();
       this.ctx.shift();
     }
-    this.refit();
+    this.longPerf.push(perfMs);
+    this.longCtx.push(ctxSec);
+    if (this.longPerf.length > LONG_RATE_WINDOW) {
+      this.longPerf.shift();
+      this.longCtx.shift();
+    }
   }
 
   private refit(): void {
@@ -81,10 +108,19 @@ export class AudioClockMap {
     // a degenerate fit (all observations at one perf instant) keeps the nominal 1 s / 1000 ms rate
     if (!f || !(f.slope > 0)) {
       this.fit = null;
+      this.long = null;
       return;
     }
-    const dev = f.slope - NOMINAL;
-    const se2 = f.slopeSe * f.slopeSe;
+    let long: LineFit | null = null;
+    const n = this.longPerf.length;
+    if (n >= LONG_RATE_MIN_OBS && this.longPerf[n - 1]! - this.longPerf[0]! >= LONG_RATE_MIN_SPAN_MS) {
+      const lf = fitLine(this.longPerf, this.longCtx, 3, 1e-5);
+      if (lf.slope > 0) long = lf;
+    }
+    this.long = long;
+    const src = long ?? f;
+    const dev = src.slope - NOMINAL;
+    const se2 = src.slopeSe * src.slopeSe;
     this.fit = { ...f, slope: NOMINAL + (dev * dev * dev) / (dev * dev + se2 || 1) };
   }
 
@@ -108,15 +144,26 @@ export class AudioClockMap {
     return l.xMean + (ctxSec - l.yMean) / l.slope;
   }
 
-  /** audio clock rate error vs performance clock, ppm (+ve: audio clock runs fast) */
+  /** audio clock rate error vs performance clock, ppm (+ve: audio clock runs fast); the slope in use */
   ratePpm(): number {
     return this.fit ? (this.fit.slope / NOMINAL - 1) * 1e6 : 0;
+  }
+
+  /** the long-baseline rate, or null while the long window is still too short to beat the short one */
+  longRate(): AudioRate | null {
+    const l = this.long;
+    if (!l || !this.fit) return null;
+    const n = this.longPerf.length;
+    return { ctxPerPerfMs: this.fit.slope, sePpm: (l.slopeSe / NOMINAL) * 1e6, spanMs: this.longPerf[n - 1]! - this.longPerf[0]!, n: l.n };
   }
 
   reset(): void {
     this.perf = [];
     this.ctx = [];
+    this.longPerf = [];
+    this.longCtx = [];
     this.fit = null;
+    this.long = null;
     this.pending = [];
     this.steps = 0;
   }

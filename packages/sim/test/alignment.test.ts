@@ -55,7 +55,7 @@ async function runDevice(d: DeviceSpec, seed: number, compensate: boolean, gridS
     client.advanceTo(T);
     if (T >= ctxCreated && (T - ctxCreated) % 250 === 0) {
       const o = audio.observe(T, rng);
-      acm.addObservation(o.perfMs, o.ctxSec);
+      if (o) acm.addObservation(o.perfMs, o.ctxSec);
     }
   }
   const calibratedMs = d.latencyMs + rng.uniform(-CAL_ERR_MS, CAL_ERR_MS);

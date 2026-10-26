@@ -111,3 +111,15 @@ Record results in the table at the bottom.
     - Play a loud track: the boosted devices (positive trim in Advanced → Calibrate) shouldn't audibly pump or
       distort.
     - The Bluetooth "timing varies by ±X ms" line should appear only after **Measure sync**, not after the tune.
+
+20. **Hidden tab while paused (S1).** Chrome desktop and Android Chrome: pause the room, switch the tab to the
+    background (or another app) for 6+ minutes, come back and press play within a second. Nothing should skip, no
+    device should start late (`__syncsound.schedules` has no `late: true`), and the debug drawer's **tick gap** should
+    read ≤ 1.5 s (the Worker ticker kept the loops running). Repeat with `?noTicker` on the room URL (the
+    `setInterval` fallback) and note the tick gap and how long the resume burst takes.
+21. **iOS background while playing (S1).** Play, switch apps for 5 minutes, return to Safari. Expect ≤ 1.5 s of
+    silence, then playback in sync with the others — never a stretch of stale (minutes-old) audio. The reschedule
+    counter should rise by at most one.
+22. **LAN clock master leaves mid-song (S1).** Close the master's tab (the host's). On the others expect at most a
+    few ms of wobble within ~3 s and no reschedule counter increment; within ~25 s the debug drawer's clock RTT
+    should drop back to LAN values (a new master).

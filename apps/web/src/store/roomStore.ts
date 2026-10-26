@@ -1,10 +1,10 @@
-/**
+﻿/**
  * Room store: zustand state (see state.ts) + `roomActions` (the RoomActions contract in types.ts).
  * Import only from client components. Actions that need a user gesture (call directly from a click
  * handler, before any await): join, startCapture, connectSpotify, connectApple, startCalibration (mic).
  */
 import { dueNow, setBatterySaverFlag } from '../lib/power';
-import { autoAssign, defaultObjectsFor, isRoutedLayout, presetLayout, slotPositions, type RoomClock } from '@syncsound/audio-core';
+import { autoAssign, defaultObjectsFor, isRoutedLayout, presetLayout, resyncNeedsReschedule, slotPositions, type RoomClock } from '@syncsound/audio-core';
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
@@ -57,7 +57,7 @@ interface Session {
   autoObjectsKey: string;
   /** sent on every (re)JOIN; refreshed when the output route changes */
   caps: DeviceCaps;
-  /** current output label (undefined when the browser hides it) → per-output calibration memory key */
+  /** current output label (undefined when the browser hides it) â†’ per-output calibration memory key */
   outputLabel: string | undefined;
   /** clock path ('lan:<master>' | 'wan') during this session's last tune; a later change means re-tune */
   tunedClockPath: string | null;
@@ -79,7 +79,7 @@ function send(msg: ClientMessage): boolean {
 }
 
 function sendOrWarn(msg: ClientMessage) {
-  if (!send(msg)) setError('Not connected to the room right now. Reconnecting…');
+  if (!send(msg)) setError('Not connected to the room right now. Reconnectingâ€¦');
 }
 
 function setRoom(fn: (r: RoomState) => RoomState) {
@@ -261,7 +261,7 @@ function watchOutputCalibration(s: Session): () => void {
 
 /**
  * A tune absorbs this device's clock error on the path it used (LAN master vs server clock). Switching path moves
- * that error by up to a few ms, so prompt a quick re-tune — only against a tune from this session.
+ * that error by up to a few ms, so prompt a quick re-tune â€” only against a tune from this session.
  */
 function watchClockPath(s: Session) {
   const st = useRoomStore.getState();
@@ -274,8 +274,8 @@ function watchClockPath(s: Session) {
 }
 
 const lastStats = { t: 0 };
-function sendStats(s: Session) {
-  if (!dueNow(lastStats, 10_000)) return;
+function sendStats(s: Session, force = false) {
+  if (!force && !dueNow(lastStats, 10_000)) return;
   if (!s.client.synced) return;
   try {
     const est = s.client.clock.estimate();
@@ -283,7 +283,7 @@ function sendStats(s: Session) {
     s.client.send({
       type: 'STATS',
       stats: {
-        // display value: server clock − this device's wall clock (ClockSync's offset is relative to performance.now())
+        // display value: server clock âˆ’ this device's wall clock (ClockSync's offset is relative to performance.now())
         offsetMs: fin(est.offsetMs - performance.timeOrigin),
         rttMs: fin(est.rttMs),
         jitterMs: fin(est.jitterMs),
@@ -397,9 +397,13 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         if (m.type === 'WELCOME') resolveJoin();
       },
       onStatus: (conn) => useRoomStore.setState({ conn }),
-      onSynced: (reason) => {
-        session?.engine.reconcile(reason === 'resync');
-        session?.remote.onRoomChanged();
+      onSynced: (reason, shiftMs) => {
+        const s = session;
+        if (!s) return;
+        // a resync keeps playing unless the burst showed the mapping really moved; a (re)connect reconciles softly
+        s.engine.reconcile(reason === 'resync' && resyncNeedsReschedule(shiftMs, s.link.ready));
+        s.remote.onRoomChanged();
+        sendStats(s, true); // a fresh RTT for the server's schedule lead
       },
       onFatal: (code, msg) => {
         setError(FRIENDLY[code] ?? msg);
@@ -458,14 +462,14 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;
       s.engine.onVisible();
-      s.client.resync(); // → onSynced('resync') → reconcile(true)
+      s.client.resync(); // â†’ onSynced('resync') â†’ reconcile(true)
     };
     document.addEventListener('visibilitychange', onVisibility);
     s.cleanup.push(() => document.removeEventListener('visibilitychange', onVisibility));
 
     client.connect();
     const slow = setTimeout(() => {
-      if (useRoomStore.getState().conn !== 'open') setError("Can't reach the SyncSound server yet. Still trying…");
+      if (useRoomStore.getState().conn !== 'open') setError("Can't reach the SyncSound server yet. Still tryingâ€¦");
       resolveJoin();
     }, 10_000);
     s.cleanup.push(() => clearTimeout(slow));
@@ -694,7 +698,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   async startCalibration(opts) {
     if (!session) return setError('Join the room first.');
-    // one chime per device and done: Bluetooth wobble ("±X ms") comes from the manual sync check
+    // one chime per device and done: Bluetooth wobble ("Â±X ms") comes from the manual sync check
     await session.calibration.start(opts);
   },
 

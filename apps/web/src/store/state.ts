@@ -25,6 +25,7 @@ export const initialState = (): RoomStoreState => ({
     playbackRate: 1,
     corrections: { rate: 0, reschedule: 0 },
     compensationMs: 0,
+    tickGapMs: 0,
     eqBypassed: false,
     clickTest: false,
     wakeLock: false,

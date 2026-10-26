@@ -22,8 +22,9 @@ Headless simulator: 8 clients × 120 s, true offsets up to ±10 s, drift ±100 p
 
 - The asymmetric case shows the **theoretical NTP bias of asymmetry/2**. No two-way protocol can observe it. It
   ends up inside the acoustic calibration offset, which absorbs it.
-- Slewing never exceeded 1.00 ms/s after convergence (0 steps). On reconnect (server clock jumps +4 s) it
-  re-converges in 0.5 s, with a max error of 1.4 ms afterwards.
+- Slewing never exceeded 1.00 ms/s after convergence (0 steps). On reconnect (server clock jumps +4 s) the client
+  re-bursts without resetting (`rebase()`): it re-acquires in 0.3 s with a max error of 1.0 ms afterwards, and its
+  drift estimate survives the jump (51.9 → 51.9 ppm).
 
 ## 2. Drift control (`drift.test.ts`)
 
@@ -33,14 +34,70 @@ controller loop runs every 500 ms.
 
 | | value |
 |---|---|
-| True playback-position error, mean / RMS / p95 / max | **0.12 / 0.55 / 1.47 / 2.00 ms** |
+| True playback-position error, mean / RMS / p95 / max | **0.11 / 0.54 / 1.50 / 2.16 ms** |
 | Rate updates / hard reschedules | 1192 (every tick, PI loop) / **0** |
-| Max playbackRate deviation | 0.03 % (inaudible; the limit is 0.2 %) |
+| Max playbackRate deviation | 0.04 % (inaudible; the limit is 0.2 %) |
 
 R1 replaced the 1–2 ms hysteresis deadband (which left a steady 1.48 ms bias: RMS / p95 / max were
 1.59 / 2.45 / 3.40 ms) with a critically damped PI loop whose integral learns the device's clock-rate mismatch.
 The remaining p95 is the WAN clock estimate (σ 5 ms jitter here), which the LAN clock master removes between
 devices (next section).
+
+### 2c. Pause → resume minutes later (`pauseResume.test.ts`)
+
+Four Wi-Fi devices (output latencies 10 / 40 / 180 / 25 ms, calibrated to ±0.5 ms, σ 3–6 ms jitter, 1 % spikes and
+loss) play for a minute, pause, and resume after a long break during which their tabs are in the background. On
+resume each tab re-bursts its clock (no reset), the host presses play 2 s later (one case: 0.3 s later, mid-burst),
+and playback runs for 60 s. "Spread" is max − min of the four devices' true position errors per probe.
+
+| Pause | Pings while paused | First second after start | 60 s after: error p95 / spread p95 | Clock steps | Reschedules |
+|---|---|---|---|---|---|
+| 5 min | 1 Hz (299) | max 0.47 ms | 0.63 / 1.19 ms | 0 | 0 |
+| 5 min, play pressed mid-burst | 1 Hz | max 0.91 ms, no late start | 0.63 / 1.18 ms | 0 | 0 |
+| 30 min | 1 Hz for 5 min, then one a minute (325) | max 0.58 ms | 0.63 / 1.05 ms | 0 | 0 |
+| 30 min, devices asleep (perf clock stopped, context suspended) | none (0) | max 1.18 ms; clocks re-acquired 400 ms after waking, map ready after 750 ms | 1.14 / 1.38 ms | 1 (the re-acquisition) | 0 |
+| 30 min, AudioContext suspended (iOS) | 1 Hz (1799) | max 0.95 ms; map ready 750 ms after resume | 1.00 / 1.37 ms | 0 | 0 |
+
+The resync bursts moved the mappings by < 1.1 ms in every non-sleep case, so no source was rebuilt; the resumed
+sources start at the learned rate, so the post-resume error (p95 0.63 ms) is *better* than the last 20 s before
+the pause (p95 1.06 ms, still settling from the cold start). Drift estimates stayed within 0.5 ppm (3.4 ppm after
+the sleep, where the history restarts from the carried prior).
+
+### 2d. 60-minute session with clock-rate wander (`longSession.test.ts`)
+
+As §2, for an hour, with the perf clock wandering ±3 ppm over 20 min and the audio clock ±2 ppm over 15 min on
+top of the constant mismatch.
+
+| | value |
+|---|---|
+| True position error, mean / RMS / p95 / max | **0.02 / 0.36 / 0.72 / 1.95 ms** |
+| Reschedules / max playbackRate deviation (after 5 min) | **0** / 0.025 % |
+| Audio-clock rate vs the true instantaneous rate | mean −0.1 ppm, p95 1.9, max 2.5 (the 256 s window lags the wander by up to ≈ 1.8 ppm) |
+| Clock drift estimate vs the true instantaneous drift | max 4.2 ppm (the 8.5 min history lags the wander) |
+
+The 60-minute sim found a latent bug: a late timestamp among the first eight audio-clock observations bent the
+least-squares fit by thousands of ppm and the step detector then rejected every good observation for ever
+(DECISIONS #61). With the robust initial line the map is within 1.3 ppm (p50) for the whole hour.
+
+### 2e. Tab switches while playing (`resync.test.ts`)
+
+Two devices, 300 s of play; a resync at 120 s (a 1 s tab switch, pings uninterrupted) and a 30 s background spell
+followed by a resync at 230 s. Mapping shifts measured by the bursts: 0.05 / 0.01 / 0.36 / 0.02 ms → **0 clock
+steps, 0 reschedules, 0 rebuilds**; true error p95 0.56 ms, spread p95 0.81 ms; drift estimates 35.0 and −79.5 ppm
+against 35 / −80 true (the history survived both bursts). Before S1 every resync reset the clock and forced a
+crossfade reschedule.
+
+### 2f. LAN clock master leaves mid-song (`lanFailover.test.ts`)
+
+Six devices as in §2b. At 90 s the master's tab closes; the server notices after its heartbeat (20 s) and the
+lowest remaining id becomes master.
+
+| | value |
+|---|---|
+| Peers fall back to the server clock after | 2.9 s (`STALE_MS` 3 s) |
+| Every peer re-linked to the new master (8 LAN samples + 2 s `READY_HOLD_MS`) after | 22.4 s (heartbeat-dominated) |
+| Largest room-time step any device saw | **0.67 ms** (the LAN-vs-server estimate difference) |
+| Spread after recovery, p95 / max | 0.39 / 0.48 ms (before: 0.47 / 0.66) |
 
 ## 2b. LAN clock master (`lanMaster.test.ts`)
 
@@ -51,8 +108,8 @@ jitter, 2 % spikes up to 30 ms. Metric: device-to-device spread, i.e. max − mi
 
 | | p50 | p95 | max |
 |---|---|---|---|
-| Every device syncs to the server over the WAN | 0.98 ms | 1.74 ms | 3.12 ms |
-| Peers sync to an in-home master (10 Hz DataChannel pings) and share the master's mapping | **0.21 ms** | **0.41 ms** | **0.93 ms** |
+| Every device syncs to the server over the WAN | 0.98 ms | 1.71 ms | 3.23 ms |
+| Peers sync to an in-home master (10 Hz DataChannel pings) and share the master's mapping (re-sent every 500 ms) | **0.20 ms** | **0.39 ms** | **0.65 ms** |
 
 ## 3. Offline-render alignment, "all devices play at the same instant" (`alignment.test.ts`)
 
@@ -63,9 +120,9 @@ true output latency) and cross-correlated pairwise.
 
 | Case | Max pairwise misalignment |
 |---|---|
-| 4 devices, output latency 10 / 40 / 180 (BT) / 25 ms, Wi-Fi jitter σ 3–6 ms, calibration error ±0.5 ms | **0.69 ms** |
-| Harsh jitter σ 8 / 15 / 5 / 30 ms | 2.50 ms (bound from the error budget: 7 ms) |
-| Late joiner (joins 7.3 s after start) | 1.01 ms vs the others |
+| 4 devices, output latency 10 / 40 / 180 (BT) / 25 ms, Wi-Fi jitter σ 3–6 ms, calibration error ±0.5 ms | **0.66 ms** |
+| Harsh jitter σ 8 / 15 / 5 / 30 ms | 2.53 ms (bound from the error budget: 7 ms) |
+| Late joiner (joins 7.3 s after start) | 1.78 ms vs the others |
 | Same devices **without** latency compensation (control) | 169.8 ms |
 
 ## 4. Acoustic calibration (`calibration.test.ts`, listener-only)

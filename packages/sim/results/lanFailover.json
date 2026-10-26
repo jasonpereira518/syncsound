@@ -1,0 +1,64 @@
+{
+  "name": "lanFailover",
+  "params": {
+    "devices": 6,
+    "wan": {
+      "baseRttMs": 44,
+      "asymmetryMs": 6,
+      "jitterMs": 5,
+      "spikeProb": 0.02,
+      "spikeMaxMs": 120,
+      "lossProb": 0.01
+    },
+    "lan": {
+      "baseRttMs": 6,
+      "jitterMs": 2,
+      "spikeProb": 0.02,
+      "spikeMaxMs": 30,
+      "lossProb": 0.01,
+      "serverProcMs": 0.2
+    },
+    "leaveAtMs": 90000,
+    "heartbeatMs": 20000,
+    "staleMs": 3000,
+    "readyHoldMs": 2000
+  },
+  "beforeLeave": {
+    "errorMs": {
+      "n": 4800,
+      "mean": 2.941,
+      "rms": 2.964,
+      "p50": 3.02,
+      "p95": 3.486,
+      "max": 4.167
+    },
+    "spreadMs": {
+      "n": 800,
+      "mean": 0.25,
+      "rms": 0.269,
+      "p50": 0.239,
+      "p95": 0.471,
+      "max": 0.662
+    }
+  },
+  "fallbackAfterMs": 2900,
+  "recoveredAfterMs": 22400,
+  "maxStepMs": [
+    0.19,
+    0.567,
+    0.568,
+    0.573,
+    0.668,
+    0.576
+  ],
+  "afterRecovery": {
+    "spreadMs": {
+      "n": 627,
+      "mean": 0.254,
+      "rms": 0.267,
+      "p50": 0.269,
+      "p95": 0.392,
+      "max": 0.477
+    }
+  }
+}

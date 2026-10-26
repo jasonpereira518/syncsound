@@ -1,0 +1,584 @@
+{
+  "name": "pauseResume",
+  "devices": [
+    {
+      "name": "phone",
+      "latencyMs": 10,
+      "offsetMs": 3200,
+      "driftPpm": 35,
+      "audioPpm": 20,
+      "net": {
+        "baseRttMs": 30,
+        "jitterMs": 3.04,
+        "spikeProb": 0.01,
+        "spikeMaxMs": 200,
+        "lossProb": 0.01
+      }
+    },
+    {
+      "name": "laptop",
+      "latencyMs": 40,
+      "offsetMs": -7900,
+      "driftPpm": -80,
+      "audioPpm": -45,
+      "net": {
+        "baseRttMs": 60,
+        "jitterMs": 3.19,
+        "spikeProb": 0.01,
+        "spikeMaxMs": 200,
+        "lossProb": 0.01
+      }
+    },
+    {
+      "name": "bt-speaker",
+      "latencyMs": 180,
+      "offsetMs": 9500,
+      "driftPpm": 100,
+      "audioPpm": 80,
+      "net": {
+        "baseRttMs": 25,
+        "jitterMs": 5.93,
+        "spikeProb": 0.01,
+        "spikeMaxMs": 200,
+        "lossProb": 0.01
+      }
+    },
+    {
+      "name": "tablet",
+      "latencyMs": 25,
+      "offsetMs": -1100,
+      "driftPpm": -20,
+      "audioPpm": 10,
+      "net": {
+        "baseRttMs": 80,
+        "jitterMs": 5.1,
+        "spikeProb": 0.01,
+        "spikeMaxMs": 200,
+        "lossProb": 0.01
+      }
+    }
+  ],
+  "calibrationErrorMs": "±0.5",
+  "probeMs": 100,
+  "afterResumeMs": 60000,
+  "pause5min": {
+    "scenario": {
+      "pauseMs": 300000,
+      "pressAfterMs": 2000,
+      "sleep": false,
+      "suspend": false
+    },
+    "beforePause": {
+      "errorMs": {
+        "n": 796,
+        "mean": -0.458,
+        "rms": 0.596,
+        "p50": 0.421,
+        "p95": 1.062,
+        "max": 1.13
+      },
+      "spreadMs": {
+        "n": 199,
+        "mean": 0.941,
+        "rms": 0.988,
+        "p50": 0.853,
+        "p95": 1.386,
+        "max": 1.415
+      }
+    },
+    "atResume": {
+      "maxAbsErrorFirstSecondMs": 0.473,
+      "reacquiredAfterMs": null
+    },
+    "afterResume": {
+      "errorMs": {
+        "n": 2400,
+        "mean": -0.034,
+        "rms": 0.387,
+        "p50": 0.372,
+        "p95": 0.631,
+        "max": 0.673
+      },
+      "spreadMs": {
+        "n": 600,
+        "mean": 0.947,
+        "rms": 0.959,
+        "p50": 0.956,
+        "p95": 1.185,
+        "max": 1.202
+      }
+    },
+    "stepsAfterResume": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "reschedules": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "forcedRebuilds": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "lateStarts": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "resyncShiftsMs": [
+      [
+        0.053
+      ],
+      [
+        -0.02
+      ],
+      [
+        0.365
+      ],
+      [
+        -0.05
+      ]
+    ],
+    "driftErrorPpm": [
+      0.14,
+      0.42,
+      -0.25,
+      -0.11
+    ],
+    "readyAfterSuspendMs": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "pingsWhilePaused": [
+      299,
+      299,
+      299,
+      299
+    ]
+  },
+  "pause5minMidBurst": {
+    "scenario": {
+      "pauseMs": 300000,
+      "pressAfterMs": 300,
+      "sleep": false,
+      "suspend": false
+    },
+    "beforePause": {
+      "errorMs": {
+        "n": 796,
+        "mean": -0.458,
+        "rms": 0.596,
+        "p50": 0.421,
+        "p95": 1.062,
+        "max": 1.13
+      },
+      "spreadMs": {
+        "n": 199,
+        "mean": 0.941,
+        "rms": 0.988,
+        "p50": 0.853,
+        "p95": 1.386,
+        "max": 1.415
+      }
+    },
+    "atResume": {
+      "maxAbsErrorFirstSecondMs": 0.913,
+      "reacquiredAfterMs": null
+    },
+    "afterResume": {
+      "errorMs": {
+        "n": 2400,
+        "mean": -0.035,
+        "rms": 0.39,
+        "p50": 0.365,
+        "p95": 0.627,
+        "max": 0.913
+      },
+      "spreadMs": {
+        "n": 600,
+        "mean": 0.952,
+        "rms": 0.968,
+        "p50": 0.973,
+        "p95": 1.175,
+        "max": 1.352
+      }
+    },
+    "stepsAfterResume": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "reschedules": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "forcedRebuilds": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "lateStarts": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "resyncShiftsMs": [
+      [
+        0.053
+      ],
+      [
+        -0.02
+      ],
+      [
+        0.365
+      ],
+      [
+        -0.05
+      ]
+    ],
+    "driftErrorPpm": [
+      0.16,
+      0.41,
+      -0.25,
+      -0.1
+    ],
+    "readyAfterSuspendMs": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "pingsWhilePaused": [
+      299,
+      299,
+      299,
+      299
+    ]
+  },
+  "pause30minThrottled": {
+    "scenario": {
+      "pauseMs": 1800000,
+      "pressAfterMs": 2000,
+      "sleep": false,
+      "suspend": false
+    },
+    "beforePause": {
+      "errorMs": {
+        "n": 796,
+        "mean": -0.458,
+        "rms": 0.596,
+        "p50": 0.421,
+        "p95": 1.062,
+        "max": 1.13
+      },
+      "spreadMs": {
+        "n": 199,
+        "mean": 0.941,
+        "rms": 0.988,
+        "p50": 0.853,
+        "p95": 1.386,
+        "max": 1.415
+      }
+    },
+    "atResume": {
+      "maxAbsErrorFirstSecondMs": 0.575,
+      "reacquiredAfterMs": null
+    },
+    "afterResume": {
+      "errorMs": {
+        "n": 2400,
+        "mean": 0.087,
+        "rms": 0.424,
+        "p50": 0.403,
+        "p95": 0.626,
+        "max": 0.79
+      },
+      "spreadMs": {
+        "n": 600,
+        "mean": 0.952,
+        "rms": 0.954,
+        "p50": 0.971,
+        "p95": 1.048,
+        "max": 1.061
+      }
+    },
+    "stepsAfterResume": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "reschedules": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "forcedRebuilds": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "lateStarts": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "resyncShiftsMs": [
+      [
+        -0.223
+      ],
+      [
+        -1.058
+      ],
+      [
+        0.747
+      ],
+      [
+        0.574
+      ]
+    ],
+    "driftErrorPpm": [
+      0,
+      0.06,
+      -0.08,
+      -0.01
+    ],
+    "readyAfterSuspendMs": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "pingsWhilePaused": [
+      325,
+      325,
+      325,
+      325
+    ]
+  },
+  "sleep30min": {
+    "scenario": {
+      "pauseMs": 1800000,
+      "pressAfterMs": 2000,
+      "sleep": true,
+      "suspend": false
+    },
+    "beforePause": {
+      "errorMs": {
+        "n": 796,
+        "mean": -0.458,
+        "rms": 0.596,
+        "p50": 0.421,
+        "p95": 1.062,
+        "max": 1.13
+      },
+      "spreadMs": {
+        "n": 199,
+        "mean": 0.941,
+        "rms": 0.988,
+        "p50": 0.853,
+        "p95": 1.386,
+        "max": 1.415
+      }
+    },
+    "atResume": {
+      "maxAbsErrorFirstSecondMs": 1.183,
+      "reacquiredAfterMs": 400
+    },
+    "afterResume": {
+      "errorMs": {
+        "n": 2400,
+        "mean": 0.335,
+        "rms": 0.555,
+        "p50": 0.3,
+        "p95": 1.14,
+        "max": 1.257
+      },
+      "spreadMs": {
+        "n": 600,
+        "mean": 1.016,
+        "rms": 1.042,
+        "p50": 0.971,
+        "p95": 1.382,
+        "max": 1.547
+      }
+    },
+    "stepsAfterResume": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "reschedules": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "forcedRebuilds": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "lateStarts": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "resyncShiftsMs": [
+      [
+        1799001.175
+      ],
+      [
+        1799000.457
+      ],
+      [
+        1799001.192
+      ],
+      [
+        1798999.841
+      ]
+    ],
+    "driftErrorPpm": [
+      -3.44,
+      -1.3,
+      1.85,
+      2.99
+    ],
+    "readyAfterSuspendMs": [
+      750,
+      750,
+      750,
+      750
+    ],
+    "pingsWhilePaused": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "suspend30min": {
+    "scenario": {
+      "pauseMs": 1800000,
+      "pressAfterMs": 2000,
+      "sleep": false,
+      "suspend": true
+    },
+    "beforePause": {
+      "errorMs": {
+        "n": 796,
+        "mean": -0.458,
+        "rms": 0.596,
+        "p50": 0.421,
+        "p95": 1.062,
+        "max": 1.13
+      },
+      "spreadMs": {
+        "n": 199,
+        "mean": 0.941,
+        "rms": 0.988,
+        "p50": 0.853,
+        "p95": 1.386,
+        "max": 1.415
+      }
+    },
+    "atResume": {
+      "maxAbsErrorFirstSecondMs": 0.949,
+      "reacquiredAfterMs": null
+    },
+    "afterResume": {
+      "errorMs": {
+        "n": 2400,
+        "mean": 0.391,
+        "rms": 0.583,
+        "p50": 0.432,
+        "p95": 1.004,
+        "max": 1.144
+      },
+      "spreadMs": {
+        "n": 600,
+        "mean": 1.051,
+        "rms": 1.062,
+        "p50": 1.04,
+        "p95": 1.369,
+        "max": 1.443
+      }
+    },
+    "stepsAfterResume": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "reschedules": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "forcedRebuilds": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "lateStarts": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "resyncShiftsMs": [
+      [
+        -0.288
+      ],
+      [
+        0.115
+      ],
+      [
+        0.953
+      ],
+      [
+        0.001
+      ]
+    ],
+    "driftErrorPpm": [
+      -0.12,
+      -0.09,
+      0.28,
+      0.21
+    ],
+    "readyAfterSuspendMs": [
+      750,
+      750,
+      750,
+      750
+    ],
+    "pingsWhilePaused": [
+      1799,
+      1799,
+      1799,
+      1799
+    ]
+  }
+}

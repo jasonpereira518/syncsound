@@ -1,0 +1,84 @@
+{
+  "name": "resync",
+  "params": {
+    "devices": [
+      {
+        "name": "phone",
+        "offsetMs": 3200,
+        "driftPpm": 35,
+        "audioPpm": 20,
+        "net": {
+          "baseRttMs": 30,
+          "jitterMs": 5,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        }
+      },
+      {
+        "name": "laptop",
+        "offsetMs": -7900,
+        "driftPpm": -80,
+        "audioPpm": -45,
+        "net": {
+          "baseRttMs": 60,
+          "jitterMs": 5,
+          "spikeProb": 0.01,
+          "spikeMaxMs": 200,
+          "lossProb": 0.01
+        }
+      }
+    ],
+    "durationMs": 300000,
+    "resyncAtMs": [
+      120000,
+      230000
+    ],
+    "hiddenMs": [
+      200000,
+      230000
+    ]
+  },
+  "trueErrorMs": {
+    "n": 5600,
+    "mean": -0.06,
+    "rms": 0.315,
+    "p50": 0.243,
+    "p95": 0.558,
+    "max": 0.949
+  },
+  "spreadMs": {
+    "n": 2800,
+    "mean": 0.316,
+    "rms": 0.391,
+    "p50": 0.276,
+    "p95": 0.805,
+    "max": 0.946
+  },
+  "stepsAfter20s": [
+    0,
+    0
+  ],
+  "resyncShiftsMs": [
+    [
+      -0.045,
+      0.009
+    ],
+    [
+      0.362,
+      0.022
+    ]
+  ],
+  "reschedules": [
+    0,
+    0
+  ],
+  "forcedRebuilds": [
+    0,
+    0
+  ],
+  "driftPpm": [
+    35.02,
+    -79.52
+  ]
+}
