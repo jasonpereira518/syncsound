@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { ConnStatus } from '@/store/types';
-import { Badge, Icon, IconButton } from '../ui';
+import { Button, Icon, IconButton, StatusDot } from '../ui';
 import { DebugDrawer } from './DebugDrawer';
 
 const CONN: Record<ConnStatus, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
@@ -62,12 +62,12 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
   const c = CONN[conn];
 
   return (
-    <header className="flex shrink-0 items-center gap-3 px-3 py-2">
+    <header className="flex shrink-0 items-center gap-3 px-3 py-2.5 sm:px-4">
       <button
         type="button"
         onClick={() => setBigQr(true)}
         aria-label="Show QR code to join"
-        className="shrink-0 overflow-hidden rounded-lg border border-ink-600 bg-white p-0.5 transition hover:border-accent"
+        className="shrink-0 overflow-hidden rounded-xl bg-white p-0.5 transition hover:ring-2 hover:ring-accent"
       >
         {qr ? (
           <img src={qr} alt="" className="size-10" />
@@ -77,33 +77,27 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
           </span>
         )}
       </button>
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
-        <p className="leading-none">
-          {name && <span className="mr-3 font-display text-xl font-semibold text-ink-100">{name}</span>}
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-baseline gap-3 leading-tight">
+          {name && <span className="truncate font-display text-lg font-semibold text-ink-100">{name}</span>}
           <span className="sr-only">Room code </span>
-          <span data-testid="room-code" className="font-mono text-2xl font-bold tracking-[0.16em] text-accent">
+          <span
+            data-testid="room-code"
+            className={`shrink-0 font-mono font-semibold tracking-[0.16em] ${name ? 'text-sm text-ink-300' : 'text-lg text-ink-100'}`}
+          >
             {code}
           </span>
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={c.tone}>
-            <span aria-hidden className={`size-1.5 rounded-full ${c.tone === 'ok' ? 'bg-ok' : c.tone === 'warn' ? 'bg-warn' : c.tone === 'bad' ? 'bg-bad' : 'bg-ink-400'}`} />
-            <span role="status">{c.label}</span>
-          </Badge>
+        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-300">
+          <StatusDot status={c.tone} label="" testid="conn-status" />
+          <span role="status">{c.label}</span>
           {/* phones: connection status only, so the header stays one row */}
-          <span className="contents max-sm:hidden">
-            {isHost && (
-              <Badge tone="accent">
-                <Icon name="crown" className="size-3.5" /> Host
-              </Badge>
-            )}
-            <Badge>
-              {deviceCount} speaker{deviceCount === 1 ? '' : 's'}
-            </Badge>
+          <span className="truncate max-sm:hidden">
+            {isHost && ' · Host'} · {deviceCount} speaker{deviceCount === 1 ? '' : 's'}
           </span>
-        </div>
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
         {/* phones get the native share sheet instead of copy, to keep the header on one row */}
         <IconButton
           icon={copied ? 'check' : 'link'}
@@ -115,9 +109,10 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
         {canShare && <IconButton icon="share" label="Share join link" onClick={share} variant="ghost" className="sm:hidden" />}
         {debug && <DebugDrawer />}
         {extra}
-        <button type="button" onClick={leave} className="min-h-11 rounded-xl px-3 text-sm text-ink-400 hover:bg-ink-800 hover:text-ink-100">
-          Leave
-        </button>
+        <Button variant="ghost" onClick={leave} className="max-sm:!px-3" aria-label="Leave">
+          <Icon name="leave" className="size-4" />
+          <span className="max-sm:hidden">Leave</span>
+        </Button>
       </div>
       <span className="sr-only" aria-live="polite">
         {copied ? 'Link copied to clipboard' : ''}
@@ -128,24 +123,19 @@ export function RoomHeader({ name, debug = false, extra }: { name?: string; debu
           role="dialog"
           aria-modal="true"
           aria-label="Join QR code"
-          className="fixed inset-0 z-[60] grid place-items-center bg-ink-950/90 p-6 backdrop-blur"
+          className="fixed inset-0 z-[60] grid place-items-center bg-ink-950/95 p-6"
           onClick={() => setBigQr(false)}
           onKeyDown={(e) => e.key === 'Escape' && setBigQr(false)}
         >
-          <div className="flex w-full max-w-sm flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
-            {qr && (
-              <img src={qr} alt={`QR code linking to ${joinUrl}`} className="w-full rounded-2xl bg-white p-3" />
-            )}
-            <p className="font-mono text-4xl font-bold tracking-[0.2em] text-accent">{code}</p>
-            <p className="max-w-full truncate font-mono text-xs text-ink-400">{joinUrl}</p>
-            <button
-              type="button"
-              autoFocus
-              onClick={() => setBigQr(false)}
-              className="min-h-12 rounded-xl border border-ink-600 px-6 text-ink-100 hover:border-ink-400"
-            >
-              Close
-            </button>
+          <div className="flex w-full max-w-sm flex-col items-center gap-5" onClick={(e) => e.stopPropagation()}>
+            {qr && <img src={qr} alt={`QR code linking to ${joinUrl}`} className="w-full rounded-panel bg-white p-4" />}
+            <div className="text-center">
+              <p className="font-mono text-4xl font-semibold tracking-[0.2em] text-ink-100">{code}</p>
+              <p className="mt-1 max-w-full truncate text-sm text-ink-400">{joinUrl}</p>
+            </div>
+            <Button autoFocus onClick={() => setBigQr(false)}>
+              <Icon name="x" className="size-4" /> Close
+            </Button>
           </div>
         </div>
       )}

@@ -305,7 +305,8 @@ export function Panel({
 }) {
   const hid = useId();
   return (
-    <section id={id} aria-labelledby={hid} className={`flex min-w-0 flex-col ${surface.panel} p-5 ${className}`}>
+    // phones show one panel at a time, so the page itself is the panel there (no box around the whole screen)
+    <section id={id} aria-labelledby={hid} className={`flex min-w-0 flex-col ${surface.panel} p-5 max-lg:rounded-none max-lg:bg-transparent max-lg:px-1 max-lg:py-2 ${className}`}>
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 id={hid} className="flex items-center gap-2 font-display text-xl font-semibold tracking-tight">
           {icon && <Icon name={icon} className="size-5 text-ink-400" />}
