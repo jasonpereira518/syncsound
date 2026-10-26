@@ -225,6 +225,23 @@ describe('8D orbit', () => {
     expect([...visited].sort()).toEqual(['C', 'L', 'R', 'SL', 'SR']);
   });
 
+  it('is no louder than one speaker playing the mix: the whole room carries Σ gain² = 1 at every moment', () => {
+    const { devices, scene } = room('surround5');
+    scene.motion = motion;
+    scene.objects = defaultObjectsFor(2, true); // L R + upmixed C SL SR AMB
+    for (let t = 0; t < 8_000; t += 250) {
+      const heard = sceneAt(scene, motion.startRoomTime + t);
+      let total = 0;
+      for (const d of devices) {
+        const m = computeDeviceMix({ scene: heard, devices, masterVolume: 1 }, d.id);
+        const speaker = Object.values(m.objectGains).reduce((s, g) => s + g * g, 0);
+        expect(speaker).toBeLessThanOrEqual(1 + 1e-9);
+        total += speaker;
+      }
+      expect(total).toBeCloseTo(1, 9);
+    }
+  });
+
   it('wrapDeg keeps (−180, 180]', () => {
     expect([wrapDeg(190), wrapDeg(-180), wrapDeg(540), wrapDeg(-30)]).toEqual([-170, 180, 180, -30]);
   });

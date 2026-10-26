@@ -122,7 +122,8 @@ function DeviceRow({ d }: { d: Device }) {
           value={d.role}
           disabled={!editable}
           onChange={(e) => act(() => roomActions.assignSlot(d.id, e.target.value as DeviceRole))}
-          className="h-11 w-36 shrink-0 rounded-xl border border-ink-600 bg-ink-800 px-2 text-sm disabled:opacity-50"
+          // its own full-width line, so long spot names never squeeze the speaker's name
+          className="h-11 basis-full rounded-xl border border-ink-600 bg-ink-800 px-2 text-sm disabled:opacity-50"
           style={{ color }}
         >
           {options.map((o) => (

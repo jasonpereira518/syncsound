@@ -190,12 +190,17 @@ export function sceneAt<S extends Pick<Scene, 'objects' | 'listener' | 'motion'>
   if (!scene.motion) return scene;
   const turn = orbitAngle(scene.motion, roomMs);
   const { listener } = scene;
+  // the narrowed mix lands on one or two speakers at once: scale it to the power of a single source
+  // (Σ object gain² = 1), so 8D isn't louder than the still mix and doesn't hit the limiter
+  const power = scene.objects.reduce((s, o) => (o.channel === 'LFE' || o.muted ? s : s + 10 ** (o.gainDb / 10)), 0);
+  const trimDb = power > 0 ? -10 * Math.log10(power) : 0;
   const objects = scene.objects.map((o) => {
     if (o.channel === 'LFE') return o;
     const r = Math.hypot(o.position.x - listener.x, o.position.y - listener.y);
-    if (r < 1e-9) return o;
+    const gainDb = Math.max(-60, o.gainDb + trimDb);
+    if (r < 1e-9) return { ...o, gainDb };
     const a = (turn + ORBIT_WIDTH * wrapDeg(azimuthOf(o.position, listener))) * DEG;
-    return { ...o, position: { x: listener.x + r * Math.sin(a), y: listener.y - r * Math.cos(a) } };
+    return { ...o, gainDb, position: { x: listener.x + r * Math.sin(a), y: listener.y - r * Math.cos(a) } };
   });
   return { ...scene, objects };
 }

@@ -841,5 +841,6 @@ installInstrumentation({
       return null;
     }
   },
-  mix: () => useRoomStore.getState().mix,
+  // the engine's live mix: with 8D on it moves ~30×/s while the store keeps the last full recompute
+  mix: () => session?.engine.mix ?? useRoomStore.getState().mix,
 });
