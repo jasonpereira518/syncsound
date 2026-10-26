@@ -24,7 +24,6 @@ import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
   UploadResponse,
-  isSpotifyImageUrl,
   isValidRoomCode,
   type ClientMessage,
   type DeviceCaps,
@@ -50,7 +49,7 @@ import { ClockLink, pickClockMaster } from '../lib/clockLink';
 import { RoomClient } from '../lib/roomClient';
 import { RemoteSyncManager } from '../lib/sources/remoteSync';
 import { loginSpotify, spotifyCatalog } from '../lib/sources/spotify';
-import type { SpTrack } from '../lib/sources/spotifyApi';
+import { planQueue, toRoomTrack } from '../lib/sources/spotifyQueue';
 import { normalizeRemoteId } from '../lib/sources/types';
 import { mergingThrottle } from '../lib/throttle';
 import { errMsg, initialState, patch, setError, useRoomStore } from './state';
@@ -107,21 +106,6 @@ const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp',
 const fin = (x: number) => (Number.isFinite(x) ? x : 0);
 const newTrackId = () => `t_${randomId(12)}`;
 
-/** a catalog song as a room track (fresh id: the same song may be queued twice) */
-export function spotifyTrack(t: SpTrack): Track {
-  return {
-    id: newTrackId(),
-    title: t.title.slice(0, 200) || 'Untitled',
-    kind: 'spotify',
-    sourceClass: 'remote',
-    remoteId: t.uri,
-    durationSec: t.durationMs / 1000,
-    ...(t.artist && { artist: t.artist.slice(0, 200) }),
-    ...(t.album && { album: t.album.slice(0, 200) }),
-    ...(t.artworkUrl && isSpotifyImageUrl(t.artworkUrl) && { artworkUrl: t.artworkUrl }),
-    addedBy: useRoomStore.getState().deviceId,
-  };
-}
 
 function send(msg: ClientMessage): boolean {
   return session?.client.send(msg) ?? false;
@@ -990,6 +974,26 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     }
   },
 
+  allowSpotifyBrowse() {
+    // synchronous from the click: the consent popup must open before any await
+    return loginSpotify({ browse: true });
+  },
+
+  queueSpotify(songs, mode, startIndex) {
+    const st = useRoomStore.getState();
+    if (!st.room) {
+      setError('Join the room first.');
+      return { queued: 0, dropped: songs.length };
+    }
+    const plan = planQueue(songs, mode, { startIndex, queueLength: st.room.queue.length, newId: newTrackId, addedBy: st.deviceId });
+    if (!plan.commands.length) {
+      setError('The queue is full. Remove some tracks first.');
+      return { queued: 0, dropped: plan.dropped };
+    }
+    for (const command of plan.commands) sendOrWarn({ type: 'CONTROL', command });
+    return { queued: plan.queued, dropped: plan.dropped };
+  },
+
   disconnectSpotify() {
     session?.remote.disconnect('spotify');
   },
@@ -1013,7 +1017,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     if (kind === 'spotify') {
       // the room needs the song's length to move on at its end, and every speaker shows its cover art
       const t = await spotifyCatalog().track(id.slice('spotify:track:'.length));
-      sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track: spotifyTrack(t) } });
+      sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track: toRoomTrack(t, newTrackId(), useRoomStore.getState().deviceId) } });
       return;
     }
     const track: Track = {

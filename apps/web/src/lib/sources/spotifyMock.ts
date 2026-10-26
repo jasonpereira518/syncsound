@@ -26,9 +26,9 @@ function tr(key: string, title: string, artist: string, album: string, sec: numb
 }
 
 const ROAD = [
-  tr('road1', 'Open Highway', 'The Mock Band', 'Mock Road Trip', 10),
-  tr('road2', 'Rest Stop', 'The Mock Band', 'Mock Road Trip', 10),
-  tr('road3', 'City Lights', 'The Mock Band', 'Mock Road Trip', 10),
+  tr('road1', 'Open Highway', 'The Mock Band', 'Mock Road Trip', 15),
+  tr('road2', 'Rest Stop', 'The Mock Band', 'Mock Road Trip', 15),
+  tr('road3', 'City Lights', 'The Mock Band', 'Mock Road Trip', 15),
 ];
 const CHILL = [
   tr('chill1', 'Slow Morning', 'Fixture Trio', 'Quiet Hours', 180),

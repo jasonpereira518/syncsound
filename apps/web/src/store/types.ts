@@ -2,6 +2,8 @@
  * Contract between the client engine (src/lib, src/store) and the UI (src/app, src/components).
  * UI reads state via `useRoomStore(selector)` and calls `roomActions.*`.
  */
+import type { SpTrack } from '../lib/sources/spotifyApi';
+import type { QueueMode } from '../lib/sources/spotifyQueue';
 import type {
   BufferState,
   ControlCommand,
@@ -235,6 +237,13 @@ export interface RoomActions {
   connectSpotify(): Promise<void>;
   /** sign this device out of Spotify */
   disconnectSpotify(): void;
+  /** MUST be called synchronously from a click: ask to read playlists, Liked Songs and saved albums too */
+  allowSpotifyBrowse(): Promise<void>;
+  /**
+   * Queue Spotify songs: 'play' replaces the queue with songs[startIndex…] and starts the first, 'shuffle' the same
+   * shuffled, 'next' after the current track, 'append' at the end. Capped by what the queue holds.
+   */
+  queueSpotify(songs: SpTrack[], mode: QueueMode, startIndex?: number): { queued: number; dropped: number };
   /** MUST be called synchronously from a click: start (or take back) Spotify playback on this device */
   startSpotifyHere(): void;
   connectApple(): Promise<void>;

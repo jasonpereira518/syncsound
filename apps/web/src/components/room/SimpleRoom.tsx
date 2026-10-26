@@ -56,11 +56,58 @@ export function NowPlaying({ onSetup }: { onSetup: () => void }) {
           <span className="text-sm text-ink-400">{showSpeakers ? 'Hide' : 'Show'}</span>
         </button>
         {showSpeakers && <SpeakerList devices={health.live} />}
+        <SpotifyReadiness devices={health.live} />
         <TuneCard devices={health.live} onSetup={onSetup} />
       </section>
       <OtherRooms />
       <Library />
     </div>
+  );
+}
+
+/** while a Spotify song is on: how many speakers can play it (each needs its own connected account) */
+function SpotifyReadiness({ devices }: { devices: Device[] }) {
+  const spotify = useRoomStore((s) => currentTrack(s.room)?.kind === 'spotify');
+  if (!spotify) return null;
+  const ready = devices.filter((d) => d.remote.spotify === 'ready');
+  const missing = devices.filter((d) => d.remote.spotify !== 'ready');
+  return (
+    <p data-testid="spotify-health" className={`mt-3 rounded-xl border px-3 py-2 text-sm ${missing.length ? 'border-warn/40 bg-warn/10' : 'border-ink-700'}`}>
+      <Icon name="music" className="mr-1 inline size-4 align-[-3px]" />
+      {ready.length} of {devices.length} speaker{devices.length === 1 ? '' : 's'} can play Spotify
+      {missing.length > 0 && (
+        <span className="text-ink-300">
+          {' '}
+          · {missing.map((d) => d.name).join(', ')} {missing.length === 1 ? 'needs' : 'need'} to connect their own Premium account
+        </span>
+      )}
+    </p>
+  );
+}
+
+/** what's playing, with its cover art when the track has it */
+function NowPlayingCard() {
+  const track = useRoomStore((s) => currentTrack(s.room));
+  const status = useRoomStore((s) => s.room?.playback.status);
+  const [broken, setBroken] = useState<string | null>(null);
+  if (!track) return null;
+  const art = track.artworkUrl && broken !== track.artworkUrl ? track.artworkUrl : null;
+  return (
+    <section aria-label="Now playing" data-testid="speaker-now-playing" className="flex items-center gap-3 rounded-2xl border border-ink-700 p-3">
+      {art ? (
+        <img src={art} alt="" className="size-16 shrink-0 rounded-lg object-cover" onError={() => setBroken(art)} />
+      ) : (
+        <span className="grid size-16 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent/30 to-ink-800 text-accent">
+          <Icon name="music" className="size-7" />
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs text-ink-400">{status === 'playing' ? 'Now playing' : status === 'paused' ? 'Paused' : 'Up next'}</span>
+        <span className="block truncate font-medium">{track.title}</span>
+        {track.artist && <span className="block truncate text-sm text-ink-300">{[track.artist, track.album].filter(Boolean).join(' · ')}</span>}
+        {track.kind === 'spotify' && <span className="block text-xs text-ink-400">Spotify · sync-only (no spatial/EQ)</span>}
+      </span>
+    </section>
   );
 }
 
@@ -253,6 +300,7 @@ export function SpeakerScreen({ onControls }: { onControls?: () => void }) {
           <span data-testid="self-tune-state">{tuned}</span>
         </p>
       </div>
+      <NowPlayingCard />
       {routed && (
         <div className="rounded-2xl border border-ink-700 bg-ink-950 p-2">
           <RoomDiagram layout={layout} scene={scene} devices={devices} highlight={self.id} />

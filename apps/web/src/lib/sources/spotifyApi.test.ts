@@ -167,13 +167,13 @@ describe('collect', () => {
 });
 
 describe('MockSpotifyApi', () => {
-  it('serves the fixture road-trip playlist with 10 s songs and refuses unlistable playlists', async () => {
+  it('serves the fixture road-trip playlist with 15 s songs and refuses unlistable playlists', async () => {
     const m = new MockSpotifyApi();
     const pls = await m.myPlaylists();
     const road = pls.items.find((p) => p.name === 'Mock Road Trip')!;
     const songs = await m.playlistTracks(road.id);
-    expect(songs.items.map((t) => t.durationMs)).toEqual([10_000, 10_000, 10_000]);
-    expect(mockDurationMs(songs.items[0]!.uri)).toBe(10_000);
+    expect(songs.items.map((t) => t.durationMs)).toEqual([15_000, 15_000, 15_000]);
+    expect(mockDurationMs(songs.items[0]!.uri)).toBe(15_000);
     expect(mockDurationMs('spotify:track:unknownunknownunknown12')).toBe(180_000);
     const other = pls.items.find((p) => !p.listable)!;
     await expect(m.playlistTracks(other.id)).rejects.toThrow(/own or collaborate/);

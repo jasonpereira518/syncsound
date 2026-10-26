@@ -24,7 +24,9 @@ sound objects around the **Stage**.
   to, live **tab/system capture** (WebRTC) for YouTube and video, and **local video** with the picture locked to
   the room clock.
 - **Sources (Class B, sync-only):** Spotify (Web Playback SDK, Premium) and Apple Music (MusicKit JS). DRM means
-  no spatial/EQ, and the UI says so.
+  no spatial/EQ, and the UI says so. With Spotify the host searches and browses playlists, Liked Songs and albums,
+  plays or queues them, and the room moves through the songs on every speaker; each speaker connects its own
+  Premium account once (Spotify streams one account in one place). Setup: [docs/DEPLOY.md](docs/DEPLOY.md).
 - **Spatial stage:** draggable devices, listener and audio objects (L/C/R/SL/SR/LFE/ambience/stems); DBAP panning
   with constant power; LR4 bass management to bass-capable devices; propagation time-alignment; presets;
   undo/redo; snap; keyboard control.

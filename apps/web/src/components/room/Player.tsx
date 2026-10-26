@@ -20,6 +20,7 @@ import {
   type TabDef,
 } from '../ui';
 import { normalizeRemoteId } from '@/lib/sources/types';
+import { SpotifyPanel } from './SpotifyPanel';
 import { act, attempt, currentTrack, errMsg, roomNowMs, useCanControl } from './shared';
 
 type Source = 'demo' | 'upload' | 'url' | 'spotify' | 'apple' | 'capture' | 'youtube' | 'video';
@@ -85,12 +86,13 @@ export function Library() {
         tabClassName="!min-h-8 rounded-full border border-ink-700 !px-3 text-xs aria-selected:border-accent/60 aria-selected:bg-accent/10"
       />
       <div {...tabPanelProps('src', source)} className="min-w-0 pt-3">
+        {/* Spotify: any speaker connects its own account, so its panel isn't locked; browsing checks control itself */}
+        {source === 'spotify' && <SpotifyPanel />}
         <fieldset disabled={!canControl} className="min-w-0">
           <legend className="sr-only">{SOURCES.find((s) => s.id === source)?.label} source</legend>
           {source === 'demo' && <DemoSource />}
           {source === 'upload' && <UploadSource />}
           {source === 'url' && <UrlSource />}
-          {source === 'spotify' && <RemoteSource kind="spotify" />}
           {source === 'apple' && <RemoteSource kind="apple" />}
           {source === 'capture' && <CaptureSource />}
           {source === 'youtube' && <YouTubeSource />}
@@ -124,15 +126,40 @@ export function Player() {
       className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-ink-700 bg-ink-900/95 px-3 pt-1.5 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] md:pt-2"
     >
       <div className="flex min-w-0 items-center gap-3 md:row-span-2">
-        <span className="hidden size-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent/30 to-ink-800 text-accent sm:grid">
-          <Icon name={track ? KIND_ICON[track.kind] : 'music'} className="size-6" />
-        </span>
+        {/* cover art shows on every screen size when a track has it (Spotify requires it during playback) */}
+        {track?.artworkUrl ? (
+          <CoverArt url={track.artworkUrl} className="size-12" testid="now-playing-art" />
+        ) : (
+          <span className="hidden size-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent/30 to-ink-800 text-accent sm:grid">
+            <Icon name={track ? KIND_ICON[track.kind] : 'music'} className="size-6" />
+          </span>
+        )}
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{track?.title ?? 'Nothing playing'}</p>
-          <p className="truncate text-xs text-ink-400">
-            {track ? `${track.kind} · ${playback.status}` : 'Queue a track from the library'}
+          <p className="truncate text-sm font-medium" data-testid="now-playing-title">
+            {track?.title ?? 'Nothing playing'}
           </p>
-          {track?.sourceClass === 'remote' && <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>}
+          <p className="truncate text-xs text-ink-400">
+            {!track
+              ? 'Queue a track from the library'
+              : track.artist
+                ? [track.artist, track.album].filter(Boolean).join(' · ')
+                : `${track.kind} · ${playback.status}`}
+          </p>
+          {track?.sourceClass === 'remote' && (
+            <span className="flex flex-wrap items-center gap-2">
+              <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>
+              {track.kind === 'spotify' && track.remoteId && (
+                <a
+                  href={`https://open.spotify.com/track/${track.remoteId.split(':').pop()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-ink-300 underline-offset-2 hover:text-ink-100 hover:underline"
+                >
+                  Open in Spotify
+                </a>
+              )}
+            </span>
+          )}
         </div>
       </div>
 
@@ -306,6 +333,18 @@ function Seek({ duration }: { duration: number }) {
   );
 }
 
+/** a track's cover art; falls back to a music icon if the image can't load */
+function CoverArt({ url, className, testid }: { url: string; className: string; testid?: string }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  if (broken === url)
+    return (
+      <span className={`${className} grid shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent/30 to-ink-800 text-accent`}>
+        <Icon name="music" className="size-1/2" />
+      </span>
+    );
+  return <img src={url} alt="" data-testid={testid} className={`${className} shrink-0 rounded-lg object-cover`} onError={() => setBroken(url)} />;
+}
+
 // ---------- queue ----------
 
 function Queue() {
@@ -329,14 +368,18 @@ function Queue() {
             className={`flex items-center gap-2 rounded-xl border px-2 py-1 ${current ? 'border-accent/60 bg-accent/10' : 'border-ink-700 bg-ink-850/50'}`}
           >
             <span className="w-5 text-center font-mono text-xs text-ink-500">{i + 1}</span>
-            <Icon
-              name={KIND_ICON[t.kind]}
-              className={`size-4 shrink-0 ${current ? 'text-accent' : 'text-ink-400'}`}
-            />
+            {t.artworkUrl ? (
+              <CoverArt url={t.artworkUrl} className="size-8" />
+            ) : (
+              <Icon
+                name={KIND_ICON[t.kind]}
+                className={`size-4 shrink-0 ${current ? 'text-accent' : 'text-ink-400'}`}
+              />
+            )}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm">{t.title}</span>
-              <span className="block text-xs text-ink-500">
-                {t.kind}
+              <span className="block truncate text-xs text-ink-500">
+                {t.artist ?? t.kind}
                 {t.durationSec ? ` · ${fmtTime(t.durationSec)}` : ''}
                 {t.sourceClass === 'remote' ? ' · sync-only' : ''}
               </span>

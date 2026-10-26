@@ -81,7 +81,25 @@ Set `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCE
 
 ## Spotify / Apple Music (optional)
 
-- Spotify: create an app at developer.spotify.com, enable the **Web Playback SDK**, add the redirect URI `https://<web>/spotify-callback`, set `NEXT_PUBLIC_SPOTIFY_CLIENT_ID` and `NEXT_PUBLIC_SPOTIFY_REDIRECT_URI`. Each participating device signs in with its own **Premium** account. Development-mode apps only allow allow-listed users.
+- **Spotify** (search, playlists, Liked Songs and albums, played in sync on every speaker):
+  1. Create an app at developer.spotify.com (the app owner needs **Spotify Premium**). Under APIs used, enable
+     **Web API** and **Web Playback SDK**.
+  2. Add a redirect URI for every origin you open SyncSound on: `http://127.0.0.1:3000/spotify-callback` for local
+     development (Spotify rejects `localhost`; open the app at 127.0.0.1) and `https://<web>/spotify-callback` for
+     the deployment.
+  3. **User Management:** add every Spotify account that will use SyncSound: the host's and each speaker's. A
+     development-mode app allows **5 accounts** in total, and extended quota is only granted to registered
+     businesses, so 5 is the practical limit. An account that isn't on the list gets "This Spotify account isn't on
+     this app's allow-list".
+  4. Set `NEXT_PUBLIC_SPOTIFY_CLIENT_ID` (and `NEXT_PUBLIC_SPOTIFY_REDIRECT_URI` if the callback isn't
+     `<origin>/spotify-callback`) and redeploy.
+  - **Each speaker plays under its own Premium account.** Spotify streams one account on one device at a time, and its
+    terms forbid playing one stream to several listeners, so there is no "one login plays everywhere". A Family plan
+    gives each member their own account. Each device connects once; the sign-in is kept (and refreshed) in that
+    browser until "Disconnect Spotify".
+  - The controller (host, or anyone when control isn't locked) also grants read access to playlists, Liked Songs and
+    saved albums. Spotify only lists the songs of playlists the account owns or collaborates on.
+  - Personal, non-commercial use only (Spotify Developer Policy).
 - Apple Music: generate a MusicKit developer token (JWT signed with your MusicKit private key; max 6 months) and set `NEXT_PUBLIC_APPLE_MUSIC_DEVELOPER_TOKEN`. Each device needs its own Apple Music subscription.
 
 Both are sync-only (no spatial/EQ) by design: their audio is DRM-protected and owned by the official SDK.
