@@ -3,6 +3,7 @@ export * from './audioClock';
 export * from './scheduler';
 export * from './drift';
 export * from './remoteSync';
+export * from './remoteDriver';
 export * from './spatial';
 export * from './layout';
 export * from './vbap';

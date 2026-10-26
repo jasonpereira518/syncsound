@@ -54,6 +54,9 @@ interface PlayingVoice {
   fadeUntil: number;
 }
 
+/** add the browser-reported output latency to Class B players too (unverified on hardware: HUMAN_TEST_CHECKLIST 10) */
+const REMOTE_AUTO_LATENCY = false;
+
 export interface EngineDeps {
   clock: () => RoomClock | null;
   /** clock burst done since the last (re)connect */
@@ -306,6 +309,17 @@ export class AudioEngine {
 
   compensationSec(): number {
     return compensationSec(this.latencyInput(), this.mix?.delaySec ?? 0);
+  }
+
+  /**
+   * How much earlier than the room timeline a Class B (Spotify/Apple) player on this device must sound, ms: the
+   * manual trim and the calibrated delay (a Bluetooth speaker's, measured acoustically) minus this seat's
+   * propagation delay. The browser-reported Web Audio latency is left out (REMOTE_AUTO_LATENCY): the SDK plays
+   * through its own media element, whose pipeline that number doesn't describe.
+   */
+  remoteCompensationMs(): number {
+    const l = this.latencyInput();
+    return compensationSec({ ...l, usingOutputTimestamp: !REMOTE_AUTO_LATENCY }, this.mix?.delaySec ?? 0) * 1000;
   }
 
   autoCompensationSec(): number {

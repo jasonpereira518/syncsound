@@ -27,6 +27,7 @@
       "p95AbsErrorMs": 70,
       "seeks": 5,
       "seekLatencyMs": 276,
+      "startLatencyMs": 0,
       "samples": 1201
     },
     "seeks": 5,
@@ -67,6 +68,7 @@
       "p95AbsErrorMs": 80,
       "seeks": 17,
       "seekLatencyMs": 286,
+      "startLatencyMs": 0,
       "samples": 1201
     },
     "seeks": 17,
@@ -91,5 +93,61 @@
     ],
     "minGapBetweenSeeksMs": 3000,
     "firstWithin30msAtSec": 7
+  },
+  "boundaries": {
+    "keptLeads": {
+      "songs": 10,
+      "songMs": 30000,
+      "startLatency": "N(300, 80) clamped [150, 500] ms",
+      "boundaryAbsErrMs": {
+        "n": 45,
+        "mean": 66.453,
+        "rms": 71.958,
+        "p50": 59.721,
+        "p95": 104.146,
+        "max": 104.146
+      },
+      "learnedStartLeadMs": 292
+    },
+    "perTrackReset": {
+      "songs": 10,
+      "songMs": 30000,
+      "startLatency": "N(300, 80) clamped [150, 500] ms",
+      "boundaryAbsErrMs": {
+        "n": 45,
+        "mean": 282.219,
+        "rms": 291.067,
+        "p50": 293.871,
+        "p95": 412.211,
+        "max": 412.211
+      },
+      "learnedStartLeadMs": 210
+    }
+  },
+  "bluetooth": {
+    "compensated": {
+      "sinkDelayMs": 200,
+      "compensationMs": 200,
+      "heardAbsErrMs": {
+        "n": 201,
+        "mean": 3.937,
+        "rms": 4.768,
+        "p50": 3.784,
+        "p95": 8.284,
+        "max": 8.784
+      }
+    },
+    "uncompensated": {
+      "sinkDelayMs": 200,
+      "compensationMs": 0,
+      "heardAbsErrMs": {
+        "n": 201,
+        "mean": 193,
+        "rms": 193.022,
+        "p50": 193,
+        "p95": 197.5,
+        "max": 198
+      }
+    }
   }
 }

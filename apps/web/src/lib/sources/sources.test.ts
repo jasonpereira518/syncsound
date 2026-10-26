@@ -40,6 +40,23 @@ describe('MockRemoteAdapter', () => {
     expect((await m.getPosition()).positionMs).toBe(5000);
   });
 
+  it('moves into the song riding along at the end, then stops at position 0 like the SDK', async () => {
+    const c = fakeClock();
+    const dur = (uri: string) => (uri === 'A' ? 1000 : uri === 'B' ? 2000 : null);
+    const m = new MockRemoteAdapter({ seekLatencyMs: 0, jitterMs: 0, now: c.now, sleep: c.sleep, durationMs: dur });
+    await m.load('A', { next: 'B' });
+    await m.play(500);
+    c.advance(400);
+    expect(await m.getPosition()).toMatchObject({ uri: 'A', playing: true, positionMs: 900, durationMs: 1000 });
+    c.advance(300); // 200 ms into B
+    expect(await m.getPosition()).toMatchObject({ uri: 'B', playing: true, positionMs: 200 });
+    // loading the next room track doesn't stop what is playing (the hand-over happens at the room boundary)
+    await m.load('B');
+    expect((await m.getPosition()).playing).toBe(true);
+    c.advance(5000);
+    expect(await m.getPosition()).toMatchObject({ uri: 'B', playing: false, positionMs: 0 });
+  });
+
   it('jitter stays within bounds', async () => {
     const c = fakeClock();
     const m = new MockRemoteAdapter({ seekLatencyMs: 100, jitterMs: 30, now: c.now, sleep: c.sleep, random: () => 1 });

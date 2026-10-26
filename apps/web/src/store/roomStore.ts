@@ -607,7 +607,12 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         linkState: () => linkState(s),
       }),
       capture: new CaptureController(engine, send),
-      remote: new RemoteSyncManager({ nowRoom, send, outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1 }),
+      remote: new RemoteSyncManager({
+        nowRoom,
+        send,
+        outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1,
+        compensationMs: () => engine.remoteCompensationMs(),
+      }),
       video: new VideoDriver(engine, nowRoom),
       history: new History<Scene>(),
       scene: mergingThrottle<ScenePatch>((p) => send({ type: 'SCENE_UPDATE', ...p }), 1000 / 30),
