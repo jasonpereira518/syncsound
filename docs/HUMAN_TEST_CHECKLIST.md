@@ -35,10 +35,20 @@ Record results in the table at the bottom.
    buffer value that gives dropout-free audio.
 9. **DRM detection.** Capture a Netflix/Disney+ tab. The "This tab is silent / DRM" explanation should appear
    within ~3 s.
-10. **Spotify sync-only, two Premium accounts.** Configure `NEXT_PUBLIC_SPOTIFY_CLIENT_ID`, connect Spotify on
-    two devices, queue a track and play. Both should play in sync within the reported error (expect 20–150 ms).
-    The "Sync-only mode (no spatial/EQ)" badge must show; seek and pause must follow. Also try a free account:
-    it should show `needs-premium`.
+10. **Spotify, three Premium accounts (Spotify pass).** Set up the app per DEPLOY.md (all three accounts
+    allow-listed). Host on a laptop, speakers on an Android phone and an iPhone.
+    - Connect once on each device. Reload the page: it reconnects without the popup. Leave it over an hour: it
+      keeps playing (token refresh).
+    - Guest in a host-only room: the "This song plays from Spotify" banner's Connect works. On the iPhone, "Start
+      Spotify here" appears and starts it.
+    - Host: search, open one of your playlists, Liked Songs and an album; Play, Shuffle, Play next, Add. A followed
+      playlist you don't own explains why its songs can't be listed.
+    - Let a playlist run across 3 song boundaries with the room crossfade at 6 s: no overlap, a short gap at most,
+      every speaker on the same song. Seek and pause follow. Run *Measure sync* during a song (expect 20–150 ms).
+    - One speaker on a Bluetooth speaker after tuning: compare by ear with and without `REMOTE_AUTO_LATENCY`.
+    - The same account on two devices: "This Spotify account is playing on another device", no tug of war.
+    - An account not on the allow-list: the allow-list message. A free account: `needs-premium`.
+    - The "Sync-only mode (no spatial/EQ)" badge and the cover art show on every device, phones included.
 11. **Apple Music.** Configure `NEXT_PUBLIC_APPLE_MUSIC_DEVELOPER_TOKEN`, authorize on two devices with
     subscriptions, queue a song id and play. Check sync, pause and seek, and that the error appears in the UI.
 12. **iOS Safari background behavior.** Join from an iPhone, play, then lock the screen or switch apps (audio

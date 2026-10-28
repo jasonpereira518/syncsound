@@ -10,6 +10,7 @@ import { JoinGate } from './JoinGate';
 import { Library, Player } from './Player';
 import { RoomHeader } from './RoomHeader';
 import { SetupWizard } from './SetupWizard';
+import { SpotifyBanner } from './SpotifyBanner';
 import { NowPlaying, SpeakerScreen } from './SimpleRoom';
 import { Stage } from './Stage';
 import { TuneStatus } from './TuneStatus';
@@ -217,6 +218,7 @@ function Banners() {
   const audioStopped = useLasting(stopped, 1500); // not the brief 'suspended' while audio starts or comes back by itself
   return (
     <>
+      <SpotifyBanner />
       {audioStopped && (
         <div
           role="alert"

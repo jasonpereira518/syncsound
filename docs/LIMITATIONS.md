@@ -26,6 +26,15 @@ An honest list of what is not done, what can't be verified without hardware, and
 - **Spotify / Apple Music are DRM-protected.** They run sync-only (seek-based) through the official Web Playback
   SDK / MusicKit JS, with no spatial rendering, no EQ and no sample-accurate scheduling. Expect tens of ms to
   ~150 ms. Every device needs its own Premium / Apple Music subscription.
+- **Spotify: one stream per account, 5 accounts per app.** Spotify plays one account on one device at a time and
+  forbids relaying one stream to several listeners, so every speaker signs in with its own Premium account; a
+  speaker without one stays silent for Spotify songs (the banner says so). A development-mode Spotify app allows
+  5 allow-listed accounts in total (host included); extended quota is only for registered businesses.
+- **Spotify catalog limits (Web API, Feb 2026):** search returns 10 results per page; the songs of a playlist can be
+  listed only when the account owns or collaborates on it (followed and editorial playlists show their name only);
+  `/me` no longer says whether an account has Premium, so that shows up when the player refuses to start.
+- **Spotify queue window:** Play / Shuffle put at most 200 songs into the room queue (the queue's size); a longer
+  playlist starts with its first 200 (Shuffle draws them from up to 1000).
 - **DRM video** (Netflix, Disney+, …) captures as silence. The app detects this after 3 s and explains it.
 - **YouTube** streams are never downloaded. The video plays in its own tab with YouTube's official player and its
   sound reaches every device through tab capture (Mode 1): two steps (open the tab, then share it), because the
@@ -95,8 +104,11 @@ An honest list of what is not done, what can't be verified without hardware, and
   `setTargetAtTime`) need ears.
 - **The S3/R2/MinIO storage adapter** is only unit-tested at the signer level (AWS's published SigV4 vector).
   Uploads through a real bucket are untested.
-- **Spotify and Apple adapters** are verified only through contract tests against the mock adapter. Real OAuth,
-  Premium detection and MusicKit authorization are untested, since no credentials are available here.
+- **Spotify and Apple adapters** are verified only through contract tests against the mock adapter and the fixture
+  catalog (`?mockRemote=1`). Real OAuth, token refresh, the Web API responses, Premium detection, iOS's "tap to
+  start" and MusicKit authorization are untested, since no credentials are available here. The Spotify output
+  compensation leaves out the browser-reported Web Audio latency (`REMOTE_AUTO_LATENCY`), because the SDK plays
+  through its own media element; whether it should be included needs a real Bluetooth speaker.
 - **Docker images** are built and smoke-tested locally (server health + demo assets, web 200). Fly.io/Railway/Vercel
   deploys are documented but not performed.
 
@@ -137,8 +149,10 @@ An honest list of what is not done, what can't be verified without hardware, and
   steering decoder.
 - **Track end:** rendered tracks with a known duration auto-advance (gapless, or the room's crossfade). The next
   track's title and seek bar switch over when its SCHEDULE arrives, i.e. up to the room's lead (~0.3 s, up to ~2 s
-  with Bluetooth) before it is heard. Sync-only tracks (Spotify / Apple Music) have no server-side end: the SDK plays
-  on and the host presses next. A track whose length nobody has decoded yet (a web link, until the first device
+  with Bluetooth) before it is heard. Spotify songs carry their length from the catalog and auto-advance too, always without a
+  crossfade (Spotify audio may not overlap anything); the hand-over costs one play request on each speaker, so
+  expect a short gap (the learned start lead and the next song riding along in the request keep it small). Apple
+  Music songs have no known length: the SDK plays on and the host presses next. A track whose length nobody has decoded yet (a web link, until the first device
   decodes it) doesn't advance. During a crossfade the outgoing track is no longer drift-corrected (its rate stays at
   the last nudge, ≤ 0.2 %). Decoders that pad a gapless album's tracks differently (MP3 in particular) leave a few
   ms of overlap or gap at a gapless join; an overlap is cut over 15 ms, a gap can't be filled.
@@ -146,7 +160,9 @@ An honest list of what is not done, what can't be verified without hardware, and
   a Durable Object port straightforward, but the port isn't done.
 - **Device id lives in localStorage:** two tabs of the same browser profile share it and replace each other in the
   room. Use separate browser profiles/devices.
-- **Spotify tokens** aren't refreshed (they expire after 1 h; reconnect). Apple Music has no reliable
+- **Spotify sign-in** is kept per browser in localStorage and refreshed with its refresh token (PKCE, no secret), so a
+  speaker connects once; "Disconnect Spotify" removes it. iOS Safari needs a tap before Spotify plays after the
+  page loads ("Start Spotify here"), and stops when the screen locks. Apple Music has no reliable
   missing-subscription check.
 - **Profiles persist** (server `profiles.json`, keyed by the device id in localStorage): name, role, trim, latency,
   tune arrival + tune id, EQ bands, rolloff, bass capability. The raw impulse response is not stored; re-measure to

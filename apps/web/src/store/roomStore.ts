@@ -50,7 +50,8 @@ import { installInstrumentation } from '../lib/instrumentation';
 import { ClockLink, pickClockMaster } from '../lib/clockLink';
 import { RoomClient } from '../lib/roomClient';
 import { RemoteSyncManager } from '../lib/sources/remoteSync';
-import { loginSpotify } from '../lib/sources/spotify';
+import { loginSpotify, spotifyCatalog } from '../lib/sources/spotify';
+import { planQueue, toRoomTrack } from '../lib/sources/spotifyQueue';
 import { normalizeRemoteId } from '../lib/sources/types';
 import { mergingThrottle } from '../lib/throttle';
 import { errMsg, initialState, patch, setError, useRoomStore } from './state';
@@ -106,6 +107,7 @@ let joining: string | null = null;
 const SCENE_KEYS = ['objects', 'devices', 'listener', 'room', 'propagationComp', 'rolloff', 'blur', 'crossoverHz', 'upmix', 'layout', 'motion'] as const;
 const fin = (x: number) => (Number.isFinite(x) ? x : 0);
 const newTrackId = () => `t_${randomId(12)}`;
+
 
 function send(msg: ClientMessage): boolean {
   return session?.client.send(msg) ?? false;
@@ -725,7 +727,12 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         linkState: () => linkState(s),
       }),
       capture: new CaptureController(engine, send),
-      remote: new RemoteSyncManager({ nowRoom, send, outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1 }),
+      remote: new RemoteSyncManager({
+        nowRoom,
+        send,
+        outputGain: () => engine.mix?.outputGain ?? useRoomStore.getState().room?.volume ?? 1,
+        compensationMs: () => engine.remoteCompensationMs(),
+      }),
       video: new VideoDriver(engine, nowRoom),
       history: new History<Scene>(),
       scene: mergingThrottle<ScenePatch>((p) => send({ type: 'SCENE_UPDATE', ...p }), 1000 / 30),
@@ -1084,12 +1091,47 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   async connectSpotify() {
     const s = session;
     if (!s) return setError('Join the room first.');
+    s.remote.activate('spotify'); // synchronous, inside the tap: unlocks the player's audio on iOS/Safari
     try {
-      if (!s.remote.spotifySignedIn && useRoomStore.getState().remote.spotify !== 'unconfigured') await loginSpotify(); // popup opens synchronously
+      const st = useRoomStore.getState();
+      // the controller also browses (playlists, Liked Songs); speakers only play
+      const browse = st.isHost || !st.room?.settings.hostOnlyControl;
+      if (!s.remote.spotifySignedIn && st.remote.spotify !== 'unconfigured') await loginSpotify({ browse }); // popup opens synchronously
       await s.remote.connect('spotify');
     } catch (e) {
       patch('remote', { message: errMsg(e) });
     }
+  },
+
+  allowSpotifyBrowse() {
+    // synchronous from the click: the consent popup must open before any await
+    return loginSpotify({ browse: true });
+  },
+
+  queueSpotify(songs, mode, startIndex) {
+    const st = useRoomStore.getState();
+    if (!st.room) {
+      setError('Join the room first.');
+      return { queued: 0, dropped: songs.length };
+    }
+    const plan = planQueue(songs, mode, { startIndex, queueLength: st.room.queue.length, newId: newTrackId, addedBy: st.deviceId });
+    if (!plan.commands.length) {
+      setError('The queue is full. Remove some tracks first.');
+      return { queued: 0, dropped: plan.dropped };
+    }
+    for (const command of plan.commands) sendOrWarn({ type: 'CONTROL', command });
+    return { queued: plan.queued, dropped: plan.dropped };
+  },
+
+  disconnectSpotify() {
+    session?.remote.disconnect('spotify');
+  },
+
+  startSpotifyHere() {
+    const s = session;
+    if (!s) return;
+    s.remote.activate('spotify'); // synchronous, inside the tap
+    s.remote.restart();
   },
 
   async connectApple() {
@@ -1098,12 +1140,18 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     await s.remote.connect('apple');
   },
 
-  queueRemote(kind, remoteId, title) {
+  async queueRemote(kind, remoteId, title) {
     const id = normalizeRemoteId(kind, remoteId);
     if (!id) return setError(kind === 'spotify' ? "That doesn't look like a Spotify track link or URI." : "That doesn't look like an Apple Music song link or id.");
+    if (kind === 'spotify') {
+      // the room needs the song's length to move on at its end, and every speaker shows its cover art
+      const t = await spotifyCatalog().track(id.slice('spotify:track:'.length));
+      sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track: toRoomTrack(t, newTrackId(), useRoomStore.getState().deviceId) } });
+      return;
+    }
     const track: Track = {
       id: newTrackId(),
-      title: (title?.trim() || (kind === 'spotify' ? 'Spotify track' : 'Apple Music song')).slice(0, 200),
+      title: (title?.trim() || 'Apple Music song').slice(0, 200),
       kind,
       sourceClass: 'remote',
       remoteId: id,

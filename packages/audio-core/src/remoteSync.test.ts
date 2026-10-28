@@ -27,4 +27,21 @@ describe('RemoteSyncController', () => {
     expect(s.samples).toBe(5);
     expect(s.meanAbsErrorMs).toBeCloseTo(72, 9);
   });
+
+  it('resetTrack keeps the learned leads; reset forgets them; seeds are bounded', () => {
+    const c = new RemoteSyncController({ confirmCount: 1 });
+    c.recordSeekResult(150);
+    c.recordStartResult(400);
+    c.recordStartResult(300); // started with the 400 lead and still landed 300 behind → 400 + 0.3·300
+    expect(c.exportLeads()).toEqual({ seekMs: 150, startMs: 490 });
+    c.update({ expectedPositionMs: 0, reportedPositionMs: 500, nowMs: 0 });
+    c.resetTrack();
+    expect(c.stats()).toMatchObject({ seeks: 0, samples: 0, seekLatencyMs: 150, startLatencyMs: 490 });
+    c.reset();
+    expect(c.exportLeads()).toEqual({ seekMs: 0, startMs: 0 });
+    c.seedLeads({ seekMs: 220, startMs: 9e9 });
+    expect(c.exportLeads()).toEqual({ seekMs: 220, startMs: 0 });
+    c.seedLeads({ startMs: 350 });
+    expect(c.stats().startLatencyMs).toBe(350);
+  });
 });

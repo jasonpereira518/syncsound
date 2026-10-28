@@ -2,6 +2,8 @@
  * Contract between the client engine (src/lib, src/store) and the UI (src/app, src/components).
  * UI reads state via `useRoomStore(selector)` and calls `roomActions.*`.
  */
+import type { SpTrack } from '../lib/sources/spotifyApi';
+import type { QueueMode } from '../lib/sources/spotifyQueue';
 import type {
   BufferState,
   ControlCommand,
@@ -177,6 +179,10 @@ export interface RemoteUi {
   meanAbsErrorMs: number | null;
   seeks: number;
   message: string | null;
+  /** the browser blocked the service's player until a tap on this device */
+  needsTap: boolean;
+  /** this device's account is playing on another device */
+  elsewhere: boolean;
 }
 
 export interface RoomStoreState {
@@ -247,9 +253,22 @@ export interface RoomActions {
   /** Capture this tab / system audio and send it to every device (video mode 1). */
   startCapture(): Promise<void>;
   stopCapture(): void;
+  /** MUST be called synchronously from a click (unlocks the player, may open the sign-in popup) */
   connectSpotify(): Promise<void>;
+  /** sign this device out of Spotify */
+  disconnectSpotify(): void;
+  /** MUST be called synchronously from a click: ask to read playlists, Liked Songs and saved albums too */
+  allowSpotifyBrowse(): Promise<void>;
+  /**
+   * Queue Spotify songs: 'play' replaces the queue with songs[startIndex…] and starts the first, 'shuffle' the same
+   * shuffled, 'next' after the current track, 'append' at the end. Capped by what the queue holds.
+   */
+  queueSpotify(songs: SpTrack[], mode: QueueMode, startIndex?: number): { queued: number; dropped: number };
+  /** MUST be called synchronously from a click: start (or take back) Spotify playback on this device */
+  startSpotifyHere(): void;
   connectApple(): Promise<void>;
-  queueRemote(kind: 'spotify' | 'apple', remoteId: string, title?: string): void;
+  /** Spotify songs are looked up first (length + cover art); rejects when the lookup fails */
+  queueRemote(kind: 'spotify' | 'apple', remoteId: string, title?: string): Promise<void>;
   /** Mode 2: register the <video> element to be driven by the room clock (muted; audio is rendered). */
   attachVideo(el: HTMLVideoElement | null): void;
   /** clear store.error (always implemented by roomActions) */

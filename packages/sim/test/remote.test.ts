@@ -22,6 +22,12 @@ class MockSdkPlayer {
     this.seeksIssued++;
     this.pending = { target, landT: T + this.p.seekLatency() };
   }
+  /** start (or restart) playing `target` at exactly time T (a start whose latency the caller already drew) */
+  startAt(target: number, T: number): void {
+    this.basePos = target;
+    this.baseT = T;
+    this.pending = null;
+  }
   /** advance to T; true if a pending seek landed */
   advance(T: number): boolean {
     if (!this.pending || T < this.pending.landT) return false;
@@ -86,6 +92,82 @@ function run(name: string, seed: number, seekLatency: (rng: Rng) => number, late
   };
 }
 
+/**
+ * Songs back to back: each starts with a play request sent `startLead` before its room start time and landing after
+ * the player's start latency; the first reading after the start (1.5 s later) teaches the lead, then seeks correct.
+ * `keepLeads` = resetTrack() between songs (the fix) vs reset() (forgets the lead every song).
+ */
+function boundaries(seed: number, keepLeads: boolean) {
+  const rng = makeRng(seed);
+  const SONG_MS = 30_000;
+  const SONGS = 10;
+  const ctl = new RemoteSyncController();
+  const boundaryErr: number[] = [];
+  for (let k = 0; k < SONGS; k++) {
+    const T0 = k * SONG_MS;
+    if (keepLeads) ctl.resetTrack();
+    else ctl.reset();
+    const lead = ctl.stats().startLatencyMs;
+    const latency = () => Math.min(500, Math.max(150, 300 + 80 * rng.gauss()));
+    const player = new MockSdkPlayer(rng, { initialPosMs: 0, ratePpm: 0, seekLatency: latency, noiseMs: 10, quantumMs: 10 });
+    // the start: requested at T0 − lead for position 0, so it lands `latency − lead` late
+    const land = T0 - lead + latency();
+    player.startAt(0, land);
+    let startPending = true;
+    let awaitingSeek = false;
+    for (let T = T0 + 500; T < T0 + SONG_MS; T += POLL_MS) {
+      const landed = player.advance(T);
+      const expected = T - T0;
+      const pos = player.truePos(T);
+      if (T >= T0 + 1500 && startPending) {
+        ctl.recordStartResult(expected - player.reported(T));
+        startPending = false;
+      } else if (landed && awaitingSeek) {
+        ctl.recordSeekResult(expected - player.reported(T));
+        awaitingSeek = false;
+      }
+      if (T >= T0 + 1500) {
+        const d = ctl.update({ expectedPositionMs: expected, reportedPositionMs: player.reported(T), nowMs: T });
+        if (d.action === 'seek') {
+          player.seek(d.seekToMs!, T);
+          awaitingSeek = true;
+        }
+      }
+      if (k > 0 && T < T0 + 3000) boundaryErr.push(Math.abs(pos - expected));
+    }
+  }
+  return { songs: SONGS, songMs: SONG_MS, startLatency: 'N(300, 80) clamped [150, 500] ms', boundaryAbsErrMs: stats(boundaryErr), learnedStartLeadMs: +ctl.stats().startLatencyMs.toFixed(1) };
+}
+
+/**
+ * A device whose speaker sounds 200 ms after the player's position (Bluetooth). The driver aims the player at the
+ * room position `compMs` ahead; what is heard is the player position minus the 200 ms sink delay.
+ */
+function bluetooth(seed: number, compMs: number) {
+  const rng = makeRng(seed);
+  const SINK_MS = 200;
+  const player = new MockSdkPlayer(rng, { initialPosMs: 0, ratePpm: 100, seekLatency: () => Math.min(400, Math.max(150, 300 + 40 * rng.gauss())), noiseMs: 20, quantumMs: 10 });
+  const ctl = new RemoteSyncController();
+  ctl.seedLeads({ seekMs: 300 });
+  let awaiting = false;
+  const heard: number[] = [];
+  for (let T = 0; T <= 120_000; T += POLL_MS) {
+    const landed = player.advance(T);
+    const expected = T + compMs;
+    if (landed && awaiting) {
+      ctl.recordSeekResult(expected - player.reported(T));
+      awaiting = false;
+    }
+    const d = ctl.update({ expectedPositionMs: expected, reportedPositionMs: player.reported(T), nowMs: T });
+    if (d.action === 'seek') {
+      player.seek(d.seekToMs!, T);
+      awaiting = true;
+    }
+    if (T >= SETTLE_MS) heard.push(Math.abs(player.truePos(T) - SINK_MS - T));
+  }
+  return { sinkDelayMs: SINK_MS, compensationMs: compMs, heardAbsErrMs: stats(heard) };
+}
+
 const results: Record<string, unknown> = {};
 
 describe('RemoteSyncController vs a mock SDK player (10 simulated minutes)', () => {
@@ -105,6 +187,25 @@ describe('RemoteSyncController vs a mock SDK player (10 simulated minutes)', () 
     expect(r.trueErrorAfter20sMs.p95).toBeLessThan(100);
     expect(r.minGapBetweenSeeksMs ?? Infinity).toBeGreaterThanOrEqual(3000);
     expect(r.seeks).toBeLessThan(40);
+  });
+
+  it('track boundaries: 10 × 30 s songs, start latency N(300, 80): learned start lead kept across tracks', () => {
+    const r = (keep: boolean) => boundaries(21, keep);
+    const kept = r(true);
+    const reset = r(false);
+    results.boundaries = { keptLeads: kept, perTrackReset: reset };
+    // after the first song, each song starts close to the room time instead of a full start latency late
+    expect(kept.boundaryAbsErrMs.p95).toBeLessThan(150);
+    expect(reset.boundaryAbsErrMs.p50).toBeGreaterThan(200);
+    expect(kept.boundaryAbsErrMs.p50).toBeLessThan(reset.boundaryAbsErrMs.p50 / 2);
+  });
+
+  it('a Bluetooth speaker 200 ms behind: output compensation moves what is heard onto the room time', () => {
+    const withComp = bluetooth(31, 200);
+    const without = bluetooth(31, 0);
+    results.bluetooth = { compensated: withComp, uncompensated: without };
+    expect(withComp.heardAbsErrMs.p95).toBeLessThan(100);
+    expect(without.heardAbsErrMs.p50).toBeGreaterThan(150);
   });
 
   it('writes results', () => {

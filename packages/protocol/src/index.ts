@@ -204,6 +204,14 @@ export const Scene = z.object({
 });
 export type Scene = z.infer<typeof Scene>;
 
+/** most tracks a room's queue holds */
+export const MAX_QUEUE = 200;
+/** most tracks one queueMany command carries (a WS message is at most 64 KB) */
+export const MAX_QUEUE_BATCH = 100;
+const SPOTIFY_IMAGE = /^https:\/\/([a-z0-9-]+\.)*(scdn\.co|spotifycdn\.com)\//;
+/** artwork a Track may carry: Spotify's image CDN only (every device loads it) */
+export const isSpotifyImageUrl = (url: string) => url.length <= 500 && SPOTIFY_IMAGE.test(url);
+
 export const TrackKind = z.enum(['demo', 'file', 'url', 'video', 'capture', 'youtube', 'spotify', 'apple']);
 export type TrackKind = z.infer<typeof TrackKind>;
 
@@ -242,8 +250,25 @@ export const Track = z.object({
   remoteId: z.string().max(200).optional(),
   youtubeId: z.string().max(20).optional(),
   addedBy: z.string().max(64).optional(),
+  /** shown with the track wherever it plays (Spotify requires cover art + metadata during playback) */
+  artist: z.string().max(200).optional(),
+  album: z.string().max(200).optional(),
+  /** every device loads it, so only Spotify's image CDN */
+  artworkUrl: z.string().url().max(500).regex(SPOTIFY_IMAGE).optional(),
 });
 export type Track = z.infer<typeof Track>;
+
+/**
+ * A track as the room accepts it into the queue. A Spotify track must name one song and carry its length (the room
+ * advances to the next track at its end). Only queue inputs are refined, not RoomState, so a newer client never
+ * rejects a whole STATE from an older server.
+ */
+export const QueueTrack = Track.refine(
+  (t) =>
+    t.kind !== 'spotify' ||
+    (t.sourceClass === 'remote' && /^spotify:track:[A-Za-z0-9]{22}$/.test(t.remoteId ?? '') && (t.durationSec ?? 0) > 0),
+  { message: 'a Spotify track needs spotify:track:<id> and its duration' },
+);
 
 export const Playback = z.object({
   status: z.enum(['stopped', 'playing', 'paused']),
@@ -279,7 +304,7 @@ export const RoomState = z.object({
   settings: RoomSettings,
   devices: z.array(Device),
   scene: Scene,
-  queue: z.array(Track).max(200),
+  queue: z.array(Track).max(MAX_QUEUE),
   playback: Playback,
   /** master volume 0..1 */
   volume: finite().min(0).max(1),
@@ -394,7 +419,21 @@ export const ControlCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('seek'), position: finite().min(0) }),
   z.object({ type: z.literal('next') }),
   z.object({ type: z.literal('previous') }),
-  z.object({ type: z.literal('queue'), track: Track }),
+  z.object({ type: z.literal('queue'), track: QueueTrack }),
+  /**
+   * Several tracks at once (a playlist or album): append, insert after `afterTrackId` (default: the current track),
+   * or replace the queue. `playIndex` starts tracks[playIndex] right away. All or nothing.
+   */
+  z
+    .object({
+      type: z.literal('queueMany'),
+      tracks: z.array(QueueTrack).min(1).max(MAX_QUEUE_BATCH),
+      mode: z.enum(['append', 'insert', 'replace']),
+      afterTrackId: z.string().max(64).optional(),
+      playIndex: z.number().int().min(0).optional(),
+    })
+    .refine((m) => m.playIndex === undefined || m.playIndex < m.tracks.length, { message: 'playIndex out of range' })
+    .refine((m) => new Set(m.tracks.map((t) => t.id)).size === m.tracks.length, { message: 'duplicate track ids' }),
   z.object({ type: z.literal('remove'), trackId: z.string() }),
   z.object({ type: z.literal('volume'), volume: finite().min(0).max(1) }),
 ]);

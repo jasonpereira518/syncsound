@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Device, DeviceClass, RoomState, Track } from '@syncsound/protocol';
-import { roomNowMs as engineRoomNowMs, useRoomStore } from '@/store/roomStore';
+import { roomActions, roomNowMs as engineRoomNowMs, useRoomStore } from '@/store/roomStore';
 import type { ClockStats } from '@/store/types';
 import type { SyncStatus } from '../ui';
 
@@ -68,3 +68,14 @@ export const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e
 
 export const isTypingTarget = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+
+/** Connect Spotify on this device. Call straight from the click: it unlocks the player and may open the sign-in popup. */
+export function connectSpotifyHere() {
+  try {
+    // the redirect fallback (popups blocked) comes back here
+    sessionStorage.setItem('syncsound:returnTo', window.location.pathname + window.location.search);
+  } catch {
+    /* storage blocked */
+  }
+  act(() => roomActions.connectSpotify());
+}
