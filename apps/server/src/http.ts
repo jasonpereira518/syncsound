@@ -16,6 +16,7 @@ import {
   UploadInitRequest,
   isValidRoomCode,
   type HomeCreateResponse,
+  type AssetProgress,
   type HomeView,
   type UploadInitResponse,
   type UploadResponse,
@@ -23,7 +24,7 @@ import {
 import type { HomeStore } from './homes.ts';
 import type { Outbound, Room } from './room.ts';
 import type { RoomManager } from './roomManager.ts';
-import type { Media } from './media.ts';
+import { SEGMENT_THRESHOLD_SEC, type Media } from './media.ts';
 import type { Storage } from './storage.ts';
 
 export interface HttpDeps {
@@ -167,6 +168,65 @@ function checkMedia(mime: string, size: number, d: HttpDeps) {
 
 const PRESIGN_TTL_SEC = 15 * 60;
 
+// what `complete` is doing for an upload, polled by the client while it waits (cheap, in-memory)
+const progress = new Map<string, AssetProgress>();
+function setProgress(id: string, p: AssetProgress) {
+  progress.set(id, p);
+  if (p.phase === 'done') setTimeout(() => progress.delete(id), 10 * 60_000).unref();
+}
+// ponytail: one decode at a time; a single vCPU gains nothing from two. Queue per instance, fine at max-instances=1.
+let segmenting: Promise<unknown> = Promise.resolve();
+
+/**
+ * Probe `src` (a path or URL) for its length; if the track is long also split it into FLAC segments so no device ever
+ * decodes it whole. Returns the extra fields for the upload response. Probe/segment failures degrade to "no extras".
+ */
+async function prepareMedia(
+  id: string,
+  src: string,
+  req: IncomingMessage,
+  d: HttpDeps,
+): Promise<Pick<UploadResponse, 'durationSec' | 'channels' | 'segments'>> {
+  setProgress(id, { phase: 'probing', done: 0, total: 0 });
+  try {
+    const p = await d.media.probe(src);
+    if (!p) return {};
+    const probed = { durationSec: p.durationSec, channels: p.channels };
+    const store = d.storage.segments;
+    if (!store || p.durationSec <= SEGMENT_THRESHOLD_SEC) return probed;
+    const total = Math.ceil(p.durationSec / 120);
+    const run = segmenting.then(() => {
+      setProgress(id, { phase: 'segmenting', done: 0, total });
+      return d.media.segment(src, p, { put: (i, file) => store.put(id, i, file) }, {
+        onProgress: (done, t) => setProgress(id, { phase: 'segmenting', done, total: t }),
+      });
+    });
+    segmenting = run.catch(() => {});
+    let seg;
+    try {
+      seg = await run;
+    } catch (e) {
+      console.error('[http] segmenting failed', e);
+      return probed;
+    }
+    return {
+      // the decode counted every sample, so this is exact (the probe of a VBR mp3 is only an estimate)
+      durationSec: seg.totalSamples / seg.sampleRate,
+      channels: seg.channels,
+      segments: {
+        baseUrl: store.baseUrl(id, publicBase(req, d)),
+        count: seg.count,
+        segmentSamples: seg.segmentSamples,
+        overlapSamples: seg.overlapSamples,
+        sampleRate: seg.sampleRate,
+        totalSamples: seg.totalSamples,
+      },
+    };
+  } finally {
+    setProgress(id, { phase: 'done', done: 0, total: 0 });
+  }
+}
+
 /** step 1 of a direct-to-bucket upload: validate, then hand the browser a short-lived presigned PUT */
 async function initUpload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
   const direct = d.storage.direct;
@@ -194,8 +254,8 @@ async function completeUpload(req: IncomingMessage, res: ServerResponse, id: str
     throw new HttpError(obj.size > d.maxUploadBytes ? 413 : 415, 'uploaded file rejected');
   }
   const { title } = nameParts(parsed.data.filename, mime);
-  // the browser can't pre-decode big files, so the server tells the room how long this one is
-  const probed = await d.media.probe(direct.publicUrl(id));
+  // the browser can't pre-decode big files, so the server tells the room how long this one is (and splits long ones)
+  const extra = await prepareMedia(id, direct.publicUrl(id), req, d);
   const body: UploadResponse = {
     id,
     // straight from the bucket: a hop through /assets/:id would redirect cross-origin and trip CORS (`Origin: null`)
@@ -203,7 +263,7 @@ async function completeUpload(req: IncomingMessage, res: ServerResponse, id: str
     title,
     mime: obj.mime,
     size: obj.size,
-    ...(probed && { durationSec: probed.durationSec, channels: probed.channels }),
+    ...extra,
   };
   json(res, 201, body);
 }
@@ -245,14 +305,14 @@ async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
     throw new HttpError(500, 'upload failed');
   }
   const loc = await d.storage.locate(id);
-  const probed = loc?.kind === 'file' ? await d.media.probe(loc.path) : null;
+  const extra = loc?.kind === 'file' ? await prepareMedia(id, loc.path, req, d) : {};
   const body: UploadResponse = {
     id,
     url: `${publicBase(req, d)}/assets/${id}`,
     title,
     mime,
     size,
-    ...(probed && { durationSec: probed.durationSec, channels: probed.channels }),
+    ...extra,
   };
   json(res, 201, body);
 }
@@ -384,6 +444,19 @@ export function createHttpHandler(d: HttpDeps) {
       if (!DEMO_FILE.test(file) || file.includes('..')) throw new HttpError(400, 'bad file name');
       const mime = EXT_MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
       return sendFile(req, res, join(d.dataDir, 'demo', file), mime, 'public, max-age=3600');
+    }
+    if (get && parts[0] === 'api' && parts[1] === 'assets' && parts.length === 4 && parts[3] === 'progress') {
+      const id = seg(2);
+      if (!ASSET_ID.test(id)) throw new HttpError(400, 'bad asset id');
+      const none: AssetProgress = { phase: 'probing', done: 0, total: 0 };
+      return json(res, 200, progress.get(id) ?? none);
+    }
+    if (get && parts[0] === 'assets' && parts[2] === 'segments' && parts.length === 4) {
+      const id = seg(1);
+      if (!ASSET_ID.test(id)) throw new HttpError(400, 'bad asset id');
+      const file = d.storage.segmentFile?.(id, seg(3));
+      if (!file) throw new HttpError(404, 'not found');
+      return sendFile(req, res, file, 'audio/flac', 'public, max-age=31536000, immutable');
     }
     if (get && parts[0] === 'assets' && parts.length === 2) {
       const id = seg(1);

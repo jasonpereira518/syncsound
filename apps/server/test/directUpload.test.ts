@@ -48,7 +48,12 @@ describe('presignV4', () => {
   });
 });
 
-const fakeMedia: Media = { probe: async () => ({ durationSec: 10800, channels: 2, sampleRate: 44100 }) };
+const fakeMedia: Media = {
+  probe: async () => ({ durationSec: 10800, channels: 2, sampleRate: 44100 }),
+  segment: async () => {
+    throw new Error('not used: the fake bucket has no segment storage');
+  },
+};
 
 describe('direct-to-bucket upload routes', () => {
   const objects = new Map<string, { size: number; mime: string }>();

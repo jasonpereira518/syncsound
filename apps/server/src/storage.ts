@@ -18,6 +18,14 @@ export interface Storage {
   save(id: string, tmpFile: string, meta: AssetMeta): Promise<void>;
   /** caller must validate `id` first */
   locate(id: string): Promise<Located | null>;
+  /** where the FLAC segments of a long track live; `baseUrl` is what goes into the track's SegmentPlan */
+  segments?: {
+    baseUrl(id: string, publicBase: string): string;
+    /** store segment `index` from a local file (and consume it) */
+    put(id: string, index: number, file: string): Promise<void>;
+  };
+  /** local disk only: path of a stored segment so the server can serve it; null if absent/invalid */
+  segmentFile?(id: string, name: string): string | null;
   /** bucket-backed storage only: lets the browser PUT straight to the bucket, bypassing the server's request limits */
   direct?: {
     /** presigned PUT url; the browser must send exactly this content-type */
@@ -31,7 +39,16 @@ export interface Storage {
 }
 
 export function localStorage(uploadsDir: string): Storage {
+  const segDir = (id: string) => join(uploadsDir, `${id}-seg`);
   return {
+    segments: {
+      baseUrl: (id, publicBase) => `${publicBase}/assets/${id}/segments`,
+      async put(id, index, file) {
+        await mkdir(segDir(id), { recursive: true });
+        await rename(file, join(segDir(id), `seg-${String(index).padStart(4, '0')}.flac`));
+      },
+    },
+    segmentFile: (id, name) => (/^seg-\d{4}\.flac$/.test(name) ? join(segDir(id), name) : null),
     async save(id, tmpFile, meta) {
       await mkdir(uploadsDir, { recursive: true });
       await rename(tmpFile, join(uploadsDir, id + meta.ext));
@@ -140,6 +157,39 @@ export function s3Storage(c: S3Config): Storage {
     });
     return fetch(url, { method, headers: { ...headers, authorization } });
   };
+  /** PUT a local file to `key`, then delete it */
+  const putKey = async (key: string, tmpFile: string, mime: string) => {
+    const url = objectUrl(key);
+    const amzDate = amzNow(new Date());
+    const headers = {
+      'content-type': mime,
+      'content-length': String((await stat(tmpFile)).size),
+      'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+      'x-amz-date': amzDate,
+    };
+    const authorization = signV4({
+      method: 'PUT',
+      url,
+      headers,
+      region: c.region,
+      service: 's3',
+      amzDate,
+      payloadHash: 'UNSIGNED-PAYLOAD',
+      accessKeyId: c.accessKeyId,
+      secretAccessKey: c.secretAccessKey,
+    });
+    try {
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { ...headers, authorization },
+        body: Readable.toWeb(createReadStream(tmpFile)) as ReadableStream,
+        duplex: 'half',
+      } as RequestInit);
+      if (!res.ok) throw new Error(`S3 PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    } finally {
+      await unlink(tmpFile).catch(() => {});
+    }
+  };
   return {
     direct: {
       publicUrl: (id) => `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}`,
@@ -165,37 +215,11 @@ export function s3Storage(c: S3Config): Storage {
         await signedFetch('DELETE', id).catch(() => {});
       },
     },
-    async save(id, tmpFile, meta) {
-      const url = objectUrl(`uploads/${id}`);
-      const amzDate = amzNow(new Date());
-      const headers = {
-        'content-type': meta.mime,
-        'content-length': String((await stat(tmpFile)).size),
-        'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
-        'x-amz-date': amzDate,
-      };
-      const authorization = signV4({
-        method: 'PUT',
-        url,
-        headers,
-        region: c.region,
-        service: 's3',
-        amzDate,
-        payloadHash: 'UNSIGNED-PAYLOAD',
-        accessKeyId: c.accessKeyId,
-        secretAccessKey: c.secretAccessKey,
-      });
-      try {
-        const res = await fetch(url, {
-          method: 'PUT',
-          headers: { ...headers, authorization },
-          body: Readable.toWeb(createReadStream(tmpFile)) as ReadableStream,
-          duplex: 'half',
-        } as RequestInit);
-        if (!res.ok) throw new Error(`S3 PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      } finally {
-        await unlink(tmpFile).catch(() => {});
-      }
+    save: (id, tmpFile, meta) => putKey(`uploads/${id}`, tmpFile, meta.mime),
+    segments: {
+      // under the uploads/ prefix so the bucket's lifecycle rule cleans segments up with their source
+      baseUrl: (id) => `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}-seg`,
+      put: (id, index, file) => putKey(`uploads/${id}-seg/seg-${String(index).padStart(4, '0')}.flac`, file, 'audio/flac'),
     },
     async locate(id) {
       return { kind: 'redirect', url: `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}` };
