@@ -10,7 +10,7 @@ import { createHttpHandler, originAllowed } from './http.ts';
 import { ProfileStore } from './profiles.ts';
 import { perfClock, type Outbound, type Room } from './room.ts';
 import { RoomManager } from './roomManager.ts';
-import { storageFromEnv } from './storage.ts';
+import { storageFromEnv, type Storage } from './storage.ts';
 
 export const MAX_MESSAGE_BYTES = 64 * 1024;
 export const RATE_PER_SEC = 60;
@@ -28,6 +28,8 @@ export interface ServerOptions {
   allowedOrigins?: string[];
   publicUrl?: string;
   maxUploadBytes?: number;
+  /** override env-selected asset storage (tests inject a fake bucket) */
+  storage?: Storage;
   roomTtlMinutes?: number;
   /** how long a prepared tune waits for its recorders' microphones (tests shorten it) */
   prepareDeadlineMs?: number;
@@ -65,7 +67,7 @@ export async function startServer(
     homes,
     ...(opts.prepareDeadlineMs !== undefined ? { prepareDeadlineMs: opts.prepareDeadlineMs } : {}),
   });
-  const storage = storageFromEnv(join(dataDir, 'uploads'));
+  const storage = opts.storage ?? storageFromEnv(join(dataDir, 'uploads'));
   const conns = new Map<string, Conn>();
 
   /** per room: the timer for its next end-of-track transition (auto-advance / stop at the end of the queue) */

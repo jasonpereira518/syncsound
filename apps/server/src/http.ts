@@ -13,9 +13,11 @@ import {
   HomeRoomRequest,
   MAX_HOME_ROOMS,
   OWNER_KEY_HEADER,
+  UploadInitRequest,
   isValidRoomCode,
   type HomeCreateResponse,
   type HomeView,
+  type UploadInitResponse,
   type UploadResponse,
 } from '@syncsound/protocol';
 import type { HomeStore } from './homes.ts';
@@ -147,22 +149,64 @@ async function sendFile(
   await pipeline(createReadStream(path, { start, end }), res).catch(() => res.destroy());
 }
 
-async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
-  const mime = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
-  if (!MEDIA_MIME.test(mime)) throw new HttpError(415, 'only audio/* and video/* uploads are allowed');
-  const declared = Number(req.headers['content-length'] ?? 0);
-  if (declared > d.maxUploadBytes) throw new HttpError(413, 'file too large');
-
-  let filename = 'upload';
-  try {
-    filename = decodeURIComponent(String(req.headers['x-filename'] ?? 'upload'));
-  } catch {
-    // keep default for malformed encodings
-  }
-  filename = filename.split(/[\\/]/).pop()!.trim() || 'upload';
+/** upload filename → display title + a safe extension (falls back to the mime's) */
+function nameParts(rawName: string, mime: string) {
+  const filename = rawName.split(/[\\/]/).pop()!.trim() || 'upload';
   const rawExt = extname(filename).toLowerCase();
   const ext = /^\.[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : (MIME_EXT[mime] ?? '');
   const title = (filename.slice(0, filename.length - rawExt.length) || filename).slice(0, 200);
+  return { ext, title };
+}
+
+function checkMedia(mime: string, size: number, d: HttpDeps) {
+  if (!MEDIA_MIME.test(mime)) throw new HttpError(415, 'only audio/* and video/* uploads are allowed');
+  if (size > d.maxUploadBytes) throw new HttpError(413, 'file too large');
+}
+
+const PRESIGN_TTL_SEC = 15 * 60;
+
+/** step 1 of a direct-to-bucket upload: validate, then hand the browser a short-lived presigned PUT */
+async function initUpload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
+  const direct = d.storage.direct;
+  if (!direct) throw new HttpError(404, 'not found'); // no bucket: the client falls back to POST /api/assets
+  const parsed = UploadInitRequest.safeParse(await readJson(req));
+  if (!parsed.success) throw new HttpError(400, 'invalid request');
+  const mime = parsed.data.mime.toLowerCase();
+  checkMedia(mime, parsed.data.size, d);
+  const id = randomBytes(12).toString('base64url');
+  const body: UploadInitResponse = { id, uploadUrl: direct.presignPut(id, mime, PRESIGN_TTL_SEC), mime };
+  json(res, 201, body);
+}
+
+/** step 3: confirm what actually landed in the bucket (the PUT bypassed our size check) */
+async function completeUpload(req: IncomingMessage, res: ServerResponse, id: string, d: HttpDeps) {
+  const direct = d.storage.direct;
+  if (!direct) throw new HttpError(404, 'not found');
+  const parsed = UploadInitRequest.safeParse(await readJson(req));
+  if (!parsed.success) throw new HttpError(400, 'invalid request');
+  const mime = parsed.data.mime.toLowerCase();
+  const obj = await direct.head(id);
+  if (!obj) throw new HttpError(404, 'upload not found');
+  if (obj.size > d.maxUploadBytes || obj.size <= 0 || !MEDIA_MIME.test(obj.mime)) {
+    await direct.remove(id);
+    throw new HttpError(obj.size > d.maxUploadBytes ? 413 : 415, 'uploaded file rejected');
+  }
+  const { title } = nameParts(parsed.data.filename, mime);
+  const body: UploadResponse = { id, url: `${publicBase(req, d)}/assets/${id}`, title, mime: obj.mime, size: obj.size };
+  json(res, 201, body);
+}
+
+async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
+  const mime = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+  checkMedia(mime, Number(req.headers['content-length'] ?? 0), d);
+
+  let rawName = 'upload';
+  try {
+    rawName = decodeURIComponent(String(req.headers['x-filename'] ?? 'upload'));
+  } catch {
+    // keep default for malformed encodings
+  }
+  const { ext, title } = nameParts(rawName, mime);
 
   const id = randomBytes(12).toString('base64url');
   const uploadsDir = join(d.dataDir, 'uploads');
@@ -304,8 +348,14 @@ export function createHttpHandler(d: HttpDeps) {
     if (parts[0] === 'api' && parts[1] === 'homes')
       return homeRoute(req, res, parts.slice(2).map((_, i) => seg(i + 2)), d);
     if (get && p === '/api/demo') return json(res, 200, await demoList(req, d));
-    if (m === 'POST' && p === '/api/assets') {
+    if (m === 'POST' && (p === '/api/assets' || p === '/api/assets/init' || (parts[0] === 'api' && parts[1] === 'assets' && parts[3] === 'complete' && parts.length === 4))) {
       if (overLimit(`assets:${req.socket.remoteAddress}`, 60, 60_000, Date.now())) throw new HttpError(429, 'too many uploads, slow down');
+      if (p === '/api/assets/init') return initUpload(req, res, d);
+      if (parts.length === 4) {
+        const id = seg(2);
+        if (!ASSET_ID.test(id)) throw new HttpError(400, 'bad asset id');
+        return completeUpload(req, res, id, d);
+      }
       return upload(req, res, d);
     }
     if (get && parts[0] === 'assets' && parts[1] === 'demo' && parts.length === 3) {

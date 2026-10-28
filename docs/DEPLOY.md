@@ -71,6 +71,36 @@ New project → Deploy from repo → set *Dockerfile target* `server` (`RAILWAY_
 
 Set `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` on the server. The bucket must allow public GET (or front it with a CDN) and CORS GET from the web origin, because every device fetches and decodes the full asset before the scheduled start.
 
+## Large uploads on Cloud Run (GCS)
+
+Cloud Run rejects request bodies over 32 MB, so with bucket storage configured the browser uploads **straight to the bucket**
+(`POST /api/assets/init` → presigned `PUT` → `POST /api/assets/:id/complete`) and the file never passes through the server.
+Without a bucket the server falls back to `POST /api/assets` (fine locally, capped at 32 MB behind Cloud Run).
+
+```bash
+gcloud storage buckets create gs://YOUR_BUCKET --location=us-central1 --uniform-bucket-level-access
+gcloud storage buckets add-iam-policy-binding gs://YOUR_BUCKET --member=allUsers --role=roles/storage.objectViewer
+# HMAC key for the S3-compatible API (service account needs roles/storage.objectAdmin on the bucket)
+gcloud storage hmac create SERVICE_ACCOUNT_EMAIL
+```
+
+`cors.json` (replace the origin with your web site's), applied with `gcloud storage buckets update gs://YOUR_BUCKET --cors-file=cors.json`:
+
+```json
+[{ "origin": ["https://your-web.vercel.app"], "method": ["GET", "HEAD", "PUT"], "responseHeader": ["Content-Type", "Range"], "maxAgeSeconds": 3600 }]
+```
+
+`lifecycle.json`, applied with `gcloud storage buckets update gs://YOUR_BUCKET --lifecycle-file=lifecycle.json` (rooms are short-lived; keeps storage small):
+
+```json
+{ "rule": [{ "action": { "type": "Delete" }, "condition": { "age": 1, "matchesPrefix": ["uploads/"] } }] }
+```
+
+Cloud Run env (put the secret in Secret Manager): `S3_BUCKET=YOUR_BUCKET`, `S3_ENDPOINT=https://storage.googleapis.com`,
+`S3_REGION=auto`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL=https://storage.googleapis.com/YOUR_BUCKET`.
+Keep `--max-instances=1` (room state is in memory). Check it worked: upload a file over 32 MB and confirm the Network tab shows the
+`PUT` going to `storage.googleapis.com`.
+
 ## Frontend on Vercel
 
 - Root directory: `apps/web`; framework Next.js; install command `pnpm install` (Vercel detects the pnpm workspace).

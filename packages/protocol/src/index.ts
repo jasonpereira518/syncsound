@@ -513,6 +513,8 @@ export function parseServerMessage(raw: unknown) {
 // POST /api/rooms            CreateRoomRequest → CreateRoomResponse
 // GET  /api/rooms/:code      → RoomInfoResponse
 // POST /api/assets           raw body, headers content-type + x-filename → UploadResponse
+// POST /api/assets/init      UploadInitRequest → UploadInitResponse (404 unless the server has bucket storage)
+// POST /api/assets/:id/complete  UploadInitRequest → UploadResponse (verifies the object the browser PUT)
 // GET  /assets/:id           asset bytes (Range supported)
 // GET  /api/demo             → DemoAsset[] (with absolute url added)
 // GET  /health               → { ok: true }
@@ -531,6 +533,15 @@ export const UploadResponse = z.object({
   size: z.number().int(),
 });
 export type UploadResponse = z.infer<typeof UploadResponse>;
+/** direct-to-bucket upload: init → browser PUTs `uploadUrl` with content-type `mime` → complete (same body) */
+export const UploadInitRequest = z.object({
+  filename: z.string().min(1).max(300),
+  mime: z.string().max(100),
+  size: z.number().int().positive(),
+});
+export type UploadInitRequest = z.infer<typeof UploadInitRequest>;
+export const UploadInitResponse = z.object({ id: Id, uploadUrl: z.string().url(), mime: z.string() });
+export type UploadInitResponse = z.infer<typeof UploadInitResponse>;
 export const DemoAsset = z.object({
   id: Id,
   title: z.string(),

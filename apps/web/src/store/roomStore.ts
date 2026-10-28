@@ -23,6 +23,7 @@ import {
 import {
   DemoAsset,
   MAX_UPLOAD_BYTES,
+  UploadInitResponse,
   UploadResponse,
   isValidRoomCode,
   type ClientMessage,
@@ -482,6 +483,63 @@ async function httpError(res: Response, what: string): Promise<Error> {
 }
 
 /** setError + throw, for actions that return a value */
+/** Cloud Run (and similar hosts) reject request bodies past ~32 MB with a response the browser can't read */
+const PROXY_BODY_LIMIT = 32 * 1024 * 1024;
+const UNREACHABLE = "Upload failed: can't reach the SyncSound server.";
+
+/**
+ * Upload via the bucket when the server has one (init → PUT → complete: the file never passes through the server, so no
+ * host body limit applies); a 404 from init means no bucket, so stream it through POST /api/assets instead.
+ */
+async function sendAsset(file: File): Promise<unknown> {
+  const base = serverUrl();
+  const mime = file.type || 'application/octet-stream';
+  const meta = JSON.stringify({ filename: file.name, mime, size: file.size });
+  const jsonPost = (path: string) =>
+    fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: meta });
+  let init: Response;
+  try {
+    init = await jsonPost('/api/assets/init');
+  } catch {
+    return fail(UNREACHABLE);
+  }
+  if (init.status !== 404) {
+    if (!init.ok) fail((await httpError(init, 'Upload failed')).message);
+    const slot = UploadInitResponse.safeParse(await init.json().catch(() => null));
+    if (!slot.success) return fail('Upload failed: the server sent an unexpected response.');
+    try {
+      const put = await fetch(slot.data.uploadUrl, { method: 'PUT', headers: { 'content-type': slot.data.mime }, body: file });
+      if (!put.ok) return fail(`Upload failed: storage rejected the file (HTTP ${put.status}).`);
+    } catch {
+      return fail("Upload failed: couldn't send the file to storage. Check your connection and try again.");
+    }
+    let done: Response;
+    try {
+      done = await jsonPost(`/api/assets/${encodeURIComponent(slot.data.id)}/complete`);
+    } catch {
+      return fail(UNREACHABLE);
+    }
+    if (!done.ok) fail((await httpError(done, 'Upload failed')).message);
+    return done.json().catch(() => null);
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/assets`, {
+      method: 'POST',
+      headers: { 'content-type': mime, 'x-filename': encodeURIComponent(file.name) },
+      body: file,
+    });
+  } catch {
+    return fail(
+      file.size > PROXY_BODY_LIMIT
+        ? "Upload failed: this file is larger than the server's host accepts (~32 MB) and no storage bucket is configured."
+        : UNREACHABLE,
+    );
+  }
+  if (!res.ok) fail((await httpError(res, 'Upload failed')).message);
+  return res.json().catch(() => null);
+}
+
 function fail(msg: string): never {
   setError(msg);
   throw new Error(msg);
@@ -797,18 +855,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
   async uploadFile(file) {
     if (file.size > MAX_UPLOAD_BYTES) fail(`"${file.name}" is too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024} MB).`);
     if (file.type && !/^(audio|video)\//.test(file.type)) fail(`"${file.name}" isn't an audio or video file.`);
-    let res: Response;
-    try {
-      res = await fetch(`${serverUrl()}/api/assets`, {
-        method: 'POST',
-        headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name) },
-        body: file,
-      });
-    } catch {
-      return fail("Upload failed: can't reach the SyncSound server.");
-    }
-    if (!res.ok) fail((await httpError(res, 'Upload failed')).message);
-    const up = UploadResponse.safeParse(await res.json().catch(() => null));
+    const up = UploadResponse.safeParse(await sendAsset(file));
     if (!up.success) return fail('Upload failed: the server sent an unexpected response.');
     const id = newTrackId();
     let durationSec: number | undefined;
