@@ -15,7 +15,7 @@ import type {
 } from '@syncsound/protocol';
 import { QUEUE_END_STOP_MS } from '@syncsound/protocol';
 import { originAllowed } from '../src/http.ts';
-import { MAX_DROPS, RATE_BURST, startServer } from '../src/index.ts';
+import { MAX_DROPS, parseAllowedOrigins, RATE_BURST, startServer } from '../src/index.ts';
 import { perfClock } from '../src/room.ts';
 
 const caps = {
@@ -380,6 +380,14 @@ describe('originAllowed patterns', () => {
     expect(originAllowed('https://web-x.evil.com-team.vercel.app', allowed)).toBe(false);
     expect(originAllowed('https://web-abc-team.vercel.app.evil.com', allowed)).toBe(false);
     expect(originAllowed('https://evil.test', allowed)).toBe(false);
+  });
+});
+
+describe('ALLOWED_ORIGINS parsing', () => {
+  it('trims spaces and trailing slashes (pasted from the address bar), drops empties', () => {
+    expect(parseAllowedOrigins(' https://a.vercel.app/ ,https://b.example.com//,, ')).toEqual(['https://a.vercel.app', 'https://b.example.com']);
+    expect(parseAllowedOrigins(undefined)).toEqual([]);
+    expect(originAllowed('https://a.vercel.app', parseAllowedOrigins('https://a.vercel.app/'))).toBe(true);
   });
 });
 

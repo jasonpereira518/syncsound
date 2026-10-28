@@ -47,16 +47,21 @@ interface Conn {
   alive: boolean;
 }
 
+/**
+ * ALLOWED_ORIGINS: comma-separated origins. Browsers send an origin without a path or trailing slash, so
+ * "https://x.vercel.app/" pasted from the address bar is trimmed to match.
+ */
+export const parseAllowedOrigins = (raw: string | undefined): string[] =>
+  (raw ?? '')
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
 export async function startServer(
   opts: ServerOptions = {},
 ): Promise<{ port: number; close(): Promise<void> }> {
   const dataDir = opts.dataDir ?? process.env.DATA_DIR ?? DEFAULT_DATA_DIR;
-  const allowedOrigins =
-    opts.allowedOrigins ??
-    (process.env.ALLOWED_ORIGINS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  const allowedOrigins = opts.allowedOrigins ?? parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
   const clock = perfClock;
   const profiles = new ProfileStore(join(dataDir, 'profiles.json'));
   const homes = new HomeStore(join(dataDir, 'homes.json'));
@@ -109,8 +114,7 @@ export async function startServer(
       storage,
       dataDir,
       allowedOrigins,
-      // Render sets RENDER_EXTERNAL_URL (https://<service>.onrender.com), so uploads get the right public link there
-      publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL,
+      publicUrl: opts.publicUrl ?? process.env.PUBLIC_URL,
       maxUploadBytes: opts.maxUploadBytes ?? MAX_UPLOAD_BYTES,
       clock,
       homes,

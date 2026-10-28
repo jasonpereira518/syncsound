@@ -1,0 +1,112 @@
+{
+ "type": "WELCOME",
+ "deviceId": "probeprobeprobe1",
+ "isHost": false,
+ "roomState": {
+  "code": "6M7722",
+  "hostId": null,
+  "createdAt": 1792998065846.5195,
+  "settings": {
+   "hostOnlyControl": false,
+   "hasPassword": false,
+   "videoBufferMs": 150,
+   "lipSyncNudgeMs": 0
+  },
+  "devices": [
+   {
+    "id": "probeprobeprobe1",
+    "name": "Probe",
+    "role": "Full",
+    "isHost": false,
+    "connected": true,
+    "caps": {
+     "userAgent": "x",
+     "platform": "x",
+     "deviceClass": "laptop",
+     "sampleRate": 48000,
+     "baseLatencyMs": null,
+     "outputLatencyMs": null,
+     "hasOutputTimestamp": true,
+     "hasMic": false
+    },
+    "volume": 1,
+    "trimDb": 0,
+    "muted": false,
+    "solo": false,
+    "latencyMs": 0,
+    "calibratedLatencyMs": null,
+    "eq": {
+     "enabled": true,
+     "bands": [],
+     "highpassHz": null,
+     "preampDb": 0,
+     "source": "none"
+    },
+    "bassCapable": true,
+    "rolloffHz": null,
+    "stats": null,
+    "remote": {
+     "spotify": "unconfigured",
+     "apple": "unconfigured"
+    },
+    "joinedAt": 1792998065982.648
+   }
+  ],
+  "scene": {
+   "room": {
+    "width": 8,
+    "depth": 6
+   },
+   "objects": [
+    {
+     "id": "obj-L",
+     "label": "Left",
+     "channel": "L",
+     "position": {
+      "x": -2,
+      "y": -1.5
+     },
+     "gainDb": 0,
+     "muted": false
+    },
+    {
+     "id": "obj-R",
+     "label": "Right",
+     "channel": "R",
+     "position": {
+      "x": 2,
+      "y": -1.5
+     },
+     "gainDb": 0,
+     "muted": false
+    }
+   ],
+   "devices": {
+    "probeprobeprobe1": {
+     "x": 0,
+     "y": -1.2
+    }
+   },
+   "listener": {
+    "x": 0,
+    "y": 1
+   },
+   "propagationComp": true,
+   "rolloff": 1,
+   "blur": 0.5,
+   "crossoverHz": 100,
+   "upmix": false
+  },
+  "queue": [],
+  "playback": {
+   "status": "stopped",
+   "trackId": null,
+   "startRoomTime": 1792998065846.5195,
+   "trackOffset": 0
+  },
+  "volume": 1,
+  "captureHostId": null
+ },
+ "serverTime": 1792998065982.648,
+ "seq": 0
+}
