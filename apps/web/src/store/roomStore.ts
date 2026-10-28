@@ -21,8 +21,10 @@ import {
   type RoomClock,
 } from '@syncsound/audio-core';
 import {
+  AssetProgress,
   DemoAsset,
   MAX_UPLOAD_BYTES,
+  UploadInitResponse,
   UploadResponse,
   isValidRoomCode,
   type ClientMessage,
@@ -53,7 +55,7 @@ import { planQueue, toRoomTrack } from '../lib/sources/spotifyQueue';
 import { normalizeRemoteId } from '../lib/sources/types';
 import { mergingThrottle } from '../lib/throttle';
 import { errMsg, initialState, patch, setError, useRoomStore } from './state';
-import type { RoomActions } from './types';
+import type { RoomActions, UploadProgress } from './types';
 
 export { initialState, useRoomStore };
 
@@ -432,9 +434,15 @@ function watchClockPath(s: Session) {
 }
 
 const lastStats = { t: 0 };
+let lastReadiness = '';
+const readinessKey = () => {
+  const e = useRoomStore.getState().engine;
+  return `${e.bufferState}|${e.loadedTrackId}`;
+};
 function sendStats(s: Session, force = false) {
   if (!force && !dueNow(lastStats, 10_000)) return;
   if (!s.client.synced) return;
+  lastReadiness = readinessKey();
   try {
     const est = s.client.clock.estimate();
     const e = useRoomStore.getState().engine;
@@ -449,6 +457,7 @@ function sendStats(s: Session, force = false) {
         syncErrorMs: fin(e.syncErrorMs),
         bufferState: e.bufferState,
         loadedTrackId: e.loadedTrackId?.slice(0, 64) ?? null,
+        ...(e.load ? { bufferedThroughSec: fin(e.load.bufferedThroughSec), loadPct: fin(Math.min(1, e.load.bufferedThroughSec / Math.max(1, e.load.totalSec))) } : {}),
         remoteErrorMs: s.remote.errorMs(),
         autoLatencyMs: e.autoLatencyMs === null ? null : fin(e.autoLatencyMs),
         battery: batteryLevel(),
@@ -484,6 +493,133 @@ async function httpError(res: Response, what: string): Promise<Error> {
 }
 
 /** setError + throw, for actions that return a value */
+/** Cloud Run (and similar hosts) reject request bodies past ~32 MB with a response the browser can't read */
+const PROXY_BODY_LIMIT = 32 * 1024 * 1024;
+const UNREACHABLE = "Upload failed: can't reach the SyncSound server.";
+
+/** fetch can't report upload progress; XHR can. Resolves with the response once the server has answered. */
+function xhrSend(
+  url: string,
+  method: 'PUT' | 'POST',
+  headers: Record<string, string>,
+  body: File,
+  onProgress?: (loaded: number, total: number) => void,
+  onSent?: () => void,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open(method, url);
+    for (const [k, v] of Object.entries(headers)) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded, e.total);
+    };
+    x.upload.onload = () => onSent?.();
+    x.onload = () => resolve({ status: x.status, body: x.responseText });
+    x.onerror = () => reject(new TypeError('network error'));
+    x.onabort = () => reject(new TypeError('aborted'));
+    x.send(body);
+  });
+}
+
+function xhrError(r: { status: number; body: string }, what: string): string {
+  let detail = `HTTP ${r.status}`;
+  try {
+    const j = JSON.parse(r.body) as { error?: string; msg?: string };
+    detail = j.error ?? j.msg ?? detail;
+  } catch {
+    /* not json */
+  }
+  return `${what}: ${detail}`;
+}
+
+/** while `complete` is busy splitting a long file, ask the server how many parts it has done; returns a stop function */
+function pollPrepare(base: string, id: string, onProgress?: (p: UploadProgress) => void): () => void {
+  if (!onProgress) return () => {};
+  let live = true;
+  void (async () => {
+    while (live) {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (!live) return;
+      try {
+        const p = AssetProgress.safeParse(await (await fetch(`${base}/api/assets/${encodeURIComponent(id)}/progress`)).json());
+        if (live && p.success && p.data.phase === 'segmenting') onProgress({ phase: 'preparing', done: p.data.done, total: p.data.total });
+      } catch {
+        /* keep trying until complete answers */
+      }
+    }
+  })();
+  return () => {
+    live = false;
+  };
+}
+
+/**
+ * Upload via the bucket when the server has one (init → PUT → complete: the file never passes through the server, so no
+ * host body limit applies); a 404 from init means no bucket, so stream it through POST /api/assets instead.
+ */
+async function sendAsset(file: File, onProgress?: (p: UploadProgress) => void): Promise<unknown> {
+  const base = serverUrl();
+  const mime = file.type || 'application/octet-stream';
+  const meta = JSON.stringify({ filename: file.name, mime, size: file.size });
+  const jsonPost = (path: string) =>
+    fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: meta });
+  let init: Response;
+  try {
+    init = await jsonPost('/api/assets/init');
+  } catch {
+    return fail(UNREACHABLE);
+  }
+  if (init.status !== 404) {
+    if (!init.ok) fail((await httpError(init, 'Upload failed')).message);
+    const slot = UploadInitResponse.safeParse(await init.json().catch(() => null));
+    if (!slot.success) return fail('Upload failed: the server sent an unexpected response.');
+    try {
+      const put = await xhrSend(slot.data.uploadUrl, 'PUT', { 'content-type': slot.data.mime }, file, (loaded, total) =>
+        onProgress?.({ phase: 'uploading', loaded, total }),
+      );
+      if (put.status < 200 || put.status >= 300) return fail(`Upload failed: storage rejected the file (HTTP ${put.status}).`);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Upload failed')) throw e;
+      return fail("Upload failed: couldn't send the file to storage. Check your connection and try again.");
+    }
+    onProgress?.({ phase: 'preparing' });
+    const stopPolling = pollPrepare(base, slot.data.id, onProgress);
+    let done: Response;
+    try {
+      done = await jsonPost(`/api/assets/${encodeURIComponent(slot.data.id)}/complete`);
+    } catch {
+      return fail(UNREACHABLE);
+    } finally {
+      stopPolling();
+    }
+    if (!done.ok) fail((await httpError(done, 'Upload failed')).message);
+    return done.json().catch(() => null);
+  }
+  let res: { status: number; body: string };
+  try {
+    res = await xhrSend(
+      `${base}/api/assets`,
+      'POST',
+      { 'content-type': mime, 'x-filename': encodeURIComponent(file.name) },
+      file,
+      (loaded, total) => onProgress?.({ phase: 'uploading', loaded, total }),
+      () => onProgress?.({ phase: 'preparing' }), // the server probes/splits before it answers; no part count on this path
+    );
+  } catch {
+    return fail(
+      file.size > PROXY_BODY_LIMIT
+        ? "Upload failed: this file is larger than the server's host accepts (~32 MB) and no storage bucket is configured."
+        : UNREACHABLE,
+    );
+  }
+  if (res.status < 200 || res.status >= 300) fail(xhrError(res, 'Upload failed'));
+  try {
+    return JSON.parse(res.body) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 function fail(msg: string): never {
   setError(msg);
   throw new Error(msg);
@@ -623,7 +759,8 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
         if (st.room) maybeAutoSlot();
       }),
     );
-    const statsTimer = setInterval(() => sendStats(s), 2000);
+    // send at once when this device's readiness changes, so the host's "N of M devices ready" doesn't lag by 10 s
+    const statsTimer = setInterval(() => sendStats(s, readinessKey() !== lastReadiness), 2000);
     const clockTimer = setInterval(() => {
       try {
         const est = activeClock(s).estimate();
@@ -801,27 +938,18 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track } });
   },
 
-  async uploadFile(file) {
+  async uploadFile(file, onProgress) {
     if (file.size > MAX_UPLOAD_BYTES) fail(`"${file.name}" is too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024} MB).`);
     if (file.type && !/^(audio|video)\//.test(file.type)) fail(`"${file.name}" isn't an audio or video file.`);
-    let res: Response;
-    try {
-      res = await fetch(`${serverUrl()}/api/assets`, {
-        method: 'POST',
-        headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name) },
-        body: file,
-      });
-    } catch {
-      return fail("Upload failed: can't reach the SyncSound server.");
-    }
-    if (!res.ok) fail((await httpError(res, 'Upload failed')).message);
-    const up = UploadResponse.safeParse(await res.json().catch(() => null));
+    const up = UploadResponse.safeParse(await sendAsset(file, onProgress));
     if (!up.success) return fail('Upload failed: the server sent an unexpected response.');
     const id = newTrackId();
-    let durationSec: number | undefined;
-    let channels: number | undefined;
+    // the server probed these (ffprobe), so even a file too big to decode here arrives with a known length
+    let durationSec: number | undefined = up.data.durationSec;
+    let channels: number | undefined = up.data.channels;
     const engine = session?.engine;
-    if (engine?.ctx && file.size < 80 * 1024 * 1024) {
+    // a segmented (long) track is never decoded whole: devices fetch its windows as it plays
+    if (engine?.ctx && file.size < 80 * 1024 * 1024 && !up.data.segments) {
       try {
         const buf = await engine.decode(await file.arrayBuffer());
         durationSec = buf.duration;
@@ -841,6 +969,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       mime,
       ...(durationSec !== undefined ? { durationSec } : {}),
       ...(channels !== undefined ? { channels } : {}),
+      ...(up.data.segments ? { segments: up.data.segments } : {}),
       addedBy: useRoomStore.getState().deviceId,
     };
     sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track } });

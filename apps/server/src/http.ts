@@ -13,19 +13,24 @@ import {
   HomeRoomRequest,
   MAX_HOME_ROOMS,
   OWNER_KEY_HEADER,
+  UploadInitRequest,
   isValidRoomCode,
   type HomeCreateResponse,
+  type AssetProgress,
   type HomeView,
+  type UploadInitResponse,
   type UploadResponse,
 } from '@syncsound/protocol';
 import type { HomeStore } from './homes.ts';
 import type { Outbound, Room } from './room.ts';
 import type { RoomManager } from './roomManager.ts';
+import { SEGMENT_THRESHOLD_SEC, type Media } from './media.ts';
 import type { Storage } from './storage.ts';
 
 export interface HttpDeps {
   manager: RoomManager;
   storage: Storage;
+  media: Media;
   dataDir: string;
   allowedOrigins: string[];
   publicUrl?: string;
@@ -147,22 +152,133 @@ async function sendFile(
   await pipeline(createReadStream(path, { start, end }), res).catch(() => res.destroy());
 }
 
-async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
-  const mime = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
-  if (!MEDIA_MIME.test(mime)) throw new HttpError(415, 'only audio/* and video/* uploads are allowed');
-  const declared = Number(req.headers['content-length'] ?? 0);
-  if (declared > d.maxUploadBytes) throw new HttpError(413, 'file too large');
-
-  let filename = 'upload';
-  try {
-    filename = decodeURIComponent(String(req.headers['x-filename'] ?? 'upload'));
-  } catch {
-    // keep default for malformed encodings
-  }
-  filename = filename.split(/[\\/]/).pop()!.trim() || 'upload';
+/** upload filename → display title + a safe extension (falls back to the mime's) */
+function nameParts(rawName: string, mime: string) {
+  const filename = rawName.split(/[\\/]/).pop()!.trim() || 'upload';
   const rawExt = extname(filename).toLowerCase();
   const ext = /^\.[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : (MIME_EXT[mime] ?? '');
   const title = (filename.slice(0, filename.length - rawExt.length) || filename).slice(0, 200);
+  return { ext, title };
+}
+
+function checkMedia(mime: string, size: number, d: HttpDeps) {
+  if (!MEDIA_MIME.test(mime)) throw new HttpError(415, 'only audio/* and video/* uploads are allowed');
+  if (size > d.maxUploadBytes) throw new HttpError(413, 'file too large');
+}
+
+const PRESIGN_TTL_SEC = 15 * 60;
+
+// what `complete` is doing for an upload, polled by the client while it waits (cheap, in-memory)
+const progress = new Map<string, AssetProgress>();
+function setProgress(id: string, p: AssetProgress) {
+  progress.set(id, p);
+  if (p.phase === 'done') setTimeout(() => progress.delete(id), 10 * 60_000).unref();
+}
+// ponytail: one decode at a time; a single vCPU gains nothing from two. Queue per instance, fine at max-instances=1.
+let segmenting: Promise<unknown> = Promise.resolve();
+
+/**
+ * Probe `src` (a path or URL) for its length; if the track is long also split it into FLAC segments so no device ever
+ * decodes it whole. Returns the extra fields for the upload response. Probe/segment failures degrade to "no extras".
+ */
+async function prepareMedia(
+  id: string,
+  src: string,
+  req: IncomingMessage,
+  d: HttpDeps,
+): Promise<Pick<UploadResponse, 'durationSec' | 'channels' | 'segments'>> {
+  setProgress(id, { phase: 'probing', done: 0, total: 0 });
+  try {
+    const p = await d.media.probe(src);
+    if (!p) return {};
+    const probed = { durationSec: p.durationSec, channels: p.channels };
+    const store = d.storage.segments;
+    if (!store || p.durationSec <= SEGMENT_THRESHOLD_SEC) return probed;
+    const total = Math.ceil(p.durationSec / 120);
+    const run = segmenting.then(() => {
+      setProgress(id, { phase: 'segmenting', done: 0, total });
+      return d.media.segment(src, p, { put: (i, file) => store.put(id, i, file) }, {
+        onProgress: (done, t) => setProgress(id, { phase: 'segmenting', done, total: t }),
+      });
+    });
+    segmenting = run.catch(() => {});
+    let seg;
+    try {
+      seg = await run;
+    } catch (e) {
+      console.error('[http] segmenting failed', e);
+      return probed;
+    }
+    return {
+      // the decode counted every sample, so this is exact (the probe of a VBR mp3 is only an estimate)
+      durationSec: seg.totalSamples / seg.sampleRate,
+      channels: seg.channels,
+      segments: {
+        baseUrl: store.baseUrl(id, publicBase(req, d)),
+        count: seg.count,
+        segmentSamples: seg.segmentSamples,
+        overlapSamples: seg.overlapSamples,
+        sampleRate: seg.sampleRate,
+        totalSamples: seg.totalSamples,
+      },
+    };
+  } finally {
+    setProgress(id, { phase: 'done', done: 0, total: 0 });
+  }
+}
+
+/** step 1 of a direct-to-bucket upload: validate, then hand the browser a short-lived presigned PUT */
+async function initUpload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
+  const direct = d.storage.direct;
+  if (!direct) throw new HttpError(404, 'not found'); // no bucket: the client falls back to POST /api/assets
+  const parsed = UploadInitRequest.safeParse(await readJson(req));
+  if (!parsed.success) throw new HttpError(400, 'invalid request');
+  const mime = parsed.data.mime.toLowerCase();
+  checkMedia(mime, parsed.data.size, d);
+  const id = randomBytes(12).toString('base64url');
+  const body: UploadInitResponse = { id, uploadUrl: direct.presignPut(id, mime, PRESIGN_TTL_SEC), mime };
+  json(res, 201, body);
+}
+
+/** step 3: confirm what actually landed in the bucket (the PUT bypassed our size check) */
+async function completeUpload(req: IncomingMessage, res: ServerResponse, id: string, d: HttpDeps) {
+  const direct = d.storage.direct;
+  if (!direct) throw new HttpError(404, 'not found');
+  const parsed = UploadInitRequest.safeParse(await readJson(req));
+  if (!parsed.success) throw new HttpError(400, 'invalid request');
+  const mime = parsed.data.mime.toLowerCase();
+  const obj = await direct.head(id);
+  if (!obj) throw new HttpError(404, 'upload not found');
+  if (obj.size > d.maxUploadBytes || obj.size <= 0 || !MEDIA_MIME.test(obj.mime)) {
+    await direct.remove(id);
+    throw new HttpError(obj.size > d.maxUploadBytes ? 413 : 415, 'uploaded file rejected');
+  }
+  const { title } = nameParts(parsed.data.filename, mime);
+  // the browser can't pre-decode big files, so the server tells the room how long this one is (and splits long ones)
+  const extra = await prepareMedia(id, direct.publicUrl(id), req, d);
+  const body: UploadResponse = {
+    id,
+    // straight from the bucket: a hop through /assets/:id would redirect cross-origin and trip CORS (`Origin: null`)
+    url: direct.publicUrl(id),
+    title,
+    mime: obj.mime,
+    size: obj.size,
+    ...extra,
+  };
+  json(res, 201, body);
+}
+
+async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
+  const mime = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+  checkMedia(mime, Number(req.headers['content-length'] ?? 0), d);
+
+  let rawName = 'upload';
+  try {
+    rawName = decodeURIComponent(String(req.headers['x-filename'] ?? 'upload'));
+  } catch {
+    // keep default for malformed encodings
+  }
+  const { ext, title } = nameParts(rawName, mime);
 
   const id = randomBytes(12).toString('base64url');
   const uploadsDir = join(d.dataDir, 'uploads');
@@ -188,7 +304,16 @@ async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
     if (e instanceof HttpError) throw e;
     throw new HttpError(500, 'upload failed');
   }
-  const body: UploadResponse = { id, url: `${publicBase(req, d)}/assets/${id}`, title, mime, size };
+  const loc = await d.storage.locate(id);
+  const extra = loc?.kind === 'file' ? await prepareMedia(id, loc.path, req, d) : {};
+  const body: UploadResponse = {
+    id,
+    url: `${publicBase(req, d)}/assets/${id}`,
+    title,
+    mime,
+    size,
+    ...extra,
+  };
   json(res, 201, body);
 }
 
@@ -304,8 +429,14 @@ export function createHttpHandler(d: HttpDeps) {
     if (parts[0] === 'api' && parts[1] === 'homes')
       return homeRoute(req, res, parts.slice(2).map((_, i) => seg(i + 2)), d);
     if (get && p === '/api/demo') return json(res, 200, await demoList(req, d));
-    if (m === 'POST' && p === '/api/assets') {
+    if (m === 'POST' && (p === '/api/assets' || p === '/api/assets/init' || (parts[0] === 'api' && parts[1] === 'assets' && parts[3] === 'complete' && parts.length === 4))) {
       if (overLimit(`assets:${req.socket.remoteAddress}`, 60, 60_000, Date.now())) throw new HttpError(429, 'too many uploads, slow down');
+      if (p === '/api/assets/init') return initUpload(req, res, d);
+      if (parts.length === 4) {
+        const id = seg(2);
+        if (!ASSET_ID.test(id)) throw new HttpError(400, 'bad asset id');
+        return completeUpload(req, res, id, d);
+      }
       return upload(req, res, d);
     }
     if (get && parts[0] === 'assets' && parts[1] === 'demo' && parts.length === 3) {
@@ -313,6 +444,19 @@ export function createHttpHandler(d: HttpDeps) {
       if (!DEMO_FILE.test(file) || file.includes('..')) throw new HttpError(400, 'bad file name');
       const mime = EXT_MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
       return sendFile(req, res, join(d.dataDir, 'demo', file), mime, 'public, max-age=3600');
+    }
+    if (get && parts[0] === 'api' && parts[1] === 'assets' && parts.length === 4 && parts[3] === 'progress') {
+      const id = seg(2);
+      if (!ASSET_ID.test(id)) throw new HttpError(400, 'bad asset id');
+      const none: AssetProgress = { phase: 'probing', done: 0, total: 0 };
+      return json(res, 200, progress.get(id) ?? none);
+    }
+    if (get && parts[0] === 'assets' && parts[2] === 'segments' && parts.length === 4) {
+      const id = seg(1);
+      if (!ASSET_ID.test(id)) throw new HttpError(400, 'bad asset id');
+      const file = d.storage.segmentFile?.(id, seg(3));
+      if (!file) throw new HttpError(404, 'not found');
+      return sendFile(req, res, file, 'audio/flac', 'public, max-age=31536000, immutable');
     }
     if (get && parts[0] === 'assets' && parts.length === 2) {
       const id = seg(1);

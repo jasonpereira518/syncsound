@@ -32,6 +32,24 @@ export interface ClockStats {
   converged: boolean;
 }
 
+/** this device's decode window of the current long track (see AssetCache.progress) */
+export interface EngineLoad {
+  trackId: string;
+  /** decoded audio runs from the playhead up to here, track s */
+  bufferedThroughSec: number;
+  playheadSec: number;
+  totalSec: number;
+  /** segments decoded / being fetched / in the track */
+  ready: number;
+  loading: number;
+  count: number;
+}
+
+/** what an upload is doing: bytes going out, then (long files) the server splitting them into parts */
+export type UploadProgress =
+  | { phase: 'uploading'; loaded: number; total: number }
+  | { phase: 'preparing'; done?: number; total?: number };
+
 export interface EngineStats {
   unlocked: boolean;
   ctxState: 'none' | 'suspended' | 'running' | 'closed' | 'interrupted';
@@ -42,6 +60,8 @@ export interface EngineStats {
   usingOutputTimestamp: boolean;
   bufferState: BufferState;
   loadedTrackId: string | null;
+  /** how much of the current long (segmented) track this device has decoded; null for an ordinary track */
+  load: EngineLoad | null;
   /** latest |actual − expected| position error, ms */
   syncErrorMs: number;
   playbackRate: number;
@@ -210,7 +230,7 @@ export interface RoomActions {
   identify(targetDeviceId: string): void;
   loadDemoAssets(): Promise<void>;
   queueDemo(asset: DemoAsset): void;
-  uploadFile(file: File): Promise<Track>;
+  uploadFile(file: File, onProgress?: (p: UploadProgress) => void): Promise<Track>;
   queueUrl(url: string, title?: string): Promise<Track>;
   /** Runs the acoustic calibration wizard with this device as the listener (quick = timing-only re-sync). */
   startCalibration(opts?: { quick?: boolean }): Promise<void>;

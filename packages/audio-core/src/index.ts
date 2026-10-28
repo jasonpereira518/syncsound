@@ -1,6 +1,7 @@
 export * from './clock';
 export * from './audioClock';
 export * from './scheduler';
+export * from './segments';
 export * from './drift';
 export * from './remoteSync';
 export * from './remoteDriver';

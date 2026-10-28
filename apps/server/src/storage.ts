@@ -18,10 +18,37 @@ export interface Storage {
   save(id: string, tmpFile: string, meta: AssetMeta): Promise<void>;
   /** caller must validate `id` first */
   locate(id: string): Promise<Located | null>;
+  /** where the FLAC segments of a long track live; `baseUrl` is what goes into the track's SegmentPlan */
+  segments?: {
+    baseUrl(id: string, publicBase: string): string;
+    /** store segment `index` from a local file (and consume it) */
+    put(id: string, index: number, file: string): Promise<void>;
+  };
+  /** local disk only: path of a stored segment so the server can serve it; null if absent/invalid */
+  segmentFile?(id: string, name: string): string | null;
+  /** bucket-backed storage only: lets the browser PUT straight to the bucket, bypassing the server's request limits */
+  direct?: {
+    /** presigned PUT url; the browser must send exactly this content-type */
+    presignPut(id: string, mime: string, expiresSec: number, now?: Date): string;
+    /** the object's public https URL: what devices GET directly and what ffprobe reads */
+    publicUrl(id: string): string;
+    /** size + content-type of the stored object, null if absent */
+    head(id: string): Promise<{ size: number; mime: string } | null>;
+    remove(id: string): Promise<void>;
+  };
 }
 
 export function localStorage(uploadsDir: string): Storage {
+  const segDir = (id: string) => join(uploadsDir, `${id}-seg`);
   return {
+    segments: {
+      baseUrl: (id, publicBase) => `${publicBase}/assets/${id}/segments`,
+      async put(id, index, file) {
+        await mkdir(segDir(id), { recursive: true });
+        await rename(file, join(segDir(id), `seg-${String(index).padStart(4, '0')}.flac`));
+      },
+    },
+    segmentFile: (id, name) => (/^seg-\d{4}\.flac$/.test(name) ? join(segDir(id), name) : null),
     async save(id, tmpFile, meta) {
       await mkdir(uploadsDir, { recursive: true });
       await rename(tmpFile, join(uploadsDir, id + meta.ext));
@@ -86,6 +113,23 @@ export function signV4(i: SignInput): string {
   return `AWS4-HMAC-SHA256 Credential=${i.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 }
 
+const amzNow = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+/** query-string (presigned URL) form of SigV4: the same canonical request, auth params in the query */
+export function presignV4(i: Omit<SignInput, 'headers' | 'payloadHash'> & { headers?: Record<string, string>; expiresSec: number }): string {
+  const url = new URL(i.url);
+  const headers = i.headers ?? {};
+  const signedHeaders = ['host', ...Object.keys(headers).map((h) => h.toLowerCase())].sort().join(';');
+  url.searchParams.set('X-Amz-Algorithm', 'AWS4-HMAC-SHA256');
+  url.searchParams.set('X-Amz-Credential', `${i.accessKeyId}/${i.amzDate.slice(0, 8)}/${i.region}/${i.service}/aws4_request`);
+  url.searchParams.set('X-Amz-Date', i.amzDate);
+  url.searchParams.set('X-Amz-Expires', String(i.expiresSec));
+  url.searchParams.set('X-Amz-SignedHeaders', signedHeaders);
+  const auth = signV4({ ...i, url, headers, payloadHash: 'UNSIGNED-PAYLOAD' });
+  url.searchParams.set('X-Amz-Signature', /Signature=([0-9a-f]+)$/.exec(auth)![1]!);
+  return url.toString();
+}
+
 export interface S3Config {
   bucket: string;
   region: string;
@@ -103,41 +147,79 @@ export function s3Storage(c: S3Config): Storage {
         ? `${c.endpoint.replace(/\/$/, '')}/${c.bucket}/${key}`
         : `https://${c.bucket}.s3.${c.region}.amazonaws.com/${key}`,
     );
-  return {
-    async save(id, tmpFile, meta) {
-      const url = objectUrl(`uploads/${id}`);
-      const amzDate = new Date()
-        .toISOString()
-        .replace(/[-:]/g, '')
-        .replace(/\.\d{3}/, '');
-      const headers = {
-        'content-type': meta.mime,
-        'content-length': String((await stat(tmpFile)).size),
-        'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
-        'x-amz-date': amzDate,
-      };
-      const authorization = signV4({
+  const signedFetch = async (method: 'HEAD' | 'DELETE', id: string) => {
+    const url = objectUrl(`uploads/${id}`);
+    const amzDate = amzNow(new Date());
+    const headers = { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'x-amz-date': amzDate };
+    const authorization = signV4({
+      method, url, headers, region: c.region, service: 's3', amzDate, payloadHash: 'UNSIGNED-PAYLOAD',
+      accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey,
+    });
+    return fetch(url, { method, headers: { ...headers, authorization } });
+  };
+  /** PUT a local file to `key`, then delete it */
+  const putKey = async (key: string, tmpFile: string, mime: string) => {
+    const url = objectUrl(key);
+    const amzDate = amzNow(new Date());
+    const headers = {
+      'content-type': mime,
+      'content-length': String((await stat(tmpFile)).size),
+      'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+      'x-amz-date': amzDate,
+    };
+    const authorization = signV4({
+      method: 'PUT',
+      url,
+      headers,
+      region: c.region,
+      service: 's3',
+      amzDate,
+      payloadHash: 'UNSIGNED-PAYLOAD',
+      accessKeyId: c.accessKeyId,
+      secretAccessKey: c.secretAccessKey,
+    });
+    try {
+      const res = await fetch(url, {
         method: 'PUT',
-        url,
-        headers,
-        region: c.region,
-        service: 's3',
-        amzDate,
-        payloadHash: 'UNSIGNED-PAYLOAD',
-        accessKeyId: c.accessKeyId,
-        secretAccessKey: c.secretAccessKey,
-      });
-      try {
-        const res = await fetch(url, {
+        headers: { ...headers, authorization },
+        body: Readable.toWeb(createReadStream(tmpFile)) as ReadableStream,
+        duplex: 'half',
+      } as RequestInit);
+      if (!res.ok) throw new Error(`S3 PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    } finally {
+      await unlink(tmpFile).catch(() => {});
+    }
+  };
+  return {
+    direct: {
+      publicUrl: (id) => `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}`,
+      presignPut: (id, mime, expiresSec, now = new Date()) =>
+        presignV4({
           method: 'PUT',
-          headers: { ...headers, authorization },
-          body: Readable.toWeb(createReadStream(tmpFile)) as ReadableStream,
-          duplex: 'half',
-        } as RequestInit);
-        if (!res.ok) throw new Error(`S3 PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      } finally {
-        await unlink(tmpFile).catch(() => {});
-      }
+          url: objectUrl(`uploads/${id}`),
+          headers: { 'content-type': mime },
+          region: c.region,
+          service: 's3',
+          amzDate: amzNow(now),
+          expiresSec,
+          accessKeyId: c.accessKeyId,
+          secretAccessKey: c.secretAccessKey,
+        }),
+      async head(id) {
+        const res = await signedFetch('HEAD', id);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(`S3 HEAD ${res.status}`);
+        return { size: Number(res.headers.get('content-length') ?? 0), mime: (res.headers.get('content-type') ?? '').split(';')[0]!.trim() };
+      },
+      async remove(id) {
+        await signedFetch('DELETE', id).catch(() => {});
+      },
+    },
+    save: (id, tmpFile, meta) => putKey(`uploads/${id}`, tmpFile, meta.mime),
+    segments: {
+      // under the uploads/ prefix so the bucket's lifecycle rule cleans segments up with their source
+      baseUrl: (id) => `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}-seg`,
+      put: (id, index, file) => putKey(`uploads/${id}-seg/seg-${String(index).padStart(4, '0')}.flac`, file, 'audio/flac'),
     },
     async locate(id) {
       return { kind: 'redirect', url: `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}` };

@@ -21,6 +21,7 @@ export const initialState = (): RoomStoreState => ({
     usingOutputTimestamp: false,
     bufferState: 'idle',
     loadedTrackId: null,
+    load: null,
     syncErrorMs: 0,
     playbackRate: 1,
     corrections: { rate: 0, reschedule: 0 },
