@@ -26,6 +26,7 @@ import {
 } from '@syncsound/audio-core';
 import type { Playback, RoomState, Track } from '@syncsound/protocol';
 import { errMsg, me, patch, setError, useRoomStore } from '../../store/state';
+import type { EngineLoad } from '../../store/types';
 import { recordSchedule, type ScheduleRecord } from '../instrumentation';
 import { AssetCache } from './assets';
 import { OutputChain, Voice, XFADE_SEC } from './graph';
@@ -892,6 +893,12 @@ export class AudioEngine {
 
   // ---------- store ----------
 
+  /** how much of the current long track is decoded here (null for an ordinary track) */
+  private loadInfo(trackId: string | undefined): EngineLoad | null {
+    const p = trackId ? this.assets.progress(trackId) : null;
+    return p && trackId ? { trackId, ...p } : null;
+  }
+
   private publish() {
     const ctx = this.ctx;
     const cur = this.currentTrack();
@@ -915,6 +922,7 @@ export class AudioEngine {
       usingOutputTimestamp: this.usingOutputTimestamp,
       bufferState: playing || playingOut ? 'playing' : (entry?.state ?? 'idle'),
       loadedTrackId: playing ? pv!.trackId : playingOut ? out!.trackId : entry?.state === 'ready' ? cur!.id : null,
+      load: this.loadInfo(cur?.id),
       syncErrorMs: Math.round(this.syncErrorMs * 10) / 10,
       playbackRate: pv?.tracker.rate ?? 1,
       corrections: this.corrections,

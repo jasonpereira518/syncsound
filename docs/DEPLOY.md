@@ -101,6 +101,22 @@ Cloud Run env (put the secret in Secret Manager): `S3_BUCKET=YOUR_BUCKET`, `S3_E
 Keep `--max-instances=1` (room state is in memory). Check it worked: upload a file over 32 MB and confirm the Network tab shows the
 `PUT` going to `storage.googleapis.com`.
 
+### Long tracks (over 10 minutes)
+
+The server image includes `ffmpeg`. When `complete` sees a track longer than 10 minutes it decodes it once and splits it
+into ~2 minute lossless FLAC segments under `uploads/<id>-seg/` (inside the `uploads/` prefix, so the 1-day lifecycle
+rule above cleans them up too). Devices fetch and decode only the segments around the playhead, so a 3 hour mix plays.
+While it works the client polls `GET /api/assets/:id/progress` and shows "Preparing for playback · part N of M".
+
+- Rebuild and redeploy the server image after this change (`gcloud builds submit --config cloudbuild.yaml …`, then
+  `gcloud run deploy … --port 8787`); the web app needs a redeploy too.
+- Segmenting runs inside the `complete` request, so the request timeout (3600 s here) must cover it. Time and memory for
+  multi-hour files are unmeasured: if the instance restarts on a long file, give it 2 GiB.
+- Segments are ~5× the MP3's size (lossless), so a 3 hour mix is ~1 GB in the bucket and each device downloads what it
+  plays: watch egress.
+- Local dev needs `ffmpeg` on the PATH (`brew install ffmpeg`); without a bucket the segments sit in the server's data
+  dir and are served at `/assets/:id/segments/seg-0000.flac`.
+
 ## Frontend on Vercel
 
 - Root directory: `apps/web`; framework Next.js; install command `pnpm install` (Vercel detects the pnpm workspace).

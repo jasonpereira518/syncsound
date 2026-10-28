@@ -2,6 +2,25 @@
 
 An honest list of what is not done, what can't be verified without hardware, and what the platform constrains.
 
+## Long tracks (segmenting)
+
+- **Over 10 minutes the server splits the track** into ~2 minute lossless FLAC segments (`apps/server/src/media.ts`) so
+  a device only ever decodes the segments around its playhead (a 3 hour stereo track is ~3.8 GB of PCM if decoded
+  whole). The server image therefore needs `ffmpeg`; without it a long upload still gets its length from the probe but
+  cannot be split, and the client refuses to decode a track over ~1.1 GB with a message saying so.
+- **Segments are about 5× the size of the MP3** (lossless, so every browser decodes identical samples and the seams
+  carry no per-slice decoder delay): roughly 1 GB for a 3 hour mix. Each device downloads only what it plays, but watch
+  bucket egress. The 16-bit PCM stage between decode and FLAC drops any depth beyond 16 bits.
+- **Seams are cross-faded, not sample-glued.** Each segment carries 50 ms of the next; the player starts the next one at
+  its seam (re-planned whenever the drift loop changes the rate) and fades linearly over the overlap. Checked offline
+  (the server test proves the segments reproduce the source samples exactly) and in a real browser across one seam
+  (`e2e/segments.spec.ts`); **not yet listened to on real speakers** and not measured across many seams or on iOS.
+- **Segmenting runs inside the upload's `complete` request**, one file at a time (Cloud Run only gives a request CPU).
+  Time and peak memory on a 1 vCPU / 1 GiB instance for a multi-hour file are not measured; if a very long file times
+  out or restarts the instance, raise memory/CPU or the request timeout.
+- **If a segment isn't decoded in time** (slow network) playback goes silent at the seam and resumes at the room's
+  position once it arrives; it does not stall the other devices.
+
 ## Platform constraints (by design, not bugs)
 
 - **Spotify / Apple Music are DRM-protected.** They run sync-only (seek-based) through the official Web Playback

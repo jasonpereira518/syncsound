@@ -1,6 +1,7 @@
 'use client';
 import { useId, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import type { DeviceClass, DeviceRole, ObjectChannel } from '@syncsound/protocol';
+import { fmtClock } from '../lib/progress';
 
 // ---------- icons (24px grid, stroke) ----------
 
@@ -111,12 +112,8 @@ export const CHANNEL_COLOR: Record<ObjectChannel, string> = {
 export const fmtMs = (v: number | null | undefined, digits = 1) =>
   v == null || !Number.isFinite(v) ? '—' : `${v.toFixed(digits)} ms`;
 export const fmtSigned = (v: number, digits = 1) => `${v > 0 ? '+' : ''}${v.toFixed(digits)}`;
-export const fmtTime = (sec: number | null | undefined) => {
-  if (sec == null || !Number.isFinite(sec) || sec < 0) return '0:00';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
+/** m:ss, h:mm:ss from an hour up */
+export const fmtTime = fmtClock;
 
 // ---------- primitives ----------
 

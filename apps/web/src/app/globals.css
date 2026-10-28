@@ -87,6 +87,44 @@ input[type='range'] {
   cursor: pointer;
 }
 
+/* the player's seek bar: the native track is transparent so the buffered / played layers drawn behind it show through */
+input[type='range'].seek {
+  appearance: none;
+  background: transparent;
+}
+input[type='range'].seek::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+}
+input[type='range'].seek::-moz-range-track {
+  background: transparent;
+  height: 4px;
+}
+input[type='range'].seek::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: var(--color-ink-100);
+}
+input[type='range'].seek::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--color-ink-100);
+}
+input[type='range'].seek:disabled {
+  cursor: default;
+}
+input[type='range'].seek:disabled::-webkit-slider-thumb {
+  opacity: 0;
+}
+input[type='range'].seek:disabled::-moz-range-thumb {
+  opacity: 0;
+}
+
 fieldset:disabled {
   opacity: 0.55;
 }

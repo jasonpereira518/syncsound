@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { MAX_CROSSFADE_SEC, MAX_UPLOAD_BYTES, type Track, type TrackKind } from '@syncsound/protocol';
 import { positionAt } from '@syncsound/audio-core';
+import { bufferedSpan, devicesReady, playerStatus, uploadLine } from '@/lib/progress';
 import { roomActions, useRoomStore } from '@/store/roomStore';
+import type { UploadProgress } from '@/store/types';
 import {
   Badge,
   Button,
@@ -108,8 +110,22 @@ export function Player() {
   const playback = useRoomStore((s) => s.room?.playback);
   const queue = useRoomStore((s) => s.room?.queue);
   const track = useRoomStore((s) => currentTrack(s.room));
+  const bufferState = useRoomStore((s) => s.engine.bufferState);
+  const load = useRoomStore((s) => s.engine.load);
+  const devices = useRoomStore((s) => s.room?.devices);
   if (!playback || !queue) return null;
   const playing = playback.status === 'playing';
+  const status = !track
+    ? 'Queue a track from the library'
+    : track.sourceClass === 'remote'
+      ? `${track.kind} · ${playback.status}`
+      : playerStatus({
+          kind: track.kind,
+          status: playback.status,
+          bufferState,
+          load: load?.trackId === track.id ? load : null,
+          devices: devices ? devicesReady(devices, track.id) : null,
+        });
 
   const togglePlay = () => {
     if (playing) return control({ type: 'pause' });
@@ -128,9 +144,7 @@ export function Player() {
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{track?.title ?? 'Nothing playing'}</p>
-          <p className="truncate text-xs text-ink-400">
-            {track ? `${track.kind} · ${playback.status}` : 'Queue a track from the library'}
-          </p>
+          <p className="truncate text-xs text-ink-400">{status}</p>
           {track?.sourceClass === 'remote' && <Badge tone="warn">Sync-only mode (no spatial/EQ)</Badge>}
         </div>
       </div>
@@ -251,6 +265,8 @@ export function HostOnlyToggle({ compact }: { compact?: boolean }) {
 function Seek({ duration }: { duration: number }) {
   const playback = useRoomStore((s) => s.room?.playback);
   const clock = useRoomStore((s) => s.clock);
+  const bufferState = useRoomStore((s) => s.engine.bufferState);
+  const load = useRoomStore((s) => s.engine.load);
   const [pos, setPos] = useState(0);
   const [drag, setDrag] = useState<number | null>(null);
 
@@ -281,26 +297,39 @@ function Seek({ duration }: { duration: number }) {
     control({ type: 'seek', position: Math.max(0, drag) });
     setDrag(null);
   };
+  // what this device has decoded, drawn between the played part and the rest of the track
+  const span = bufferedSpan(duration, v, bufferState, load?.trackId === playback?.trackId ? load : null);
+  const played = duration > 0 ? Math.min(1, v / duration) : 0;
   return (
     <div className="flex items-center gap-3">
-      <span className="w-11 text-right font-mono text-xs text-ink-400 tabular">{fmtTime(v)}</span>
-      <input
-        type="range"
-        data-testid="seek-bar"
-        aria-label="Seek"
-        aria-valuetext={`${fmtTime(v)} of ${fmtTime(duration)}`}
-        className="min-w-0 flex-1"
-        min={0}
-        max={Math.max(duration, 0.1)}
-        step={0.1}
-        value={Math.min(v, Math.max(duration, 0.1))}
-        disabled={duration <= 0}
-        onChange={(e) => setDrag(Number(e.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-      />
-      <span className="w-11 font-mono text-xs text-ink-400 tabular">{fmtTime(duration)}</span>
+      {/* hours need more room than m:ss */}
+      <span className="min-w-11 text-right font-mono text-xs text-ink-400 tabular">{fmtTime(v)}</span>
+      <div className="relative min-w-0 flex-1">
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-ink-700 ${bufferState === 'loading' ? 'animate-pulse' : ''}`}
+        >
+          {span && <div className="absolute inset-y-0 bg-ink-500" style={{ left: `${span.from * 100}%`, width: `${(span.to - span.from) * 100}%` }} />}
+          <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: `${played * 100}%` }} />
+        </div>
+        <input
+          type="range"
+          data-testid="seek-bar"
+          aria-label="Seek"
+          aria-valuetext={`${fmtTime(v)} of ${duration > 0 ? fmtTime(duration) : 'unknown length'}`}
+          className="seek relative block w-full"
+          min={0}
+          max={Math.max(duration, 0.1)}
+          step={0.1}
+          value={Math.min(v, Math.max(duration, 0.1))}
+          disabled={duration <= 0}
+          onChange={(e) => setDrag(Number(e.target.value))}
+          onPointerUp={commit}
+          onKeyUp={commit}
+          onBlur={commit}
+        />
+      </div>
+      <span className="min-w-11 font-mono text-xs text-ink-400 tabular">{duration > 0 ? fmtTime(duration) : '–:––'}</span>
     </div>
   );
 }
@@ -410,20 +439,33 @@ function DemoSource() {
 
 type Job =
   | { state: 'idle' }
-  | { state: 'busy'; name: string }
+  | { state: 'busy'; name: string; startedAt?: number; progress?: UploadProgress }
   | { state: 'done'; msg: string }
   | { state: 'error'; msg: string };
 
 function JobStatus({ job }: { job: Job }) {
-  if (job.state === 'busy')
+  if (job.state === 'busy') {
+    const { text, frac } = uploadLine(job.name, job.progress, job.startedAt ? Date.now() - job.startedAt : 0);
     return (
       <div role="status" className="mt-3">
-        <p className="text-sm text-ink-300">Uploading {job.name}…</p>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-700">
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+        <p className="text-sm text-ink-300">{text}</p>
+        <div
+          role="progressbar"
+          aria-label="Upload progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={frac === null ? undefined : Math.round(frac * 100)}
+          className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-700"
+        >
+          {/* scaleX, not width: motion here is transform/opacity only */}
+          <div
+            className={`h-full origin-left rounded-full bg-accent motion-safe:transition-transform ${frac === null ? 'w-1/3 animate-pulse' : 'w-full'}`}
+            style={frac === null ? undefined : { transform: `scaleX(${frac})` }}
+          />
         </div>
       </div>
     );
+  }
   if (job.state === 'done')
     return (
       <p role="status" className="mt-3 text-sm text-ok">
@@ -444,10 +486,11 @@ function useUpload() {
   const upload = (file: File) => {
     if (file.size > MAX_UPLOAD_BYTES)
       return setJob({ state: 'error', msg: `That file is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.` });
-    setJob({ state: 'busy', name: file.name });
+    const startedAt = Date.now();
+    setJob({ state: 'busy', name: file.name, startedAt });
     let p: Promise<Track>;
     try {
-      p = roomActions.uploadFile(file);
+      p = roomActions.uploadFile(file, (progress) => setJob({ state: 'busy', name: file.name, startedAt, progress }));
     } catch (e) {
       p = Promise.reject(e);
     }
