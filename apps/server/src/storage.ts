@@ -22,6 +22,8 @@ export interface Storage {
   direct?: {
     /** presigned PUT url; the browser must send exactly this content-type */
     presignPut(id: string, mime: string, expiresSec: number, now?: Date): string;
+    /** the object's public https URL: what devices GET directly and what ffprobe reads */
+    publicUrl(id: string): string;
     /** size + content-type of the stored object, null if absent */
     head(id: string): Promise<{ size: number; mime: string } | null>;
     remove(id: string): Promise<void>;
@@ -140,6 +142,7 @@ export function s3Storage(c: S3Config): Storage {
   };
   return {
     direct: {
+      publicUrl: (id) => `${c.publicBaseUrl.replace(/\/$/, '')}/uploads/${id}`,
       presignPut: (id, mime, expiresSec, now = new Date()) =>
         presignV4({
           method: 'PUT',

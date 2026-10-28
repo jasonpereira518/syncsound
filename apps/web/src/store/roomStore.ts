@@ -858,10 +858,12 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
     const up = UploadResponse.safeParse(await sendAsset(file));
     if (!up.success) return fail('Upload failed: the server sent an unexpected response.');
     const id = newTrackId();
-    let durationSec: number | undefined;
-    let channels: number | undefined;
+    // the server probed these (ffprobe), so even a file too big to decode here arrives with a known length
+    let durationSec: number | undefined = up.data.durationSec;
+    let channels: number | undefined = up.data.channels;
     const engine = session?.engine;
-    if (engine?.ctx && file.size < 80 * 1024 * 1024) {
+    // a segmented (long) track is never decoded whole: devices fetch its windows as it plays
+    if (engine?.ctx && file.size < 80 * 1024 * 1024 && !up.data.segments) {
       try {
         const buf = await engine.decode(await file.arrayBuffer());
         durationSec = buf.duration;
@@ -881,6 +883,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
       mime,
       ...(durationSec !== undefined ? { durationSec } : {}),
       ...(channels !== undefined ? { channels } : {}),
+      ...(up.data.segments ? { segments: up.data.segments } : {}),
       addedBy: useRoomStore.getState().deviceId,
     };
     sendOrWarn({ type: 'CONTROL', command: { type: 'queue', track } });

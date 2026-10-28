@@ -23,11 +23,13 @@ import {
 import type { HomeStore } from './homes.ts';
 import type { Outbound, Room } from './room.ts';
 import type { RoomManager } from './roomManager.ts';
+import type { Media } from './media.ts';
 import type { Storage } from './storage.ts';
 
 export interface HttpDeps {
   manager: RoomManager;
   storage: Storage;
+  media: Media;
   dataDir: string;
   allowedOrigins: string[];
   publicUrl?: string;
@@ -192,7 +194,17 @@ async function completeUpload(req: IncomingMessage, res: ServerResponse, id: str
     throw new HttpError(obj.size > d.maxUploadBytes ? 413 : 415, 'uploaded file rejected');
   }
   const { title } = nameParts(parsed.data.filename, mime);
-  const body: UploadResponse = { id, url: `${publicBase(req, d)}/assets/${id}`, title, mime: obj.mime, size: obj.size };
+  // the browser can't pre-decode big files, so the server tells the room how long this one is
+  const probed = await d.media.probe(direct.publicUrl(id));
+  const body: UploadResponse = {
+    id,
+    // straight from the bucket: a hop through /assets/:id would redirect cross-origin and trip CORS (`Origin: null`)
+    url: direct.publicUrl(id),
+    title,
+    mime: obj.mime,
+    size: obj.size,
+    ...(probed && { durationSec: probed.durationSec, channels: probed.channels }),
+  };
   json(res, 201, body);
 }
 
@@ -232,7 +244,16 @@ async function upload(req: IncomingMessage, res: ServerResponse, d: HttpDeps) {
     if (e instanceof HttpError) throw e;
     throw new HttpError(500, 'upload failed');
   }
-  const body: UploadResponse = { id, url: `${publicBase(req, d)}/assets/${id}`, title, mime, size };
+  const loc = await d.storage.locate(id);
+  const probed = loc?.kind === 'file' ? await d.media.probe(loc.path) : null;
+  const body: UploadResponse = {
+    id,
+    url: `${publicBase(req, d)}/assets/${id}`,
+    title,
+    mime,
+    size,
+    ...(probed && { durationSec: probed.durationSec, channels: probed.channels }),
+  };
   json(res, 201, body);
 }
 

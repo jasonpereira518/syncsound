@@ -92,6 +92,10 @@ export const DeviceStats = z.object({
   remoteErrorMs: finite().nullable(),
   autoLatencyMs: finite().nullable(),
   battery: finite().min(0).max(1).nullable(),
+  /** how far ahead of the start of `loadedTrackId` this device has decoded audio, seconds (long tracks) */
+  bufferedThroughSec: finite().min(0).optional(),
+  /** 0..1 of the current track's download+decode done on this device */
+  loadPct: finite().min(0).max(1).optional(),
 });
 export type DeviceStats = z.infer<typeof DeviceStats>;
 
@@ -203,6 +207,24 @@ export type Scene = z.infer<typeof Scene>;
 export const TrackKind = z.enum(['demo', 'file', 'url', 'video', 'capture', 'youtube', 'spotify', 'apple']);
 export type TrackKind = z.infer<typeof TrackKind>;
 
+/**
+ * A long track the server split into small FLAC segments so no device has to decode the whole file at once
+ * (a 3 h stereo track is ~3.8 GB of PCM). Segment i holds samples [i*segmentSamples, (i+1)*segmentSamples) plus
+ * `overlapSamples` of the next segment, at the source `sampleRate`; the last one just ends at `totalSamples`.
+ */
+export const SegmentPlan = z.object({
+  /** segment i lives at `${baseUrl}/seg-${i padded to 4}.flac` (see `segmentUrl`) */
+  baseUrl: z.string().url().max(2000),
+  count: z.number().int().min(1).max(10_000),
+  segmentSamples: z.number().int().min(1),
+  overlapSamples: z.number().int().min(0),
+  sampleRate: z.number().int().min(8000).max(384_000),
+  totalSamples: z.number().int().min(1),
+});
+export type SegmentPlan = z.infer<typeof SegmentPlan>;
+export const segmentUrl = (p: Pick<SegmentPlan, 'baseUrl'>, i: number) =>
+  `${p.baseUrl.replace(/\/$/, '')}/seg-${String(i).padStart(4, '0')}.flac`;
+
 export const Track = z.object({
   id: Id,
   title: z.string().min(1).max(200),
@@ -214,6 +236,8 @@ export const Track = z.object({
   mime: z.string().max(100).optional(),
   durationSec: finite().min(0).optional(),
   channels: z.number().int().min(1).max(8).optional(),
+  /** set for long uploads: devices fetch + decode these windows instead of the whole `url` */
+  segments: SegmentPlan.optional(),
   /** spotify:track:… or Apple Music catalog song id */
   remoteId: z.string().max(200).optional(),
   youtubeId: z.string().max(20).optional(),
@@ -531,8 +555,19 @@ export const UploadResponse = z.object({
   title: z.string(),
   mime: z.string(),
   size: z.number().int(),
+  /** probed by the server (ffprobe) so even files too big to pre-decode in the browser have a known length */
+  durationSec: finite().min(0).optional(),
+  channels: z.number().int().min(1).max(8).optional(),
+  segments: SegmentPlan.optional(),
 });
 export type UploadResponse = z.infer<typeof UploadResponse>;
+/** GET /api/assets/:id/progress while `complete` is preparing a long file */
+export const AssetProgress = z.object({
+  phase: z.enum(['probing', 'segmenting', 'done']),
+  done: z.number().int().min(0),
+  total: z.number().int().min(0),
+});
+export type AssetProgress = z.infer<typeof AssetProgress>;
 /** direct-to-bucket upload: init → browser PUTs `uploadUrl` with content-type `mime` → complete (same body) */
 export const UploadInitRequest = z.object({
   filename: z.string().min(1).max(300),

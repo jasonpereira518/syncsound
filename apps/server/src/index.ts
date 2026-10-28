@@ -10,6 +10,7 @@ import { createHttpHandler, originAllowed } from './http.ts';
 import { ProfileStore } from './profiles.ts';
 import { perfClock, type Outbound, type Room } from './room.ts';
 import { RoomManager } from './roomManager.ts';
+import { ffmpegMedia, type Media } from './media.ts';
 import { storageFromEnv, type Storage } from './storage.ts';
 
 export const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -30,6 +31,8 @@ export interface ServerOptions {
   maxUploadBytes?: number;
   /** override env-selected asset storage (tests inject a fake bucket) */
   storage?: Storage;
+  /** override ffprobe/ffmpeg (tests inject a fake) */
+  media?: Media;
   roomTtlMinutes?: number;
   /** how long a prepared tune waits for its recorders' microphones (tests shorten it) */
   prepareDeadlineMs?: number;
@@ -107,6 +110,7 @@ export async function startServer(
     createHttpHandler({
       manager,
       storage,
+      media: opts.media ?? ffmpegMedia,
       dataDir,
       allowedOrigins,
       // Render sets RENDER_EXTERNAL_URL (https://<service>.onrender.com), so uploads get the right public link there

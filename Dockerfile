@@ -17,6 +17,8 @@ FROM deps AS source
 COPY . .
 
 FROM source AS server
+# ffprobe/ffmpeg: the server probes uploads for their length and splits long ones into segments (apps/server/src/media.ts)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=8787 DATA_DIR=/data
 EXPOSE 8787
 RUN pnpm demo && mkdir -p /data && cp -r apps/server/data/demo /data/demo

@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { UploadInitResponse, UploadResponse } from '@syncsound/protocol';
 import { startServer } from '../src/index.ts';
+import { probe, type Media } from '../src/media.ts';
 import { localStorage, presignV4, type Storage } from '../src/storage.ts';
 
 describe('presignV4', () => {
@@ -46,6 +48,8 @@ describe('presignV4', () => {
   });
 });
 
+const fakeMedia: Media = { probe: async () => ({ durationSec: 10800, channels: 2, sampleRate: 44100 }) };
+
 describe('direct-to-bucket upload routes', () => {
   const objects = new Map<string, { size: number; mime: string }>();
   const removed: string[] = [];
@@ -53,6 +57,7 @@ describe('direct-to-bucket upload routes', () => {
     save: async () => {},
     locate: async (id) => ({ kind: 'redirect', url: `https://bucket.test/uploads/${id}` }),
     direct: {
+      publicUrl: (id) => `https://bucket.test/uploads/${id}`,
       presignPut: (id, mime) => `https://bucket.test/uploads/${id}?sig=1&type=${encodeURIComponent(mime)}`,
       head: async (id) => objects.get(id) ?? null,
       remove: async (id) => void (objects.delete(id), removed.push(id)),
@@ -71,7 +76,7 @@ describe('direct-to-bucket upload routes', () => {
 
   beforeAll(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'syncsound-direct-'));
-    srv = await startServer({ port: 0, dataDir, maxUploadBytes: 1000, allowedOrigins: [], storage: fakeBucket });
+    srv = await startServer({ port: 0, dataDir, maxUploadBytes: 1000, allowedOrigins: [], storage: fakeBucket, media: fakeMedia });
     local = await startServer({ port: 0, dataDir, maxUploadBytes: 1000, allowedOrigins: [], storage: localStorage(join(dataDir, 'u')) });
   });
   afterAll(async () => {
@@ -90,12 +95,15 @@ describe('direct-to-bucket upload routes', () => {
     objects.set(slot.id, { size: 500, mime: 'audio/mpeg' }); // what the browser's PUT leaves in the bucket
     const done = await post(srv.port, `/api/assets/${slot.id}/complete`, meta);
     expect(done.status).toBe(201);
+    // direct bucket url (no cross-origin redirect through the server) + the length the server probed
     expect((await done.json()) as UploadResponse).toEqual({
       id: slot.id,
-      url: `http://127.0.0.1:${srv.port}/assets/${slot.id}`,
+      url: `https://bucket.test/uploads/${slot.id}`,
       title: 'my song',
       mime: 'audio/mpeg',
       size: 500,
+      durationSec: 10800,
+      channels: 2,
     });
   });
 
@@ -124,5 +132,23 @@ describe('direct-to-bucket upload routes', () => {
 
   it('init is 404 without bucket storage, so clients fall back to POST /api/assets', async () => {
     expect((await post(local.port, '/api/assets/init', meta)).status).toBe(404);
+  });
+});
+
+const haveFfmpeg = spawnSync('ffprobe', ['-version']).status === 0;
+describe.skipIf(!haveFfmpeg)('probe (real ffprobe)', () => {
+  it('reads duration, channels and sample rate; null for junk', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'syncsound-probe-'));
+    try {
+      const wav = join(dir, 'tone.wav');
+      spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2:sample_rate=44100', '-ac', '2', wav]);
+      const p = await probe(wav);
+      expect(p).toMatchObject({ channels: 2, sampleRate: 44100 });
+      expect(p!.durationSec).toBeCloseTo(2, 1);
+      writeFileSync(join(dir, 'junk.mp3'), 'not audio');
+      expect(await probe(join(dir, 'junk.mp3'))).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
