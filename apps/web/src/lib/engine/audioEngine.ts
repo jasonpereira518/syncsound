@@ -16,8 +16,11 @@ import {
   computeDeviceMix,
   computeStart,
   sceneAt,
+  segmentIndexAt,
+  segmentTotalSec,
   type RoomClock,
   type DeviceMix,
+  type SegmentGeometry,
   type StartDecision,
   type TimeMap,
 } from '@syncsound/audio-core';
@@ -26,6 +29,7 @@ import { errMsg, me, patch, setError, useRoomStore } from '../../store/state';
 import { recordSchedule, type ScheduleRecord } from '../instrumentation';
 import { AssetCache } from './assets';
 import { OutputChain, Voice, XFADE_SEC } from './graph';
+import { SegmentedSource } from './segmented';
 import {
   autoOnlyCompensationSec,
   compensationSec,
@@ -44,7 +48,7 @@ const EXTERNAL_FADE_SEC = 0.02;
 
 interface PlayingVoice {
   voice: Voice;
-  src: AudioBufferSourceNode;
+  src: AudioBufferSourceNode | SegmentedSource;
   key: string;
   trackId: string;
   when: number;
@@ -395,7 +399,14 @@ export class AudioEngine {
     const idx = cur ? room.queue.indexOf(cur) : -1;
     const wanted = [cur, ...room.queue.slice(idx + 1)].filter((t): t is Track => !!t && rendered.includes(t)).slice(0, 2);
     if (!cur && rendered[0]) wanted.splice(0, wanted.length, rendered[0]);
-    this.assets.ensure(wanted);
+    this.assets.ensure(wanted, cur ? { id: cur.id, pos: this.positionSec(room) } : undefined);
+  }
+
+  /** where the room's playhead is in the current track (s), as far as this device can tell right now */
+  private positionSec(room: RoomState): number {
+    const pb = room.playback;
+    if (pb.status !== 'playing' || !this.ctx || !this.timingReady()) return pb.trackOffset;
+    return Math.max(pb.trackOffset, pb.trackOffset + (this.ctxToRoom(this.ctx.currentTime) - pb.startRoomTime) / 1000);
   }
 
   // ---------- playback ----------
@@ -425,8 +436,10 @@ export class AudioEngine {
     if (!this.timingReady()) return; // resumes on clock sync / audio clock ready (a forced rebuild stays pending)
     const key = playbackKey(pb);
     if (!force && this.voice && this.voice.key === key && this.voice.stopAt === null) return;
-    const buffer = this.assets.buffer(track.id);
-    if (!buffer) return; // resumes when the asset is ready
+    // a long track plays from its decoded segments; anything else from one whole buffer
+    const geo = track.segments;
+    const buffer = geo ? null : this.assets.buffer(track.id);
+    if (!geo && !buffer) return; // resumes when the asset is ready
     const comp = this.compensationSec();
     // one clock snapshot per decision: a LAN ↔ server path flip must not split one computation
     const clock = this.deps.clock()!;
@@ -438,22 +451,26 @@ export class AudioEngine {
       roomToCtx: (r) => this.audioClock.perfToCtx(clock.toLocalTime(r)),
       nowCtx: ctx.currentTime,
       compensationSec: comp,
-      durationSec: buffer.duration,
+      durationSec: geo ? segmentTotalSec(geo) : buffer!.duration,
     });
     if (!d) {
       this.gate.take();
       this.stopVoice(ctx.currentTime);
       return;
     }
+    if (geo && !this.assets.segmentBuffer(track.id, segmentIndexAt(geo, d.offset))) {
+      this.assets.ensureWindow(track, d.offset); // fetch around where playback has to start; resumes when it lands
+      return;
+    }
     const old = this.voice;
     const action = force ? 'reschedule' : old && old.stopAt === null && old.trackId === track.id ? 'seek' : 'play';
-    this.startVoice(track.id, key, buffer, d, comp, pb, action);
+    this.startVoice(track.id, key, geo ? { geo, channels: track.channels ?? 2 } : buffer!, d, comp, pb, action);
   }
 
   private startVoice(
     trackId: string,
     key: string,
-    buffer: AudioBuffer,
+    audio: AudioBuffer | { geo: SegmentGeometry; channels: number },
     d: StartDecision,
     comp: number,
     pb: Playback,
@@ -461,9 +478,16 @@ export class AudioEngine {
   ) {
     const ctx = this.ctx!;
     const room = useRoomStore.getState().room!;
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const voice = new Voice(ctx, src, buffer.numberOfChannels, this.chain!);
+    let src: AudioBufferSourceNode | SegmentedSource;
+    let voice: Voice;
+    if ('geo' in audio) {
+      src = new SegmentedSource(ctx, audio.geo, (i) => this.assets.segmentBuffer(trackId, i));
+      voice = new Voice(ctx, src.output, audio.channels, this.chain!);
+    } else {
+      src = ctx.createBufferSource();
+      src.buffer = audio;
+      voice = new Voice(ctx, src, audio.numberOfChannels, this.chain!);
+    }
     voice.apply(this.heardScene(room), this.mix!);
     const old = this.voice;
     let fadeUntil = 0;
@@ -499,11 +523,15 @@ export class AudioEngine {
     this.lastTickCtx = null;
     this.gate.take();
     const pv: PlayingVoice = { voice, src, key, trackId, when: d.when, tracker, stopAt: null, fadeUntil };
+    const segmented = 'geo' in audio;
     src.onended = () => {
       voice.dispose();
+      const early = segmented && this.voice === pv && pv.stopAt === null;
       if (this.voice === pv) this.voice = null;
       if (this.outgoing === pv) this.outgoing = null;
       this.publish();
+      // a long track ran out of decoded audio (or reached its end): re-plan from where the room is now
+      if (early) this.reconcile();
     };
     this.voice = pv;
     const L = outputLatencyMs(this.latencyInput());
@@ -639,6 +667,8 @@ export class AudioEngine {
     const room = useRoomStore.getState().room;
     const pv = this.voice;
     try {
+      // slide a long track's decoded window along with the playhead
+      if (room) this.ensureAssets(room);
       // (re)start the click once timing is ready, and re-align it to the room clock every 30 s
       if (this.clickOn && ctx && (!this.click || ctx.currentTime - this.click.startedCtx > 30)) this.startClick();
       if (!ctx || !room || !pv || pv.stopAt !== null) return;
