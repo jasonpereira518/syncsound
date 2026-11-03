@@ -216,6 +216,23 @@ errors at play time, scored at the true head.
 The physical move is a documented limit (LIMITATIONS): nothing can tell a moved speaker from a corrected picture,
 and a quick tune is one tap.
 
+## 4e. Tune rounds and the check after a tune (`tuneRounds.test.ts`, `tuneRoundsFaults.test.ts`, `tuneVerify.test.ts`)
+
+The sim room of §4b, tuned in rounds (listener-only rounds replay unconfirmed devices, readings against the
+anchor, fresh clock errors every round), against round 0 alone (one chime each). Head alignment p95 between any
+two devices, 10 seeds (the check: 8).
+
+| Scenario | One chime each | Rounds |
+|---|---|---|
+| clean room | 0.48 ms | 0.43 ms; laptops confirmed in 2 rounds, the Bluetooth speaker in 3 |
+| honest repeat of a reading | — | p95 0.31 ms, max 0.35 ms (agreement: 0.5 ms) |
+| 15 % of chimes not heard | every device timed in 6/10 runs | 10/10 runs (9/10 all confirmed), 0.37 ms |
+| a speaker blocked in round 0 | 1.35 ms | 0.36 ms (the blocked reading was 0.9–1.2 ms off) |
+| listener clock offsets σ 2 ms per round | — | 0.38 ms; raw readings without the anchor 3.26 ms |
+| Bluetooth jitter σ 3 ms per round | 4.37 ms | 3.05 ms, reported as varying 10/10 (spread 1.9–6.0 ms) |
+| check: room as tuned | — | corrected 0/8 times (largest offset 0.41 ms) |
+| check: +3 ms on one laptop after the tune | 3.33 ms | found 8/8, 0.40 ms after the correction |
+
 ## 5. Sync-measurement tool (`syncMeasure.test.ts` + E2E)
 
 - **Simulated:** 4 devices click for 60 s, time-staggered by 250 ms with identical wideband chirps, each with a known

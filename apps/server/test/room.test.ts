@@ -4,6 +4,7 @@ import {
   MIN_SCHEDULE_LEAD_MS,
   QUEUE_END_STOP_MS,
   SCHEDULE_SAFETY_MARGIN_MS,
+  TUNE_MAX_ROUNDS,
   type ClientMessage,
   type DeviceCaps,
   type DeviceStats,
@@ -756,6 +757,83 @@ describe('Room devices + scene', () => {
     const later = one(room.handle('c1', { type: 'STATS', stats: stats(30) }, 2001), 'DEVICE_LIST');
     expect(later.msg.devices.find((d) => d.id === 'g2')!.stats!.rttMs).toBe(20);
     expect(later.msg.devices.find((d) => d.id === 'g1')!.stats!.rttMs).toBe(30);
+  });
+});
+
+describe('Room tune rounds', () => {
+  const tuneSlots = (ids: string[]) => ids.map((id, i) => ({ deviceId: id, deviceIndex: i, signal: 'tune' as const, offsetMs: 500 + i * 1550, durationMs: 1100 }));
+  /** a tune started by the host (legacy one-shot start: the plan comes at once) */
+  const started = () => {
+    const room = setup();
+    const plan = one(room.handle('ch', { type: 'CALIBRATION_START', slots: tuneSlots(['h', 'g1', 'g2']), recorders: 'all' }, 1000), 'CALIBRATION_PLAN').msg.plan;
+    return { room, plan };
+  };
+  const next = (room: Room, conn: string, planId: string, ids: string[], now: number) =>
+    room.handle(conn, { type: 'CALIBRATION_NEXT_ROUND', planId, slots: tuneSlots(ids) }, now);
+
+  it('a next round replays the named devices in the same run: same id, round index, listener-only, short lead', () => {
+    const { room, plan } = started();
+    expect(plan.round).toBeUndefined();
+    const r1 = one(next(room, 'ch', plan.id, ['h', 'g2'], 9000), 'CALIBRATION_PLAN');
+    expect(r1.to).toBe('all');
+    expect(r1.msg.plan).toMatchObject({ id: plan.id, listenerId: 'h', round: 1, recorders: 'listener', purpose: 'calibrate' });
+    expect(r1.msg.plan.slots.map((s) => s.deviceId)).toEqual(['h', 'g2']);
+    expect(r1.msg.plan.startRoomTime - 9000).toBe(1500);
+    // the run still holds the room until this round's recording ends (+ the tail)
+    const endsAt = r1.msg.plan.startRoomTime + 500 + 1550 + 1100 + 1000 + 200 + 5000;
+    expect(one(room.handle('c1', { type: 'CALIBRATION_START', slots: tuneSlots(['g1']) }, endsAt - 1), 'ERROR').msg.code).toBe('calibration_busy');
+    one(room.handle('c1', { type: 'CALIBRATION_START', slots: tuneSlots(['g1']) }, endsAt), 'CALIBRATION_PLAN');
+  });
+
+  it(`stops at ${TUNE_MAX_ROUNDS} rounds`, () => {
+    const { room, plan } = started();
+    for (let k = 1; k < TUNE_MAX_ROUNDS; k++) expect(one(next(room, 'ch', plan.id, ['h'], 1000 + k * 10_000), 'CALIBRATION_PLAN').msg.plan.round).toBe(k);
+    expect(one(next(room, 'ch', plan.id, ['h'], 99_000), 'ERROR').msg.code).toBe('bad_plan');
+  });
+
+  it("refuses another device, a stale or unknown run, a run still preparing, and slots that aren't one short chime each", () => {
+    const { room, plan } = started();
+    expect(one(next(room, 'c1', plan.id, ['h'], 9000), 'ERROR').msg.code).toBe('forbidden');
+    expect(one(next(room, 'ch', 'nope', ['h'], 9000), 'ERROR').msg.code).toBe('unknown_plan');
+    const dup = [...tuneSlots(['h']), ...tuneSlots(['h'])];
+    expect(one(room.handle('ch', { type: 'CALIBRATION_NEXT_ROUND', planId: plan.id, slots: dup }, 9000), 'ERROR').msg.code).toBe('bad_plan');
+    expect(one(next(room, 'ch', plan.id, ['ghost'], 9000), 'ERROR').msg.code).toBe('bad_plan');
+    const repeated = tuneSlots(['h']).map((x) => ({ ...x, repeat: 3, periodMs: 1000 }));
+    expect(one(room.handle('ch', { type: 'CALIBRATION_NEXT_ROUND', planId: plan.id, slots: repeated }, 9000), 'ERROR').msg.code).toBe('bad_plan');
+    // after the result the run is over
+    one(room.handle('ch', { type: 'CALIBRATION_RESULT', planId: plan.id, results: [], tune: { mic: { x: 0, y: 0 }, quick: false, ranged: [], positions: {} } }, 9500), 'SCENE');
+    expect(one(next(room, 'ch', plan.id, ['h'], 9600), 'ERROR').msg.code).toBe('unknown_plan');
+    // …and after a cancel
+    const c = started();
+    one(c.room.handle('ch', { type: 'CALIBRATION_CANCEL', planId: c.plan.id }, 2000), 'CALIBRATION_CANCELLED');
+    expect(one(next(c.room, 'ch', c.plan.id, ['h'], 2100), 'ERROR').msg.code).toBe('unknown_plan');
+    // a prepared run that hasn't planned yet
+    const p = setup();
+    p.handle('c1', { type: 'CAPS_UPDATE', caps: { ...caps('laptop'), micPermission: 'granted' } }, 900);
+    const prep = one(p.handle('ch', { type: 'CALIBRATION_START', slots: tuneSlots(['h', 'g1']), recorders: 'all', prepare: true }, 1000), 'CALIBRATION_PREPARE');
+    expect(one(next(p, 'ch', prep.msg.planId, ['h'], 1100), 'ERROR').msg.code).toBe('unknown_plan');
+  });
+
+  it('a cancel mid-round stops it for everyone and frees the room', () => {
+    const { room, plan } = started();
+    one(next(room, 'ch', plan.id, ['h', 'g1'], 9000), 'CALIBRATION_PLAN');
+    expect(one(room.handle('ch', { type: 'CALIBRATION_CANCEL', planId: plan.id }, 9100), 'CALIBRATION_CANCELLED').to).toBe('all');
+    one(room.handle('c1', { type: 'CALIBRATION_START', slots: tuneSlots(['g1']) }, 9200), 'CALIBRATION_PLAN');
+  });
+
+  it('the listener’s live status reaches every device (also the final one after the result); nobody else may send it', () => {
+    const { room, plan } = started();
+    const devices = [
+      { deviceId: 'h', state: 'in-sync' as const },
+      { deviceId: 'g2', state: 'not-heard' as const, hint: 'volume' as const },
+    ];
+    const st = one(room.handle('ch', { type: 'CALIBRATION_STATUS', planId: plan.id, round: 0, devices }, 9000), 'CALIBRATION_STATUS');
+    expect(st.to).toBe('all');
+    expect(st.msg).toMatchObject({ planId: plan.id, listenerId: 'h', round: 0, devices });
+    expect(one(room.handle('c1', { type: 'CALIBRATION_STATUS', planId: plan.id, round: 0, devices }, 9000), 'ERROR').msg.code).toBe('forbidden');
+    expect(one(room.handle('ch', { type: 'CALIBRATION_STATUS', planId: 'nope', round: 0, devices }, 9000), 'ERROR').msg.code).toBe('unknown_plan');
+    one(room.handle('ch', { type: 'CALIBRATION_RESULT', planId: plan.id, results: [], tune: { mic: { x: 0, y: 0 }, quick: false, ranged: [], positions: {} } }, 9500), 'SCENE');
+    one(room.handle('ch', { type: 'CALIBRATION_STATUS', planId: plan.id, round: 0, devices, done: true }, 9600), 'CALIBRATION_STATUS');
   });
 });
 

@@ -9,6 +9,7 @@ import {
   defaultScene,
   defaultSettings,
   CALIBRATION_PREPARE_DEADLINE_MS,
+  TUNE_MAX_ROUNDS,
   type CalibrationPlan,
   type CalibrationSlot,
   type ClientMessage,
@@ -123,6 +124,8 @@ class RoomError extends Error {
 interface ActiveRun {
   id: string;
   listenerId: string;
+  /** the round being played (a tune replays the devices it hasn't confirmed: CALIBRATION_NEXT_ROUND) */
+  round: number;
   /** room time until which the room is busy with this run */
   endsAt: number;
   /** set while the run waits for its recorders' mics */
@@ -385,10 +388,18 @@ export class Room {
       slots,
       ...(purpose ? { purpose } : {}),
       ...(recorders ? { recorders } : {}),
+      ...(run.round ? { round: run.round } : {}),
     };
     const recordingMs = calibrationRecordingMs(slots, purpose === 'measure' ? SYNC_SEARCH_LATE_MS : undefined);
     run.endsAt = plan.startRoomTime + recordingMs + CALIBRATION_ACTIVE_TAIL_MS;
     return plan;
+  }
+
+  /** one short tune slot per known device (an all-recorders plan, or a later round of a tune) */
+  private isTuneRound(slots: CalibrationSlot[]): boolean {
+    const ids = slots.map((s) => s.deviceId);
+    const endMs = Math.max(...slots.map((s) => s.offsetMs + s.durationMs));
+    return !slots.some((s) => s.repeat !== undefined) && new Set(ids).size === ids.length && ids.every((id) => this.device(id)) && endMs <= CALIBRATION_ALL_MAX_MS;
   }
 
   /** drop devices disconnected longer than maxAgeMs; returns the DEVICE_LIST broadcast if anything changed */
@@ -497,20 +508,16 @@ export class Room {
       case 'CALIBRATION_START': {
         // a run plays on every device (and a tune rewrites their latency/EQ): a playback-control action
         if (!this.canControl(sender)) throw new RoomError('forbidden', 'only the host may calibrate');
-        if (msg.recorders === 'all') {
-          // every device opens its mic and buffers the whole run: keep it a tune — one chime per known device, short
-          const ids = msg.slots.map((s) => s.deviceId);
-          const endMs = Math.max(...msg.slots.map((s) => s.offsetMs + s.durationMs));
-          if (msg.purpose === 'measure' || msg.slots.some((s) => s.repeat !== undefined) || new Set(ids).size !== ids.length || ids.some((id) => !this.device(id)) || endMs > CALIBRATION_ALL_MAX_MS)
-            throw new RoomError('bad_plan', 'an all-recorders plan must be one short slot per device');
-        }
+        // every device opens its mic and buffers the whole run: keep it a tune — one chime per known device, short
+        if (msg.recorders === 'all' && (msg.purpose === 'measure' || !this.isTuneRound(msg.slots)))
+          throw new RoomError('bad_plan', 'an all-recorders plan must be one short slot per device');
         const active = this.activeRun;
         if (active && now < active.endsAt && this.deviceConn.has(active.listenerId))
           throw new RoomError('calibration_busy', 'another device is tuning the room right now');
         const id = crypto.randomUUID();
         this.plans.push({ id, listenerId: sender.id });
         if (this.plans.length > 16) this.plans.shift();
-        const run: ActiveRun = { id, listenerId: sender.id, endsAt: 0 };
+        const run: ActiveRun = { id, listenerId: sender.id, round: 0, endsAt: 0 };
         this.activeRun = run;
         if (msg.prepare && msg.recorders === 'all') {
           // prepare phase: the recorders that can answer open their mics now; the plan follows the last answer or
@@ -533,6 +540,24 @@ export class Room {
         }
         const plan = this.makePlan(run, msg.slots, msg.purpose, msg.recorders, now, msg.recorders === 'all' ? CALIBRATION_ALL_LEAD_MS : CALIBRATION_MIN_LEAD_MS);
         return [this.out('all', { type: 'CALIBRATION_PLAN', plan })];
+      }
+      case 'CALIBRATION_NEXT_ROUND': {
+        // the listener replays the devices its tune hasn't confirmed: same run (same id, still holding the room),
+        // only the listener records, so nobody else opens a mic again
+        const run = this.activeRun;
+        if (!run || run.id !== msg.planId || run.prepare) throw new RoomError('unknown_plan', 'that tune is not running');
+        if (run.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener may continue it");
+        if (run.round + 1 >= TUNE_MAX_ROUNDS) throw new RoomError('bad_plan', 'the tune has no rounds left');
+        if (!this.isTuneRound(msg.slots)) throw new RoomError('bad_plan', 'a tune round must be one short slot per device');
+        run.round++;
+        return [this.out('all', { type: 'CALIBRATION_PLAN', plan: this.makePlan(run, msg.slots, 'calibrate', 'listener', now, CALIBRATION_MIN_LEAD_MS) })];
+      }
+      case 'CALIBRATION_STATUS': {
+        const plan = this.plans.find((p) => p.id === msg.planId);
+        if (!plan) throw new RoomError('unknown_plan', 'no such calibration plan');
+        if (plan.listenerId !== sender.id) throw new RoomError('forbidden', "only the run's listener reports its status");
+        const { type: _t, ...status } = msg;
+        return [this.out('all', { type: 'CALIBRATION_STATUS', listenerId: sender.id, ...status })];
       }
       case 'CALIBRATION_READY': {
         const run = this.activeRun;

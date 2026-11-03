@@ -1,0 +1,19 @@
+{
+  "description": "the check after a tune (see tuneRoom.ts verifyRoom)",
+  "seeds": 8,
+  "asTuned": {
+    "corrected": 0,
+    "offsetMs": {
+      "p95": 0.277,
+      "max": 0.414
+    },
+    "headP95Ms": 0.431
+  },
+  "stepOnC": {
+    "corrected": 8,
+    "headP95Ms": {
+      "before": 3.334,
+      "after": 0.4
+    }
+  }
+}

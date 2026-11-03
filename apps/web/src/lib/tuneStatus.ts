@@ -4,7 +4,8 @@
  * report their timing may be off, and a full run again when everything is fine. Pure, shared by the setup screen,
  * Now Playing and the tests.
  */
-import type { Device, TuneRef } from '@syncsound/protocol';
+import type { Device, TuneDeviceState, TuneHint, TuneRef } from '@syncsound/protocol';
+import type { TuneSelfStatus } from '../store/types';
 
 export type TuneMode = 'full' | 'quick';
 
@@ -32,4 +33,40 @@ export function tuneStatus(live: ReadonlyArray<Pick<Device, 'name' | 'syncState'
       mode: 'quick',
     };
   return { state: 'tuned', label: `Tuned · ${plural(n, 'speaker')}`, action: 'Tune again', mode: 'full' };
+}
+
+/** a device's line while the tune's rounds play: what the listener knows so far, and what to do about it */
+export function liveTuneText(state: TuneDeviceState | undefined, hint: TuneHint | null | undefined, spreadMs: number | null | undefined): string {
+  switch (state) {
+    case 'in-sync':
+      return 'in sync';
+    case 'checking':
+      return 'heard, checking again';
+    case 'varies':
+      return `timing varies by ±${(spreadMs ?? 0).toFixed(1)} ms`;
+    case 'too-loud':
+      return 'too loud for the microphone: turn it down a little';
+    case 'not-heard':
+      return hint === 'clock' ? 'its clock moved while it played: it plays again' : 'not heard: turn its volume up and unmute it, it plays again';
+    case 'skipped':
+      return hint === 'left' ? 'left the room' : hint === 'clock' ? 'skipped: its clock kept moving' : 'skipped: not heard';
+    default:
+      return 'waiting for its chime';
+  }
+}
+
+/** what this speaker's own banner says, or null when there's nothing for the person next to it to do */
+export function selfTuneLine(st: TuneSelfStatus): string | null {
+  if (!st.done) {
+    if (st.state === 'too-loud') return 'This speaker is too loud for the tuning microphone. Turn it down a little: it plays again in a few seconds.';
+    if (st.state !== 'not-heard') return null;
+    return st.hint === 'clock'
+      ? "This speaker's clock moved while it played. Keep this screen open: it plays again in a few seconds."
+      : "The tune can't hear this speaker. Turn its volume up and unmute it: it plays again in a few seconds.";
+  }
+  if (st.state !== 'skipped' && st.state !== 'not-heard') return null;
+  if (st.hint === 'left') return null;
+  return st.hint === 'clock'
+    ? "This speaker couldn't be timed (its clock kept moving). Tune again to include it."
+    : "The tune couldn't hear this speaker, so it isn't tuned. Turn it up and tune again.";
 }

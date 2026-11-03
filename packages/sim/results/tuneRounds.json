@@ -1,0 +1,41 @@
+{
+  "description": "tune in rounds vs one chime each (see tuneRoom.ts tuneRounds)",
+  "seeds": 10,
+  "clean": {
+    "headP95Ms": {
+      "rounds": 0.428,
+      "single": 0.482
+    },
+    "repeatDiffMs": {
+      "p95": 0.312,
+      "max": 0.354
+    }
+  },
+  "misses": {
+    "allTimed": {
+      "rounds": 1,
+      "single": 0.6
+    },
+    "allSettled": 0.9,
+    "roundsUsed": [
+      3,
+      4,
+      5,
+      3,
+      3,
+      4,
+      4,
+      5,
+      5,
+      3
+    ],
+    "headP95Ms": 0.373
+  },
+  "listenerOffsets": {
+    "sigmaMs": 2,
+    "headP95Ms": {
+      "anchored": 0.376,
+      "naive": 3.26
+    }
+  }
+}

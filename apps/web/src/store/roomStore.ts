@@ -197,6 +197,9 @@ function handleMessage(msg: ServerMessage) {
     case 'CALIBRATION_CANCELLED':
       s.calibration.onCancelled(msg.planId);
       break;
+    case 'CALIBRATION_STATUS':
+      s.calibration.onStatus(msg);
+      break;
     case 'IDENTIFY': {
       useRoomStore.setState({ identifyFlash: msg.targetDeviceId });
       const t = setTimeout(() => {
@@ -211,6 +214,8 @@ function handleMessage(msg: ServerMessage) {
       else s.capture.onSignal(msg.from, msg.data);
       break;
     case 'ERROR':
+      // a tune whose next round the server refused finishes with what it has; no error to show
+      if (s.calibration.onError(msg.code)) break;
       setError(FRIENDLY[msg.code] ?? msg.msg);
       break;
     case 'PONG':
@@ -1028,7 +1033,7 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   async startCalibration(opts) {
     if (!session) return setError('Join the room first.');
-    // one chime per device and done: Bluetooth wobble ("±X ms") comes from the manual sync check
+    // in rounds: every device until each is confirmed in sync, varies (Bluetooth) or is given up on
     await session.calibration.start(opts);
   },
 
@@ -1039,6 +1044,10 @@ export const roomActions: RoomActions & Required<Pick<RoomActions, 'clearError'>
 
   cancelCalibration() {
     session?.calibration.cancel();
+  },
+
+  finishCalibration() {
+    session?.calibration.finishNow();
   },
 
   applyPresetEq(targetDeviceId) {

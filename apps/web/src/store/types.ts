@@ -15,6 +15,8 @@ import type {
   Scene,
   SceneUpdate,
   Track,
+  TuneDeviceState,
+  TuneHint,
 } from '@syncsound/protocol';
 import type { DeviceMix } from '@syncsound/audio-core';
 import type { HostPlayback } from '../lib/engine/capturePolicy';
@@ -77,7 +79,8 @@ export interface EngineStats {
   batterySaver: boolean;
 }
 
-export type CalibrationStep = 'idle' | 'place' | 'mic' | 'preparing' | 'recording' | 'analyzing' | 'done' | 'error';
+/** …'checking': after the result is applied, every speaker clicks through its compensation and the listener checks it */
+export type CalibrationStep = 'idle' | 'place' | 'mic' | 'preparing' | 'recording' | 'analyzing' | 'checking' | 'done' | 'error';
 /** this device as a recorder for someone else's tune */
 export type RecorderStep = 'idle' | 'preparing' | 'ready' | 'recording';
 
@@ -95,6 +98,26 @@ export interface CalibrationDeviceUi {
   /** response curves for plotting (shared freq grid in CalibrationUi.freqs) */
   beforeDb: number[] | null;
   afterDb: number[] | null;
+  /** where it stands in the tune's rounds (confirmed, varies, not heard…), what to do about it, its readings */
+  state?: TuneDeviceState;
+  hint?: TuneHint | null;
+  readings?: number;
+  /** how much its readings spread, ms */
+  spreadMs?: number | null;
+  /** the check after the tune: how far it lands from the others at the head, ms (+ = late); its click jitter */
+  checkMs?: number | null;
+  wobbleMs?: number | null;
+}
+
+/** this device's own line in the room's tune (another device is listening) */
+export interface TuneSelfStatus {
+  planId: string;
+  state: TuneDeviceState;
+  hint: TuneHint | null;
+  round: number;
+  /** the tune is over: its final state */
+  done: boolean;
+  at: number;
 }
 
 export interface CalibrationUi {
@@ -117,6 +140,12 @@ export interface CalibrationUi {
   waitingFor: string[];
   /** this device's part in another device's tune: opening its mic ahead of the plan, ready, recording */
   recorderStep: RecorderStep;
+  /** the tune round playing (0 = every device; later rounds replay those not confirmed yet) */
+  round: number;
+  /** "Finish now" was pressed: no further rounds */
+  finishing: boolean;
+  /** this device's line in another device's tune (for its own banner) */
+  selfStatus: TuneSelfStatus | null;
 }
 
 export interface SyncMeasureDeviceUi {
@@ -234,6 +263,8 @@ export interface RoomActions {
    */
   tune(): Promise<void>;
   cancelCalibration(): void;
+  /** stop a tune's rounds and apply what the finished ones measured */
+  finishCalibration(): void;
   /** Sync-measurement tool with this device as the listener (mic → user gesture). Cancel with cancelCalibration. */
   startSyncMeasurement(durationSec?: number): Promise<void>;
   /** Apply class-preset EQ (no-mic fallback) to a device */

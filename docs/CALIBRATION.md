@@ -31,8 +31,8 @@ listener's head**. Any phone or laptop can be the listener: a phone is held at t
 3. Each device plays **one 1.1 s swoosh → chime** (`tuneSignalParts`) in its own 1.55 s slot (`buildTuneSlots`): a
    0.6 s exponential sweep, 20 Hz–20 kHz, −12 dBFS peak (30 ms fade-in; above 14 kHz tapered to −10 dB at 20 kHz,
    which takes the shrill edge off without touching the 1–12 kHz arrival band), landing on a 0.5 s bell chime (C6
-   with its G6 fifth and two harmonics, integer ratios, −16.5 dBFS peak). Nothing else plays: the Bluetooth wobble
-   readout comes from the manual sync check. Emissions are scheduled lazily (~1 s ahead) with only the browser-reported part of the
+   with its G6 fifth and two harmonics, integer ratios, −16.5 dBFS peak). That is round 0; later rounds (below)
+   replay only the devices not yet confirmed. Emissions are scheduled lazily (~1 s ahead) with only the browser-reported part of the
    compensation, so the measurement captures the unreported residual (e.g. Bluetooth) and any output step from
    opening a mic is already in the audio-clock mapping.
 4. Every recorder maps sample index → room time through `frozenRoomMap`: the audio clock's long-baseline rate
@@ -53,12 +53,61 @@ listener's head**. Any phone or laptop can be the listener: a phone is held at t
 - **Validity** (`runValidity`): every device snapshots its clock path, `ClockSync` reset count, audio-clock step
   count and a frozen copy of its mapping at the freeze (recorders, the listener) or its first emission. At the end
   the run is invalid if any changed, or if the live mapping moved more than 1 ms from the frozen one (a slew or a
-  step during the run). The listener discards and retries once, then errors. A recorder's rows carry
-  `emissionValid`; a device that only emitted reports a fault with `CALIBRATION_ROWS { emissionValid: false }`.
-  Faulted devices are left untimed, with a named warning ("X wasn't timed: the clock path changed during the run").
+  step during the run). The listener discards that round and the next round plays its devices again; two discarded
+  rounds in a row end the rounds (an error only when nothing was measured). A recorder's rows carry
+  `emissionValid`; a device that only emitted reports a fault with `CALIBRATION_ROWS { emissionValid: false, round }`.
+  A faulted reading doesn't count (the device plays again); a device whose clock keeps moving is given up on
+  ("X wasn't timed: its clock kept moving while it played").
 - **One run at a time**: the server answers a second `CALIBRATION_START` with `calibration_busy` until the result
   arrives, the listener cancels (`CALIBRATION_CANCEL` → `CALIBRATION_CANCELLED` to all, which stops every chime
-  and recording) or leaves, or the recording's end plus 5 s has passed.
+  and recording) or leaves, or the last round's recording end plus 5 s has passed.
+
+### Rounds (until every device is confirmed)
+
+One chime per device can't tell a good reading from a bad one (an echo taken for the direct sound, a cough over
+the slot), and a device it misses would need a whole new tune, which starts every device over. So a tune plays in
+rounds (`tuneRounds.ts`), one run and one tune id throughout:
+
+- **Round 0** is the run above: every device, every recorder (ranging, EQ, levels).
+- **Rounds 1–4** are listener-only plans in the same run (`CALIBRATION_NEXT_ROUND` → `CALIBRATION_PLAN` with the
+  same id and a `round`, on the short lead). Each plays the **anchor** and every device not settled yet. Recorders
+  keep no mic open after round 0; older tabs simply chime, because they follow any plan.
+- **Anchor.** Every round freezes its own map, so the listener's offset differs from round to round. Within a
+  round it is common to every slot, so each reading is taken against the anchor, the listener's own speaker
+  (or the device it heard best when it can't hear itself): `rel_e(k) = M(L,e,k) − M(L,a,k)`, put in round 0's terms.
+  The listener's recorder runs for the whole run (its output never steps between rounds).
+- **Confirmed** (`in-sync`): two readings within `TUNE_AGREE_MS` = 0.5 ms (three for a Bluetooth output, whose
+  latency jitters). Honest repeats differ by the devices' clock errors (sim p95 0.31 ms, max 0.35 ms); a blocked
+  direct path reads 0.9–1.2 ms off and is outvoted. The value is the median of the agreeing readings.
+- **Varies**: one reading more than it needs, without enough agreeing (median used, spread reported).
+- **Not heard / too loud** (clipped): played again next round; every device shows its own line
+  (`CALIBRATION_STATUS`) so the person next to it can turn it up or down. **Skipped** after 3 misses in a row,
+  when it leaves, or when its clock keeps moving.
+- **Stops** when every device is settled, after 5 rounds, or before the chimes pass 90 s. *Finish now* drops the
+  round playing and applies what the finished rounds measured (devices measured once are flagged).
+- **Solve.** Distances come from round 0's own cells only (a recorder's output may differ once its mic is closed,
+  which would bias BeepBeep); timing, levels and EQ from the merged listener row (`mergeTuneRounds` →
+  `solveTune({ timingRow })`): each device's confirmed reading, level and response from its best round.
+
+Sim (`tuneRounds.test.ts`, `tuneRoundsFaults.test.ts`, 10 seeds, head p95 between any two devices):
+
+| Room | One chime each | Rounds |
+|---|---|---|
+| clean | 0.48 ms | 0.43 ms (laptops in 2 rounds, the Bluetooth speaker in 3) |
+| 15 % of chimes not heard | every device timed in 6/10 runs | 10/10 runs, 0.37 ms |
+| a speaker blocked in round 0 | 1.35 ms | 0.36 ms |
+| listener offsets σ 2 ms per round | — | 0.38 ms (raw readings without the anchor: 3.26 ms) |
+| Bluetooth jitter σ 3 ms per round | 4.37 ms | 3.05 ms, reported as varying 10/10 |
+
+### Check (after the result)
+
+Once the room carries the result, every timed device clicks `VERIFY_CLICKS` = 4 times through its **full**
+compensation (a short sync check, listener-only, its own run, freed at once). `verifyTune`: a steady device
+(≥ 3 clicks, std ≤ 0.5 ms) whose median lands more than 0.5 ms from the steady devices' median gets
+`tuneArrivalMs += offset`, the result is resent with the same tune id, and the room is checked once more. A jittering
+device is reported (±std), not corrected. This catches what the tune can't see: an output step when a recorder's
+mic closes, a compensation that didn't apply. Sim (`tuneVerify.test.ts`, 8 seeds): a room as tuned is corrected
+0/8 times (largest offset 0.41 ms); +3 ms on one laptop after the tune is found 8/8 times, head p95 3.33 → 0.40 ms.
 
 ### Arrival (per recorder, per emitter)
 
@@ -117,7 +166,8 @@ laptop's own speaker → mic.
    or more other devices the median is theirs: the listener's own level rests on a near-field prior (its speaker
    0.1 m from its mic), so a misread listener can never pull everyone else down.
 
-A quick tune is the same run with only the listener recording: positions are reused, timing re-solved.
+A quick tune is the same run with only the listener recording: positions are reused, timing re-solved. It plays in
+rounds and is checked the same way.
 
 ### Error budget (p95, any two devices, at the head)
 

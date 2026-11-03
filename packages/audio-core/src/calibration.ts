@@ -241,6 +241,11 @@ export function beepBeep(
 export interface TuneInput {
   /** every valid recorder's rows (the listener's must be present) */
   rows: RowsByRecorder;
+  /**
+   * The listener's row to time, hear and level the devices by (a tune in rounds: each device's confirmed arrival,
+   * `mergeTuneRounds`); default rows[listenerId]. Distances always come from `rows`, one run's own cells.
+   */
+  timingRow?: CalibrationRow[];
   /** the tuning device: its mic is the timing reference */
   listenerId: string;
   /** the listener's responses (EQ) and broadband SNRs (noisy-room warning), from its `analyzeRecording` */
@@ -336,6 +341,8 @@ const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
 export function solveTune(input: TuneInput): TuneReport {
   const { rows, listenerId: L } = input;
   const warnings: string[] = [];
+  // what the listener heard, for timing, levels and warnings (ranging reads `rows`)
+  const timing: RowsByRecorder = input.timingRow ? { [L]: input.timingRow } : rows;
 
   const distancesM = beepBeep(rows, input.detached);
   const positions: Record<string, Vec2> = { ...input.scene.devices };
@@ -356,7 +363,7 @@ export function solveTune(input: TuneInput): TuneReport {
     }
   }
   const nameOf = (id: string) => input.names?.[id] ?? id;
-  const unranged = input.deviceIds.filter((id) => id !== L && !ranged.includes(id) && cell(rows, L, id));
+  const unranged = input.deviceIds.filter((id) => id !== L && !ranged.includes(id) && cell(timing, L, id));
   if (Object.keys(rows).length > 1 && unranged.length)
     warnings.push(`Placed by hand (not measured): ${unranged.map(nameOf).join(', ')} — drag them to where they really are.`);
 
@@ -364,8 +371,8 @@ export function solveTune(input: TuneInput): TuneReport {
   const head = input.placeHead && positions[L] ? polar(mic, 180, input.headOffsetM ?? HEAD_OFFSET_M) : input.scene.listener;
 
   const devices: TuneDevice[] = input.deviceIds.map((id) => {
-    const c = cell(rows, L, id);
-    const raw = rows[L]?.find((r) => r.emitterId === id);
+    const c = cell(timing, L, id);
+    const raw = timing[L]?.find((r) => r.emitterId === id);
     const p = positions[id];
     const dMic = id === L ? SELF_OFFSET_M : p ? dist(p, mic) : null;
     const dHead = p ? Math.max(0.1, dist(p, head)) : null;
@@ -400,7 +407,7 @@ export function solveTune(input: TuneInput): TuneReport {
     if (!d.heard) warnings.push(`Couldn't hear ${name} — is its volume up?`);
     else if (d.clipped) warnings.push(`${name} was too loud for the microphone — turn it down a little and re-run.`);
     if (d.heard && d.distanceM === null) warnings.push(`${name} has no position, so its distance wasn't subtracted.`);
-    const m = cell(rows, L, d.deviceId)?.mMs;
+    const m = cell(timing, L, d.deviceId)?.mMs;
     if (m != null && (m < NOMINAL_MS.early || m > NOMINAL_MS.late))
       warnings.push(`${name} arrived ${Math.round(m)} ms from its slot — unusual timing, results may be off.`);
   }

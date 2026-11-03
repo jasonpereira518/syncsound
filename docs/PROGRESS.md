@@ -43,3 +43,12 @@
 - [x] S4 – Simplest setup experience: one-screen setup (layout suggested and applied by the tune, "Adjust layout" folded away, auto-advance), mic asked for at join (`probeMic`, `caps.micPermission`, `CAPS_UPDATE`), prepare/ready handshake (`CALIBRATION_PREPARE`/`READY`, 8 s deadline on a room timer, 1.5 s lead), one "Tune" verb (`roomActions.tune` + `tuneStatus`), Tune card in Now Playing, names in warnings, landing → room; e2e: host 3 taps to tuned / 5 to playing, guest 1; slow, unanswering and busy recorders; `AudioClockMap` lost-lock recovery, immediate busy on a participating device (DECISIONS 97–105)
 - [ ] S4 on real hardware (HUMAN_TEST_CHECKLIST 16, 29)
 - [x] S5 – Docs and results: SYNC_RESULTS §2c–2f, §4c, §4d, §6 setup checks; stale figures fixed (landing page, LIMITATIONS EQ); superseded decisions marked; `pnpm verify` green
+
+## Tune rounds pass (plan: keep chiming until every speaker is confirmed in sync)
+
+- [x] R1 – Round logic (`tuneRounds.ts`: anchor-referenced readings, agreement 0.5 ms, Bluetooth confirms on 3, give-up after 3 misses, budget) + `solveTune({ timingRow })`; sim `tuneRounds()` (clean, 15 % misses, listener offsets vs naive control, blocked speaker, Bluetooth jitter)
+- [x] R2 – Protocol + server: `CALIBRATION_NEXT_ROUND` (listener-only rounds in the same run), `CALIBRATION_STATUS` relay
+- [x] R3 – Listener round loop (one recorder for the whole run, `CALIBRATION_NEXT_ROUND`), live per-device status on the listener and each speaker's own banner, Finish now, `?dropChimes=` hook; e2e `tuneRounds.spec.ts`
+- [x] R4 – The check after a tune: 4 clicks per device through full compensation, `verifyTune` corrects a steady device off by > 0.5 ms (result resent, checked once more); sim `tuneVerify.test.ts`
+- [x] R5 – Docs: CALIBRATION (Rounds, Check), DECISIONS 106–112, LIMITATIONS, HUMAN_TEST_CHECKLIST 30, SYNC_RESULTS §4e
+- [ ] Tune rounds on real hardware (HUMAN_TEST_CHECKLIST 30)

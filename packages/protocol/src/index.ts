@@ -308,6 +308,9 @@ export const CalibrationSlot = z.object({
 });
 export type CalibrationSlot = z.infer<typeof CalibrationSlot>;
 
+/** a tune plays in rounds: round 0 is every device, later rounds only those not yet confirmed in sync */
+export const TUNE_MAX_ROUNDS = 5;
+
 export const CalibrationPlan = z.object({
   id: Id,
   listenerId: Id,
@@ -317,8 +320,37 @@ export const CalibrationPlan = z.object({
   purpose: z.enum(['calibrate', 'measure']).optional(),
   /** who records: only the listener (default), or every device with a mic (ranging: distances between devices) */
   recorders: z.enum(['listener', 'all']).optional(),
+  /** which round of its tune this plan is (same id every round); absent = 0 */
+  round: z.number().int().min(0).max(TUNE_MAX_ROUNDS - 1).optional(),
 });
 export type CalibrationPlan = z.infer<typeof CalibrationPlan>;
+
+/**
+ * Where one device stands in a tune, as the listener sees it after each round: not played yet, heard once (playing
+ * again to confirm), confirmed (two measurements agree), heard several times without agreeing (e.g. Bluetooth),
+ * not heard this round, heard but clipping the mic, or given up on.
+ */
+export const TuneDeviceState = z.enum(['waiting', 'checking', 'in-sync', 'varies', 'not-heard', 'too-loud', 'skipped']);
+export type TuneDeviceState = z.infer<typeof TuneDeviceState>;
+/** what the person at that device can do about it: turn it up, turn it down; or why: its clock moved, it left */
+export const TuneHint = z.enum(['volume', 'loud', 'clock', 'left']);
+export type TuneHint = z.infer<typeof TuneHint>;
+/** one device's line in a tune's live status */
+export const TuneStatusEntry = z.object({
+  deviceId: Id,
+  state: TuneDeviceState,
+  hint: TuneHint.optional(),
+  /** how much its readings spread (a device whose timing varies), ms */
+  spreadMs: finite().min(0).max(10000).optional(),
+});
+export type TuneStatusEntry = z.infer<typeof TuneStatusEntry>;
+const TuneStatusBody = {
+  planId: Id,
+  round: z.number().int().min(0).max(TUNE_MAX_ROUNDS - 1),
+  devices: z.array(TuneStatusEntry).max(64),
+  /** the run is over: these are the final states */
+  done: z.boolean().optional(),
+};
 
 /** One recorder's measurement of one emitter's tune signal. */
 export const CalibrationRow = z.object({
@@ -345,6 +377,8 @@ const CalibrationRows = {
   /** this device's own emissions were timed on a steady clock (its clock path, room clock and audio output did
    * not move while it played); absent = yes. False: the listener leaves its timing out of the result. */
   emissionValid: z.boolean().optional(),
+  /** the plan round these rows (or this emission fault) belong to; absent = 0 */
+  round: CalibrationPlan.shape.round,
 };
 
 // ---------- WebRTC signaling ----------
@@ -478,6 +512,10 @@ export const ClientMessage = z.discriminatedUnion('type', [
   }),
   /** the listener gave up on its run: every device stops playing / recording for it */
   z.object({ type: z.literal('CALIBRATION_CANCEL'), planId: Id }),
+  /** the run's listener: play another round of its tune (same plan id) for these devices; only the listener records */
+  z.object({ type: z.literal('CALIBRATION_NEXT_ROUND'), planId: Id, slots: z.array(CalibrationSlot).min(1).max(64) }),
+  /** the run's listener: where every device stands after a round (every device shows its own line) */
+  z.object({ type: z.literal('CALIBRATION_STATUS'), ...TuneStatusBody }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id }),
   z.object({ type: z.literal('CAPTURE'), active: z.boolean() }),
   z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData, ch: RtcChannel.optional() }),
@@ -517,6 +555,7 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('CALIBRATION_READY'), planId: Id, recorderId: Id, ok: z.boolean(), reason: z.string().max(200).optional() }),
   z.object({ type: z.literal('CALIBRATION_ROWS'), recorderId: Id, ...CalibrationRows }),
   z.object({ type: z.literal('CALIBRATION_CANCELLED'), planId: Id }),
+  z.object({ type: z.literal('CALIBRATION_STATUS'), listenerId: Id, ...TuneStatusBody }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
   z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),

@@ -156,10 +156,21 @@ An honest list of what is not done, what can't be verified without hardware, and
   drag of the picture keeps the sound aligned (that is what it is for), so a laptop carried 1 m across the room
   and dragged to match plays 2.9 ms off until the next tune (`tuneInvariant.test.ts`; a quick tune is one tap).
   No silent fix exists: nothing can tell a moved speaker from a corrected picture.
-- **Unheard devices drop out of the tune.** Every run is a new reference, so a device the run did not hear (a
-  phone whose output was muted, a tab on older code) is untuned afterwards rather than kept on its old value;
-  the host is told ("1 needs tuning") and the device plays without compensation until the next tune. Bluetooth
-  outputs included: a stale hint would hide the untuned state.
+- **Unheard devices drop out of the tune.** Every run is a new reference, so a device the run did not hear in any
+  of its rounds (a phone whose output stayed muted, a tab on older code) is untuned afterwards rather than kept on
+  its old value; the host is told ("1 needs tuning") and the device plays without compensation until the next
+  tune. Bluetooth outputs included: a stale hint would hide the untuned state.
+- **A tune can chime for up to ~a minute.** Rounds replay unconfirmed devices (at most 5 rounds, 90 s of chimes):
+  a clean room of laptops takes 2 rounds, a Bluetooth output a third, and a device that stays silent 3 rounds
+  before it is given up on. Music stays paused meanwhile; *Finish now* applies what is measured so far.
+- **A device first heard after round 0 isn't ranged.** Later rounds are listener-only (no recorder reopens its
+  mic), so its distances aren't measured: it keeps its hand placement ("Placed by hand"), as before.
+- **Two lucky readings can confirm a jittering output.** Readings agree within 0.5 ms; a device whose latency
+  jitters by a few ms (not known to be Bluetooth) can agree twice by chance (sim: ~1 in 4 with σ 3 ms over three
+  readings). The check after the tune then reports its click spread, but its timing is the agreeing pair's.
+- **The check hears through the listener's mic only**, like the tune: what it corrects is how each speaker lands
+  at that mic, mapped to the head by the same geometry. It needs two or more timed speakers, uses 4 clicks each,
+  and corrects at most once (a second miss is reported: "still lands X ms late").
 - **Calibration auto-pauses only when the calibrating device may control playback** (host, or open control). A
   guest under host-only control is still told to ask the host to pause.
 - **Loudness matching boosts a soft speaker by at most +6 dB.** Everyone meets at the median; a boosted device's
