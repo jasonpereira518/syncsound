@@ -8,6 +8,7 @@ import {
   TUNE_MAX_RUN_MS,
   tuneProgress,
   tuneRoundMs,
+  verifyTune,
   type TuneRound,
 } from './tuneRounds';
 import type { Response } from './measure';
@@ -176,5 +177,65 @@ describe('mergeTuneRounds', () => {
     // never heard: no arrival, its latest SNR kept for diagnostics
     expect(m.row.find((r) => r.emitterId === 'B')).toMatchObject({ mMs: null, levelDb: null, snrDb: 8 });
     expect(m.responses['B']).toBeUndefined();
+  });
+});
+
+describe('verifyTune', () => {
+  const clicks = (base: number, jitter = [0, 0.05, -0.05, 0.02]) => jitter.map((j) => base + j);
+  it('a correct room needs nothing: every steady device lands with the others', () => {
+    const v = verifyTune(
+      [
+        { deviceId: 'L', rawMs: clicks(10) },
+        { deviceId: 'A', rawMs: clicks(10.2) },
+        { deviceId: 'B', rawMs: clicks(9.9) },
+      ],
+      { L: 0, A: 12, B: 30 },
+    );
+    expect(v.corrected).toBeNull();
+    expect(Object.keys(v.offsetMs).sort()).toEqual(['A', 'B', 'L']);
+  });
+
+  it('a device landing 3 ms late starts 3 ms earlier: its arrival grows, the rest stay, re-zeroed', () => {
+    const v = verifyTune(
+      [
+        { deviceId: 'L', rawMs: clicks(10) },
+        { deviceId: 'A', rawMs: clicks(13) },
+        { deviceId: 'B', rawMs: clicks(10) },
+      ],
+      { L: 0, A: 12, B: 30 },
+    );
+    expect(v.offsetMs['A']).toBeCloseTo(3, 9);
+    expect(v.corrected).toEqual({ L: 0, A: 15, B: 30 });
+  });
+
+  it('one landing early can push the minimum below zero: everything is re-zeroed', () => {
+    const v = verifyTune(
+      [
+        { deviceId: 'L', rawMs: clicks(10) },
+        { deviceId: 'A', rawMs: clicks(8) },
+        { deviceId: 'B', rawMs: clicks(10) },
+      ],
+      { L: 0, A: 1, B: 30 },
+    );
+    expect(v.corrected).toEqual({ L: 1, A: 0, B: 31 });
+  });
+
+  it('a jittering device is reported, not corrected, and not used as the reference; missing clicks → unverified', () => {
+    const v = verifyTune(
+      [
+        { deviceId: 'L', rawMs: clicks(10) },
+        { deviceId: 'A', rawMs: clicks(10.1) },
+        { deviceId: 'bt', rawMs: [5, 15, 9, 13] },
+        { deviceId: 'C', rawMs: [10, NaN, NaN, NaN] },
+      ],
+      { L: 0, A: 12, bt: 200, C: 40 },
+    );
+    expect(v.wobble['bt']).toBeGreaterThan(3);
+    expect(v.unverified).toEqual(['C']);
+    expect(v.corrected).toBeNull();
+  });
+
+  it('with fewer than two steady devices there is nothing to compare', () => {
+    expect(verifyTune([{ deviceId: 'L', rawMs: clicks(10) }], { L: 0 })).toMatchObject({ corrected: null, offsetMs: {} });
   });
 });

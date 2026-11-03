@@ -227,3 +227,61 @@ export function mergeTuneRounds(
   }
   return { row, responses, broadbandSnrDb };
 }
+
+/** a tuned device landing further than this from the others at the head is corrected, ms */
+export const VERIFY_TOL_MS = 0.5;
+/** …when its clicks are this steady (std, ms); a device that spreads more jitters (Bluetooth) and is only reported */
+export const VERIFY_MAX_STD_MS = 0.5;
+/** clicks a device must be heard on to be judged */
+export const VERIFY_MIN_CLICKS = 3;
+/** clicks per device in the check after a tune */
+export const VERIFY_CLICKS = 4;
+
+export interface TuneVerification {
+  /** per steady device: how far it lands from the others at the head, ms (+ = late) */
+  offsetMs: Record<string, number>;
+  /** every tuned device's arrival invariant (re-zeroed) when one was off by more than the tolerance; null = all fine */
+  corrected: Record<string, number> | null;
+  /** devices whose clicks spread more than VERIFY_MAX_STD_MS: ±std, ms */
+  wobble: Record<string, number>;
+  /** tuned devices heard on fewer than VERIFY_MIN_CLICKS clicks */
+  unverified: string[];
+}
+
+/**
+ * The check after a tune: every device clicked through its full compensation (a short sync check,
+ * `analyzeSyncMeasurement`). A steady device's median click, against the median of the steady devices, is how far it
+ * lands from the others at the head; one off by more than `tolMs` gets `tuneArrivalMs += offset` (late → it starts
+ * earlier). Devices that jitter are reported, not corrected (their median would chase noise).
+ */
+export function verifyTune(
+  devices: Array<{ deviceId: string; rawMs: number[] }>,
+  arrivals: Record<string, number>,
+  opts: { tolMs?: number; maxStdMs?: number; minClicks?: number } = {},
+): TuneVerification {
+  const tol = opts.tolMs ?? VERIFY_TOL_MS;
+  const maxStd = opts.maxStdMs ?? VERIFY_MAX_STD_MS;
+  const minClicks = opts.minClicks ?? VERIFY_MIN_CLICKS;
+  const wobble: Record<string, number> = {};
+  const unverified: string[] = [];
+  const steady: Record<string, number> = {};
+  for (const id of Object.keys(arrivals)) {
+    const raw = devices.find((d) => d.deviceId === id)?.rawMs.filter(Number.isFinite) ?? [];
+    if (raw.length < minClicks) {
+      unverified.push(id);
+      continue;
+    }
+    const s = std(raw)!;
+    if (s > maxStd) wobble[id] = s;
+    else steady[id] = medianOf(raw);
+  }
+  const ids = Object.keys(steady);
+  if (ids.length < 2) return { offsetMs: {}, corrected: null, wobble, unverified };
+  const ref = medianOf(ids.map((id) => steady[id]!));
+  const offsetMs = Object.fromEntries(ids.map((id) => [id, steady[id]! - ref]));
+  if (ids.every((id) => Math.abs(offsetMs[id]!) <= tol)) return { offsetMs, corrected: null, wobble, unverified };
+  const moved = Object.fromEntries(Object.entries(arrivals).map(([id, a]) => [id, a + (Math.abs(offsetMs[id] ?? 0) > tol ? offsetMs[id]! : 0)]));
+  const min = Math.min(...Object.values(moved));
+  const corrected = Object.fromEntries(Object.entries(moved).map(([id, a]) => [id, Math.max(0, Math.min(5000, a - min))]));
+  return { offsetMs, corrected, wobble, unverified };
+}

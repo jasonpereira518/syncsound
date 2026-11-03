@@ -103,8 +103,8 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
 
       {selfHasMic ? (
         <p className="mt-5 text-sm text-ink-300" data-testid="wizard-placement">
-          {placementHint(selfClass)} Each speaker plays one short chime in turn, about {seconds} seconds in all, while every phone and
-          laptop listens; keep their screens on and the room quiet.
+          {placementHint(selfClass)} Each speaker plays a short chime in turn, about {seconds} seconds a round, while every phone and
+          laptop listens; any it couldn&rsquo;t hear or confirm play again. Keep their screens on and the room quiet.
         </p>
       ) : (
         <div className="mt-5 space-y-3">

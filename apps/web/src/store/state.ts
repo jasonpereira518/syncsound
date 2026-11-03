@@ -47,6 +47,9 @@ export const initialState = (): RoomStoreState => ({
     quick: false,
     waitingFor: [],
     recorderStep: 'idle',
+    round: 0,
+    finishing: false,
+    selfStatus: null,
   },
   syncMeasure: {
     running: false,

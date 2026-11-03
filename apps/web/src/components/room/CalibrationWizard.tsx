@@ -1,13 +1,14 @@
 'use client';
 import { useState } from 'react';
 import { downloadFailedRecording, hasFailedRecording } from '@/lib/engine/calibration';
+import { liveTuneText } from '@/lib/tuneStatus';
 import { roomActions, useRoomStore } from '@/store/roomStore';
 import type { CalibrationUi } from '@/store/types';
 import { Badge, Button, Icon, IconButton, Panel, Toggle, fmtSigned } from '../ui';
 import { act, placementHint, useCanControl } from './shared';
 import { SyncMeasurePanel } from './SyncMeasure';
 
-const STEPS = ['Sit where you listen with this device', 'Allow microphone', 'Tune: each speaker chimes in turn', 'Done'];
+const STEPS = ['Sit where you listen with this device', 'Allow microphone', 'Tune: each speaker chimes in turn, again until it is confirmed', 'Done'];
 
 function stepIndex(c: CalibrationUi): number {
   switch (c.step) {
@@ -17,6 +18,7 @@ function stepIndex(c: CalibrationUi): number {
       return 1;
     case 'recording':
     case 'analyzing':
+    case 'checking':
       return 2;
     case 'done':
       return 3;
@@ -51,9 +53,9 @@ export function CalibrationWizard() {
   return (
     <Panel title="Calibrate" icon="mic" className="lg:min-h-0 lg:flex-1">
       <p className="text-sm text-ink-300">
-        {placementHint(selfClass)} Every speaker plays one short chime in turn while every phone and laptop listens (keep their screens on):
+        {placementHint(selfClass)} Every speaker plays a short chime in turn while every phone and laptop listens (keep their screens on):
         SyncSound measures how far apart they are, each one&rsquo;s delay, level and frequency response, then lines them up at
-        your seat and EQs them.
+        your seat and EQs them. Speakers it couldn&rsquo;t hear or confirm play again, a few seconds later, until they are in sync.
       </p>
 
       <ol data-testid="calibration-step" data-step={cal.step} className="mt-4 space-y-1.5" aria-label="Calibration steps">
@@ -80,10 +82,30 @@ export function CalibrationWizard() {
             <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.round(cal.progress * 100)}%` }} />
           </div>
           <p className="mt-2 text-sm text-ink-300">{cal.message || 'Working…'} Keep the room quiet.</p>
+          {cal.devices.length > 0 && (
+            <ul className="mt-2 space-y-1 text-sm" data-testid="calibrate-live">
+              {cal.devices.map((r) => (
+                <li key={r.deviceId} data-state={r.state} className="flex items-start gap-2">
+                  <Icon
+                    name={r.state === 'in-sync' ? 'check' : r.state === 'not-heard' || r.state === 'too-loud' || r.state === 'skipped' ? 'warning' : 'music'}
+                    className={`mt-0.5 size-4 shrink-0 ${r.state === 'in-sync' ? 'text-ok' : r.state === 'checking' || r.state === 'waiting' ? 'text-ink-400' : 'text-warn'}`}
+                  />
+                  <span>
+                    <strong className="font-medium">{nameOf(r.deviceId)}</strong>: {liveTuneText(r.state, r.hint, r.spreadMs)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
       <div className="mt-4 flex flex-wrap gap-2">
+        {busy && cal.devices.length > 0 && cal.round >= 1 && !cal.finishing && (
+          <Button data-testid="tune-finish" onClick={() => act(() => roomActions.finishCalibration())}>
+            Finish now
+          </Button>
+        )}
         {busy ? (
           <Button variant="danger" onClick={() => act(() => roomActions.cancelCalibration())}>
             Cancel
@@ -134,7 +156,7 @@ export function CalibrationWizard() {
         </ul>
       )}
 
-      {cal.devices.length > 0 && (
+      {cal.devices.length > 0 && !busy && (
         <div className="mt-5">
           <h3 className="mb-2 text-xs font-medium tracking-widest text-ink-400 uppercase">Results</h3>
           <div className="overflow-x-auto rounded-xl border border-ink-700">

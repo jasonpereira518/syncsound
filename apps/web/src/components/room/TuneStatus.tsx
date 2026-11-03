@@ -1,12 +1,24 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { liveTuneText } from '@/lib/tuneStatus';
 import { roomActions, useRoomStore } from '@/store/roomStore';
+import type { CalibrationDeviceUi } from '@/store/types';
 import { Button, Icon } from '../ui';
 import { SLOT_NAME } from './RoomDiagram';
 import { act } from './shared';
 
 /** how long a finished run's result stays on screen in the simple views (the setup screen keeps it) */
 const LINGER_MS = 20_000;
+
+/** the final line for a device the tune timed (in sync, varying, measured once) */
+function doneText(r: CalibrationDeviceUi, volumeUpDb: number | null | undefined): string {
+  if (!r.heard) return ': not heard. Check its volume and that it is unmuted.';
+  if (r.wobbleMs != null) return `: timing varies by about ±${r.wobbleMs.toFixed(1)} ms through its speaker`;
+  if (r.state === 'varies') return `: timing varies by about ±${(r.spreadMs ?? 0).toFixed(1)} ms, timed by its middle reading`;
+  if (r.state === 'checking' || r.state === 'too-loud') return ': measured once, not confirmed';
+  if (volumeUpDb) return `: in sync, but about ${Math.round(volumeUpDb)} dB quieter. Turn it up and tune again.`;
+  return r.checkMs != null ? `: in sync (checked: within ${Math.max(0.1, Math.abs(r.checkMs)).toFixed(1)} ms), level matched` : ': in sync, level matched';
+}
 
 /**
  * What a tune run started on this device is doing and what it found: progress while it runs, one line per speaker
@@ -41,9 +53,35 @@ export function TuneStatus({ persistent = false, testid = 'tune-status' }: { per
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink-800">
             <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.round(cal.progress * 100)}%` }} />
           </div>
-          <Button variant="ghost" className="mt-3 !min-h-9 text-sm" onClick={() => act(() => roomActions.cancelCalibration())}>
-            Stop
-          </Button>
+          {cal.devices.length > 0 && (
+            <ul className="mt-3 space-y-1.5 text-sm" data-testid="tune-live">
+              {cal.devices.map((r) => {
+                const ok = r.state === 'in-sync';
+                const bad = r.state === 'not-heard' || r.state === 'too-loud' || r.state === 'skipped';
+                return (
+                  <li key={r.deviceId} data-testid={`tune-row-${r.deviceId}`} data-state={r.state} className="flex items-start gap-2">
+                    <Icon
+                      name={ok ? 'check' : bad ? 'warning' : 'music'}
+                      className={`mt-0.5 size-4 shrink-0 ${ok ? 'text-ok' : bad ? 'text-warn' : 'text-ink-400'}`}
+                    />
+                    <span>
+                      <strong className="font-medium">{byId.get(r.deviceId)?.name ?? 'Speaker'}</strong>: {liveTuneText(r.state, r.hint, r.spreadMs)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {cal.devices.length > 0 && cal.round >= 1 && !cal.finishing && (
+              <Button variant="ghost" className="!min-h-9 text-sm" data-testid="tune-finish" onClick={() => act(() => roomActions.finishCalibration())}>
+                Finish now
+              </Button>
+            )}
+            <Button variant="ghost" className="!min-h-9 text-sm" onClick={() => act(() => roomActions.cancelCalibration())}>
+              Stop
+            </Button>
+          </div>
         </>
       )}
       {cal.step === 'done' && (
@@ -52,7 +90,7 @@ export function TuneStatus({ persistent = false, testid = 'tune-status' }: { per
             const d = byId.get(r.deviceId);
             const jitter = d?.caps.deviceClass === 'bluetooth' ? jitterOf(d.id) : undefined;
             return (
-              <li key={r.deviceId} data-testid={`tune-row-${r.deviceId}`} className="flex items-start gap-2">
+              <li key={r.deviceId} data-testid={`tune-row-${r.deviceId}`} data-state={r.state} className="flex items-start gap-2">
                 <Icon name={r.heard ? 'check' : 'warning'} className={`mt-0.5 size-4 shrink-0 ${r.heard ? 'text-ok' : 'text-warn'}`} />
                 <span>
                   <strong className="font-medium">{d?.name ?? 'Speaker'}</strong>
@@ -63,11 +101,7 @@ export function TuneStatus({ persistent = false, testid = 'tune-status' }: { per
                       {r.distanceM.toFixed(1)} m away{r.ranged ? '' : ' (placed by hand)'}
                     </span>
                   )}
-                  {r.heard
-                    ? d?.volumeUpDb
-                      ? `: in sync, but about ${Math.round(d.volumeUpDb)} dB quieter. Turn it up and tune again.`
-                      : ': in sync, level matched'
-                    : ': not heard. Check its volume and that it is unmuted.'}
+                  {doneText(r, d?.volumeUpDb)}
                   {jitter !== undefined && (
                     <span data-testid={`bt-jitter-${r.deviceId}`} className="block text-ink-400">
                       Bluetooth timing varies by about ±{jitter.toFixed(1)} ms{jitter >= 1 ? ', so it can drift slightly from the others' : ''}.

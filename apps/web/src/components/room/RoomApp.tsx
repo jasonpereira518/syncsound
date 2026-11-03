@@ -13,6 +13,7 @@ import { SetupWizard } from './SetupWizard';
 import { NowPlaying, SpeakerScreen } from './SimpleRoom';
 import { Stage } from './Stage';
 import { TuneStatus } from './TuneStatus';
+import { TuneSelfBanner } from './TuneSelfBanner';
 import { act, dismissToast, useCanControl, useToasts } from './shared';
 
 type View = 'setup' | 'controls' | 'speaker' | 'advanced';
@@ -238,6 +239,7 @@ function Banners() {
           </button>
         </div>
       )}
+      <TuneSelfBanner />
       {routeRestored && !routeChanged && (
         <div
           role="status"

@@ -10,8 +10,11 @@ import type { CalibrationPlan, Vec2 } from '@syncsound/protocol';
 import {
   agreeing,
   analyzeRecording,
+  analyzeSyncMeasurement,
+  buildSyncMeasurementSlots,
   buildTuneSlots,
   calibrationRecordingMs,
+  expectedArrivalMs,
   designBiquad,
   medianOf,
   mergeTuneRounds,
@@ -20,12 +23,17 @@ import {
   propagationDelays,
   solveTune,
   SPEED_OF_SOUND,
+  SYNC_SEARCH_LATE_MS,
+  SYNC_STAGGER_MS,
   TUNE_CONFIRM_BLUETOOTH,
   tuneProgress,
+  VERIFY_CLICKS,
+  verifyTune,
   type RowsByRecorder,
   type TuneProgress,
   type TuneReport,
   type TuneRound,
+  type TuneVerification,
 } from '@syncsound/audio-core';
 import { renderListenerRecording, SIM_SR, type SimReflections, type SimSpeaker } from './acoustics';
 
@@ -366,4 +374,60 @@ export function scoreRounds(seeds: number[], o: Omit<RoundsOptions, 'seed'>): Ro
       settled: run.progress.devices.every((d) => d.state === 'in-sync' || d.state === 'varies'),
     };
   });
+}
+
+export interface VerifyRun {
+  verification: TuneVerification;
+  /** pairwise arrival differences at the true head before and after applying the corrections, ms */
+  before: number[];
+  after: number[];
+}
+
+/**
+ * The check after a tune, simulated: at a later instant every device clicks through its full compensation (the
+ * report's timing, the engine's propagation delays, a fresh clock error) plus `stepMs` its output gained since the
+ * tune (a step the tune couldn't see); the listener's mic records, `analyzeSyncMeasurement` → `verifyTune`. Both
+ * the room as tuned and the room with the corrections applied are then scored at the true head.
+ */
+export function verifyRoom(report: TuneReport, rnd: () => number, o: { seed: number; stepMs?: Record<string, number>; room?: Laptop[] }): VerifyRun {
+  const room = (o.room ?? ROOM).map((x) => (o.stepMs?.[x.id] ? { ...x, outMs: x.outMs + o.stepMs[x.id]! } : x));
+  const ids = room.map((x) => x.id);
+  const heard = report.devices.filter((d) => d.heard);
+  const cal = Object.fromEntries(report.devices.map((d) => [d.deviceId, d.relativeLatencyMs]));
+  const scene = { devices: report.positions, listener: report.listener };
+  const delays = propagationDelays(scene as never, ids);
+  const play = Object.fromEntries(ids.map((id) => [id, CLOCK_SIGMA_MS * gauss(rnd)]));
+  const durationSec = (VERIFY_CLICKS * Math.max(1000, ids.length * SYNC_STAGGER_MS)) / 1000;
+  const slots = buildSyncMeasurementSlots(ids, { durationSec });
+  const plan: CalibrationPlan = { id: `v${o.seed}`, listenerId: 'L', startRoomTime: 9_000_000, slots, purpose: 'measure' };
+  const L = room.find((x) => x.id === 'L')!;
+  const recording = renderListenerRecording({
+    plan,
+    // full compensation: the device starts cal earlier and waits its propagation delay
+    speakers: room.map((x) => simSpeaker(x, -play[x.id]! - (cal[x.id] ?? 0) + (delays[x.id] ?? 0) * 1000, {})),
+    listener: L.pos,
+    selfId: 'L',
+    sampleRate: SR,
+    durationMs: calibrationRecordingMs(slots, SYNC_SEARCH_LATE_MS),
+    inputLatencyMs: L.inMs,
+    noiseDb: -60,
+    roomNoiseDb: -50,
+    reflections: REFL,
+    clickJitterMs: () => 0.05 * gauss(rnd),
+    seed: o.seed * 53 + 3,
+  });
+  const sync = analyzeSyncMeasurement({
+    plan,
+    recording,
+    sampleRate: SR,
+    toRoomMs: (i) => plan.startRoomTime + (i / SR) * 1000,
+    expectedMs: expectedArrivalMs({ ...scene, propagationComp: true }, report.positions['L'] ?? report.listener, 'L', ids),
+  });
+  const arrivals = Object.fromEntries(heard.map((d) => [d.deviceId, d.arrivalMs!]));
+  const verification = verifyTune(sync.devices, arrivals);
+  const score = (c: Record<string, number | null>) => pairwise(arrivalsAtHeadWith({ scene, cal: c, playErrorMs: play, room }).filter((_, i) => heard.some((h) => h.deviceId === ids[i])));
+  const fixed = verification.corrected
+    ? Object.fromEntries(Object.entries(cal).map(([id, c]) => [id, c === null ? null : c + (verification.corrected![id]! - arrivals[id]!)]))
+    : cal;
+  return { verification, before: score(cal), after: score(fixed) };
 }
