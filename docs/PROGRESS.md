@@ -48,7 +48,7 @@
 
 - [x] R1 – Round logic (`tuneRounds.ts`: anchor-referenced readings, agreement 0.5 ms, Bluetooth confirms on 3, give-up after 3 misses, budget) + `solveTune({ timingRow })`; sim `tuneRounds()` (clean, 15 % misses, listener offsets vs naive control, blocked speaker, Bluetooth jitter)
 - [x] R2 – Protocol + server: `CALIBRATION_NEXT_ROUND` (listener-only rounds in the same run), `CALIBRATION_STATUS` relay
-- [ ] R3 – Listener round loop, live per-device status (listener + each speaker), Finish now, e2e
-- [ ] R4 – Verification pass through full compensation, corrections, re-verify
-- [ ] R5 – Docs (CALIBRATION, DECISIONS, LIMITATIONS, HUMAN_TEST_CHECKLIST, SYNC_RESULTS)
-- [ ] Tune rounds on real hardware (HUMAN_TEST_CHECKLIST, new item)
+- [x] R3 – Listener round loop (one recorder for the whole run, `CALIBRATION_NEXT_ROUND`), live per-device status on the listener and each speaker's own banner, Finish now, `?dropChimes=` hook; e2e `tuneRounds.spec.ts`
+- [x] R4 – The check after a tune: 4 clicks per device through full compensation, `verifyTune` corrects a steady device off by > 0.5 ms (result resent, checked once more); sim `tuneVerify.test.ts`
+- [x] R5 – Docs: CALIBRATION (Rounds, Check), DECISIONS 106–112, LIMITATIONS, HUMAN_TEST_CHECKLIST 30, SYNC_RESULTS §4e
+- [ ] Tune rounds on real hardware (HUMAN_TEST_CHECKLIST 30)

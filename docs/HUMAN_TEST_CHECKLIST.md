@@ -94,8 +94,8 @@ DevTools console for the per-device row table (`console.table`).
     - On the laptop you'll sit at, press **Tune the room** (setup screen; or Now Playing → Tune; or Advanced →
       Calibrate → Tune). No laptop should ask for its microphone now (each did at join); the listener should read
       "Waiting for <name>'s microphone…" for a second or two at most, then every laptop shows "Tuning: <name> is
-      playing" while each one chimes in turn (~1.5 s each). Each device makes **one** sound (a rising swoosh landing
-      on a bell) and nothing plays after the last one (no click run, even with Bluetooth).
+      playing" while each one chimes in turn (~1.5 s each). Each device makes one sound per round (a rising swoosh
+      landing on a bell); round 2 replays every device to confirm it, then a few short clicks check the result.
     - The result should list every laptop with a distance; tape-measure them: **within 10–15 cm**. The Bluetooth
       speaker should say "placed by hand"; drag it to where it really is.
     - Sit with your head ~40 cm behind the tuning laptop and run **Measure sync (60 s)**: **p95 < 1 ms**.
@@ -189,3 +189,15 @@ DevTools console for the per-device row table (`console.table`).
     p95 < 1 ms among them). Deny the mic on one phone: its row should read "mic not allowed", it should still play,
     and the tune should not wait for it. Note the time from tapping Tune to the first chime (target ≤ 4 s with
     every mic granted).
+30. **Tune rounds (R1–R4).** Six devices (phones, laptops, one Bluetooth speaker), host tunes from a laptop.
+    - Mute one phone before tapping Tune. Expect its screen to say "The tune can't hear this speaker — turn its
+      volume up"; unmute it during the next round: it should go *heard, checking again* → *in sync* without a
+      second tap. Note how many rounds the run took and the total time from tap to done (target ≤ 45 s).
+    - Lock another phone after round 0: it should be skipped after 3 rounds, with its own banner saying it isn't
+      tuned, and the others unaffected.
+    - The Bluetooth speaker: expect *in sync* (three agreeing readings) or *timing varies by ±X ms*; compare X
+      with *Measure sync*'s wobble for it.
+    - Stand in front of one laptop speaker during round 0 only: its result should still read *in sync*.
+    - The check: note any "landed X ms late through its speaker; corrected" line. Then run *Measure sync* (60 s):
+      p95 < 1 ms among the laptops, and the corrected device no different from the rest.
+    - Tap *Finish now* during a round: the result is applied, devices measured once are named.

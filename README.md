@@ -28,7 +28,7 @@ sound objects around the **Stage**.
 - **Spatial stage:** draggable devices, listener and audio objects (L/C/R/SL/SR/LFE/ambience/stems); DBAP panning
   with constant power; LR4 bass management to bass-capable devices; propagation time-alignment; presets;
   undo/redo; snap; keyboard control.
-- **One-tap tune:** from the seat, every speaker plays one swoosh → chime while every laptop listens (each asked
+- **One-tap tune:** from the seat, every speaker plays a swoosh → chime while every laptop listens (each asked
   for its mic once, at join): distances → positions, timing aligned at the head, loudness matched to the median,
   frequency response → auto-EQ toward a common target with safety rails. The compensation is re-derived by the
   server from the raw arrivals, so rearranging the picture never breaks the timing; every screen says who is tuned,
