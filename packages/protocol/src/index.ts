@@ -335,6 +335,22 @@ export type TuneDeviceState = z.infer<typeof TuneDeviceState>;
 /** what the person at that device can do about it: turn it up, turn it down; or why: its clock moved, it left */
 export const TuneHint = z.enum(['volume', 'loud', 'clock', 'left']);
 export type TuneHint = z.infer<typeof TuneHint>;
+/** one device's line in a tune's live status */
+export const TuneStatusEntry = z.object({
+  deviceId: Id,
+  state: TuneDeviceState,
+  hint: TuneHint.optional(),
+  /** how much its readings spread (a device whose timing varies), ms */
+  spreadMs: finite().min(0).max(10000).optional(),
+});
+export type TuneStatusEntry = z.infer<typeof TuneStatusEntry>;
+const TuneStatusBody = {
+  planId: Id,
+  round: z.number().int().min(0).max(TUNE_MAX_ROUNDS - 1),
+  devices: z.array(TuneStatusEntry).max(64),
+  /** the run is over: these are the final states */
+  done: z.boolean().optional(),
+};
 
 /** One recorder's measurement of one emitter's tune signal. */
 export const CalibrationRow = z.object({
@@ -496,6 +512,10 @@ export const ClientMessage = z.discriminatedUnion('type', [
   }),
   /** the listener gave up on its run: every device stops playing / recording for it */
   z.object({ type: z.literal('CALIBRATION_CANCEL'), planId: Id }),
+  /** the run's listener: play another round of its tune (same plan id) for these devices; only the listener records */
+  z.object({ type: z.literal('CALIBRATION_NEXT_ROUND'), planId: Id, slots: z.array(CalibrationSlot).min(1).max(64) }),
+  /** the run's listener: where every device stands after a round (every device shows its own line) */
+  z.object({ type: z.literal('CALIBRATION_STATUS'), ...TuneStatusBody }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id }),
   z.object({ type: z.literal('CAPTURE'), active: z.boolean() }),
   z.object({ type: z.literal('RTC_SIGNAL'), to: Id, data: RtcData, ch: RtcChannel.optional() }),
@@ -535,6 +555,7 @@ export const ServerMessageBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('CALIBRATION_READY'), planId: Id, recorderId: Id, ok: z.boolean(), reason: z.string().max(200).optional() }),
   z.object({ type: z.literal('CALIBRATION_ROWS'), recorderId: Id, ...CalibrationRows }),
   z.object({ type: z.literal('CALIBRATION_CANCELLED'), planId: Id }),
+  z.object({ type: z.literal('CALIBRATION_STATUS'), listenerId: Id, ...TuneStatusBody }),
   z.object({ type: z.literal('IDENTIFY'), targetDeviceId: Id, startRoomTime: finite() }),
   z.object({ type: z.literal('RTC_SIGNAL'), from: Id, data: RtcData, ch: RtcChannel.optional() }),
   z.object({ type: z.literal('ERROR'), code: z.string().max(64), msg: z.string().max(500) }),

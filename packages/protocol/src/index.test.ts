@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultScene, isValidRoomCode, parseClientMessage, parseServerMessage } from './index';
+import { defaultScene, isValidRoomCode, parseClientMessage, parseServerMessage, TUNE_MAX_ROUNDS } from './index';
 
 describe('protocol', () => {
   it('validates room codes', () => {
@@ -110,5 +110,27 @@ describe('protocol validation (trust boundary)', () => {
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', data: { kind: 'offer', sdp: 'x'.repeat(20001) } }).success).toBe(false);
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', ch: 'clock', data: { kind: 'hangup' } }).success).toBe(true);
     expect(parseClientMessage({ type: 'RTC_SIGNAL', to: 'd2', ch: 'video', data: { kind: 'hangup' } }).success).toBe(false);
+  });
+});
+
+describe('tune rounds', () => {
+  const slot = { deviceId: 'd1', deviceIndex: 0, signal: 'tune', offsetMs: 500, durationMs: 1100 };
+  const plan = { id: 'p1', listenerId: 'd1', startRoomTime: 1000, slots: [slot] };
+  it('a plan and a row carry their round (absent = 0), within the round cap', () => {
+    expect(parseServerMessage({ seq: 1, type: 'CALIBRATION_PLAN', plan }).success).toBe(true);
+    expect(parseServerMessage({ seq: 1, type: 'CALIBRATION_PLAN', plan: { ...plan, round: TUNE_MAX_ROUNDS - 1 } }).success).toBe(true);
+    expect(parseServerMessage({ seq: 1, type: 'CALIBRATION_PLAN', plan: { ...plan, round: TUNE_MAX_ROUNDS } }).success).toBe(false);
+    const rows = { type: 'CALIBRATION_ROWS', planId: 'p1', rows: [], valid: false, emissionValid: false };
+    expect(parseClientMessage({ ...rows, round: 2 }).success).toBe(true);
+    expect(parseClientMessage({ ...rows, round: -1 }).success).toBe(false);
+  });
+  it('next round and live status', () => {
+    expect(parseClientMessage({ type: 'CALIBRATION_NEXT_ROUND', planId: 'p1', slots: [slot] }).success).toBe(true);
+    expect(parseClientMessage({ type: 'CALIBRATION_NEXT_ROUND', planId: 'p1', slots: [] }).success).toBe(false);
+    const status = { type: 'CALIBRATION_STATUS', planId: 'p1', round: 1, devices: [{ deviceId: 'd2', state: 'not-heard', hint: 'volume' }] };
+    expect(parseClientMessage(status).success).toBe(true);
+    expect(parseServerMessage({ ...status, seq: 3, listenerId: 'd1', done: true }).success).toBe(true);
+    expect(parseClientMessage({ ...status, devices: [{ deviceId: 'd2', state: 'lost' }] }).success).toBe(false);
+    expect(parseClientMessage({ ...status, devices: [{ deviceId: 'd2', state: 'varies', spreadMs: -1 }] }).success).toBe(false);
   });
 });
