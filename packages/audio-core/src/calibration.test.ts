@@ -176,6 +176,47 @@ describe('solveTune', () => {
     expect(Math.min(...rep.devices.filter((x) => x.heard).map((x) => x.relativeLatencyMs!))).toBe(0);
   });
 
+  it('a timing row equal to the listener row changes nothing', () => {
+    const rows = rowsFor(room);
+    const base = solve(room, rough(room), rows);
+    const withTiming = solveTune({
+      rows,
+      timingRow: rows['L']!,
+      listenerId: 'L',
+      responses: {},
+      sampleRate: 48000,
+      scene: { devices: rough(room), listener: { x: 0, y: 2 } },
+      deviceIds: room.map((x) => x.id),
+      placeHead: true,
+    });
+    expect(withTiming).toEqual(base);
+  });
+
+  it('a timing row (tune rounds) times, hears and levels the devices; distances still come from the rows', () => {
+    const rows = rowsFor(room);
+    // a later round confirmed A 2 ms later and heard C, which round 0's listener row missed
+    const timingRow = rows['L']!.map((r) => (r.emitterId === 'A' ? { ...r, mMs: r.mMs! + 2 } : r));
+    rows['L'] = rows['L']!.map((r) => (r.emitterId === 'C' ? { ...r, mMs: null, levelDb: null } : r));
+    const base = solve(room, rough(room), rowsFor(room));
+    const rep = solveTune({
+      rows,
+      timingRow,
+      listenerId: 'L',
+      responses: {},
+      sampleRate: 48000,
+      scene: { devices: rough(room), listener: { x: 0, y: 2 } },
+      deviceIds: room.map((x) => x.id),
+      placeHead: true,
+    });
+    const arrival = (r: TuneReport, id: string) => r.devices.find((x) => x.deviceId === id)!.arrivalMs!;
+    expect(arrival(rep, 'A') - arrival(rep, 'L')).toBeCloseTo(arrival(base, 'A') - arrival(base, 'L') + 2, 9);
+    expect(rep.devices.find((x) => x.deviceId === 'C')!.heard).toBe(true);
+    expect(rep.warnings.some((w) => w.includes("Couldn't hear C"))).toBe(false);
+    // C's cells in round 0: B's and A's rows still hear it, so every pair but L–C is ranged as before
+    expect(rep.distancesM['L']?.['C']).toBeUndefined();
+    expect(rep.distancesM['A']!['B']).toBeCloseTo(base.distancesM['A']!['B']!, 9);
+  });
+
   it('quick tune (listener rows only) reuses positions, leaves the head alone, same timing', () => {
     const full = solve(room);
     const rep = solve(room, full.positions, { L: rowsFor(room)['L']! }, false, full.listener);

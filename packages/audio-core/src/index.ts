@@ -19,3 +19,4 @@ export * from './syncMeasure';
 export * from './syncLoop';
 export * from './tuneFreeze';
 export * from './tuneState';
+export * from './tuneRounds';

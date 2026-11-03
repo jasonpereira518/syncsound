@@ -1,0 +1,26 @@
+{
+  "description": "tune rounds: blocked speaker, Bluetooth jitter (see tuneRoom.ts tuneRounds)",
+  "seeds": 10,
+  "blocked": {
+    "headP95Ms": {
+      "rounds": 0.361,
+      "single": 1.352
+    },
+    "blockedReadingOffMs": {
+      "min": 0.866,
+      "max": 1.187
+    }
+  },
+  "bluetoothJitter": {
+    "sigmaMs": 3,
+    "variesShare": 1,
+    "spreadMs": {
+      "min": 1.864,
+      "max": 6.011
+    },
+    "headP95Ms": {
+      "rounds": 3.051,
+      "single": 4.373
+    }
+  }
+}
