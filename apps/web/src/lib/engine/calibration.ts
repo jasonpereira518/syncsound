@@ -1074,7 +1074,9 @@ export class CalibrationController {
       const roundsNote = rounds.length > 1 ? ` in ${rounds.length} rounds` : '';
       patch('calibration', {
         step: 'done',
-        message: missing ? `Tuned ${heard.length} of ${report.devices.length} devices${roundsNote}; ${missing} not heard.` : `Tuned ${heard.length} devices${roundsNote}.`,
+        message: missing
+          ? `Tuned ${heard.length} of ${report.devices.length} devices${roundsNote}; ${missing} not heard.`
+          : `Tuned ${heard.length} device${heard.length === 1 ? '' : 's'}${roundsNote}.`,
         freqs: report.devices.find((d) => d.response)?.response?.freqs ?? null,
         targetDb: report.targetDb,
         devices: ui,
